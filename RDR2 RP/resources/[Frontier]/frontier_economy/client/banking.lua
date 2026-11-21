@@ -1,6 +1,5 @@
 local Bank = FrontierBank
 local active, pending, ticket, waitingOpen
-local pageReady = false
 local viewId, requestId = 0, 0
 local focused = false
 
@@ -68,16 +67,7 @@ RegisterNetEvent(Bank.Event .. 'result', function(view, id, result)
             return
         end
         ticket = result.ticket
-        if pageReady then
-            present(result)
-        else
-            waitingOpen = result
-            SetTimeout(Bank.TimeoutMs, function()
-                if waitingOpen ~= result then return end
-                close()
-                notify(Bank.Text.database_error)
-            end)
-        end
+        present(result)
         return
     end
     SendNUIMessage({ type = 'result', uiRequest = request.uiRequest, next = result.next,
@@ -89,13 +79,6 @@ RegisterNetEvent(Bank.Event .. 'invalidated', function(view, message)
     if source ~= 65535 or view ~= active then return end
     close()
     notify(message)
-end)
-
-RegisterNUICallback('bankReady', function(_, cb)
-    pageReady = true
-    if focused then close() end
-    if waitingOpen then present(waitingOpen) end
-    cb({ ok = true })
 end)
 
 RegisterNUICallback('bankClose', function(_, cb)
