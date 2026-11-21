@@ -10,14 +10,17 @@ AddEventHandler('onResourceStart', function(startedResource)
         locale = FrontierConfig.Locale,
     })
 
-    local core = Frontier.Core.VORP.GetCore()
+    local core, reason = Frontier.Core.VORP.GetCore()
     if not core then
-        FrontierLib.Log('ERROR', resourceName, 'Could not access VORP Core API; framework bridge is unavailable')
+        Frontier.Core.Ready = false
+        FrontierLib.Log('ERROR', resourceName, 'VORP Core API validation failed; framework bridge is unavailable', {
+            reason = reason,
+        })
         return
     end
 
     Frontier.Core.Ready = true
-    FrontierLib.Log('INFO', resourceName, 'Core API initialized; VORP bridge available')
+    FrontierLib.Log('INFO', resourceName, 'Core API initialized; VORP getUser is available')
 end)
 
 exports('GetPlayer', Frontier.GetPlayer)
