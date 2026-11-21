@@ -1,6 +1,6 @@
 # Frontier Core (foundation scaffold)
 
-Frontier is being developed as the server's independent framework. This initial milestone is deliberately limited to shared utilities, a player/character registry, permission checks, server callbacks, and a VORP adapter.
+Frontier is being developed as the server's independent framework. This initial milestone is deliberately limited to shared utilities, a player/character registry, permission checks, server callbacks, a VORP adapter, and diagnostics.
 
 ## Requirements
 
@@ -26,6 +26,7 @@ local player = exports.frontier_core:GetPlayer(source)
 local players = exports.frontier_core:GetPlayers()
 local loaded = exports.frontier_core:IsPlayerLoaded(source)
 local allowed = exports.frontier_core:HasPermission(source, 'frontier.admin')
+local status = exports.frontier_core:GetStatus()
 ```
 
 Player records are copies, not mutable references to Core's registry.
@@ -44,20 +45,26 @@ local ok, result = exports.frontier_core:TriggerCallback('example:sum', 2, 3)
 
 These callbacks are server-to-server only; this milestone does not expose client-triggered RPCs.
 
-## Lifecycle events
+## Diagnostics
 
-- `frontier:playerLoaded` — emitted with a player record after a VORP character selection is synchronized.
-- `frontier:playerUnloaded` — emitted with a player record and reason when the player disconnects.
+Run `frontier_status` from the server console. In-game, the command is available to players with the `frontier.admin` ACE permission.
 
-## Permissions
-
-Permissions are ACE-based in this first milestone. Configure them in server configuration, e.g.:
+Example ACE setup:
 
 ```cfg
 add_ace group.admin frontier.admin allow
 ```
 
-Do not rely on client-side permission checks.
+The command reports whether Core is initialized, whether the VORP bridge is available, and how many characters have been registered in Frontier's runtime cache. For a player running it, it also prints their synced character ID/name.
+
+## Lifecycle events
+
+- `frontier:playerLoaded` — emitted with a player record after a VORP character selection is synchronized (or a character switch).
+- `frontier:playerUnloaded` — emitted with a player record and reason when the player disconnects or switches characters.
+
+## Permissions
+
+Permissions are ACE-based in this first milestone. Do not rely on client-side permission checks.
 
 ## Important limitations in this milestone
 

@@ -15,5 +15,6 @@ server_scripts {
     'server/registry.lua',
     'server/permissions.lua',
     'server/vorp_adapter.lua',
+    'server/status.lua',
     'server/init.lua',
 }
