@@ -1,104 +1,168 @@
-:root {
-    color-scheme: dark;
-    font-family: system-ui, sans-serif;
-    color: #fff;
-    background: rgba(0, 0, 0, 0);
-}
-
 html, body {
     width: 100%;
     height: 100%;
     margin: 0;
     padding: 0;
     overflow: hidden;
-    background: rgba(0, 0, 0, 0) !important;
+    background: transparent !important;
+    color: #fff;
+    font-family: Arial, sans-serif;
 }
 
-* { box-sizing: border-box; }
-[hidden] { display: none !important; }
-
-body {
-    display: grid;
-    place-items: center;
+[hidden] {
+    display: none !important;
 }
 
 main {
-    width: min(56rem, calc(100vw - 2rem));
-    max-height: calc(100vh - 2rem);
-    overflow: auto;
-    scrollbar-gutter: stable;
+    width: 90%;
+    max-width: 900px;
+    max-height: 90%;
+    overflow-y: auto;
+    margin: 3vh auto;
+    padding: 24px;
     background: #000;
-    border: 1px solid #999;
-    padding: clamp(1rem, 3vw, 2rem);
+    border: 1px solid #888;
+    color: #fff;
 }
 
-.heading, .history-heading, .actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: .7rem;
+h1, h2, p {
+    margin-top: 0;
 }
 
-.heading { justify-content: space-between; }
-h1, h2, p { margin: 0; }
-h1 { font-size: 1.7rem; }
-h2 { font-size: 1.15rem; }
-#character, dt, #empty, kbd { color: #ccc; }
+h1 {
+    font-size: 27px;
+    margin-bottom: 6px;
+}
+
+h2 {
+    font-size: 19px;
+    margin-bottom: 12px;
+}
+
+.heading {
+    overflow: hidden;
+    margin-bottom: 20px;
+}
+
+.heading > div {
+    float: left;
+}
+
+#close {
+    float: right;
+}
+
+#character, dt, #empty, kbd {
+    color: #ccc;
+}
 
 .balances {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: .8rem;
-    margin: 1.25rem 0;
+    margin: 18px 0;
+    overflow: hidden;
 }
 
 .balances div {
+    display: inline-block;
+    vertical-align: top;
+    width: 46%;
+    margin-right: 2%;
+    padding: 12px;
     background: #191919;
     border: 1px solid #555;
-    padding: .9rem;
-    min-width: 0;
 }
 
 dd {
-    margin: .2rem 0 0;
-    font-weight: 650;
-    font-size: clamp(1rem, 3vw, 1.65rem);
-    font-variant-numeric: tabular-nums;
-    overflow-wrap: anywhere;
+    margin: 5px 0 0;
+    font-size: 24px;
+    font-weight: bold;
+}
+
+.actions {
+    margin: 16px 0;
 }
 
 button, input, select {
-    font: inherit;
-    color: inherit;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+    color: #fff;
     background: #1e1e1e;
     border: 1px solid #888;
     border-radius: 0;
-    padding: .56rem .75rem;
+    padding: 9px 12px;
+    margin: 3px;
 }
 
-button { cursor: pointer; }
-button:hover:not(:disabled), button[aria-pressed="true"] { background: #333; border-color: #fff; }
-button:disabled { color: #999; cursor: default; }
-:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
-kbd { margin-left: .3rem; }
+button {
+    cursor: pointer;
+}
+
+button:disabled {
+    color: #999;
+    cursor: default;
+}
+
+button:hover:not(:disabled),
+button[aria-pressed="true"] {
+    background: #333;
+    border-color: #fff;
+}
 
 form, section {
     border-top: 1px solid #555;
-    margin-top: 1.1rem;
-    padding-top: 1rem;
+    margin-top: 18px;
+    padding-top: 16px;
 }
 
-form { display: grid; gap: .75rem; justify-items: start; }
-form label { display: grid; gap: .3rem; width: min(100%, 22rem); }
-.history-heading { margin-bottom: .8rem; }
-.history-heading h2 { margin-right: auto; }
-.history-scroll { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; font-size: .9rem; }
-th, td { padding: .55rem; border-bottom: 1px solid #444; text-align: left; }
-td:nth-child(4), td:nth-child(5) { white-space: nowrap; font-variant-numeric: tabular-nums; }
-th { background: #191919; white-space: nowrap; }
-td:last-child { overflow-wrap: anywhere; min-width: 8rem; }
+form label {
+    display: block;
+    margin: 10px 0;
+}
 
-footer { margin-top: 1rem; }
-#status:empty { display: none; }
-#retry { margin-top: .6rem; }
+form label input,
+form label select {
+    display: block;
+    margin: 5px 0;
+}
+
+.history-heading {
+    margin-bottom: 12px;
+}
+
+.history-heading h2 {
+    display: inline-block;
+    margin-right: 16px;
+}
+
+.history-scroll {
+    width: 100%;
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+th, td {
+    padding: 8px;
+    border-bottom: 1px solid #444;
+    text-align: left;
+}
+
+th {
+    background: #191919;
+    white-space: nowrap;
+}
+
+footer {
+    margin-top: 16px;
+}
+
+#status:empty {
+    display: none;
+}
+
+#retry {
+    margin-top: 10px;
+}
