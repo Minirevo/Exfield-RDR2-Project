@@ -24,6 +24,7 @@ exports('GetPlayer', Frontier.GetPlayer)
 exports('GetPlayers', Frontier.GetPlayers)
 exports('IsPlayerLoaded', Frontier.IsPlayerLoaded)
 exports('HasPermission', Frontier.HasPermission)
+exports('GetStatus', Frontier.GetStatus)
 exports('RegisterCallback', Frontier.RegisterCallback)
 exports('TriggerCallback', Frontier.TriggerCallback)
 
