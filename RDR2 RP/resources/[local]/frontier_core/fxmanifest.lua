@@ -10,7 +10,15 @@ version '0.1.0'
 dependency 'frontier_lib'
 dependency 'vorp_core'
 
+-- Import the library scripts into this resource's Lua runtime.
+-- Resource globals are isolated; starting frontier_lib does not expose its
+-- globals to frontier_core automatically.
+shared_scripts {
+    '@frontier_lib/shared/utils.lua',
+}
+
 server_scripts {
+    '@frontier_lib/server/logger.lua',
     'config.lua',
     'server/registry.lua',
     'server/permissions.lua',
