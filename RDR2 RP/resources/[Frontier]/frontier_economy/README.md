@@ -1,6 +1,23 @@
-# Frontier Economy 0.1
+# Frontier Economy v1
 
 Frontier owns the accounts, balances and journal. Frontier Core supplies stable character IDs. VORP character selection continues to work through Core. Existing VORP balances and financial tables are untouched. Every character starts at zero USD.
+
+## Player banking
+
+Use `/frontier_bank` in game after selecting a character. The terminal displays current cash and bank balances in USD and provides deposits, withdrawals, transfers to loaded online characters and the latest 25 entries per account. Use the player’s current server ID for a transfer. Closing via the button or Esc restores game controls. The existing `/frontier_kontostand` and ACE-gated `/frontier_gutschrift` commands remain available.
+
+On an already migrated server, deploy this resource and restart `frontier_economy`. This release requires no new schema changes, no rerun of the identity cutover and no new permissions or trusted resources. Keep your existing server configuration and trusted resource allowlist. The command name is set in `shared/banking.lua`. The installation and migration sections below are for new deployments or upgrades from older, unmigrated versions.
+
+The server binds each banking view to an active Frontier character and issues a unique request namespace. It parses decimal strings into integer cents, resolves online recipients itself, and checks both sessions before submitting the existing transaction procedure. The bank only accepts player self-service operations. Other resources still require the trusted resource allowlist for Economy exports. History omits internal account and operation identifiers, metadata and administrative or integration reasons. Player-entered transfer reasons are visible to both participants.
+
+If a result is uncertain, use **Denselben Auftrag wiederholen** to replay the same request in the open banking view. A successful replay does not book the money twice. If the recipient changes sessions or the view has already been closed, check the history before submitting a new instruction. A view cannot recover its original request after closing or restarting the resource. An already submitted database transaction can complete after a character switches or the view closes.
+
+### Test the banking UI
+
+- Run `lua54 tests/service.lua` and `lua54 tests/banking.lua` from this resource directory. The server and client fixtures cover validation, account ownership, retry, session changes, history privacy, permissions and NUI focus handling.
+- Run `node tests/ui.cjs` with Playwright and Chromium available. Set `PLAYWRIGHT_MODULE` or `BROWSER_EXECUTABLE` if using a bundled installation. This runs the page against mocked NUI responses and tests keyboard/button close, form validation, German feedback, retry, history selection and balance refresh.
+- Run `python tests/migration.py PATH_TO_MARIADB_CLIENT` against a **disposable database instance**. It uses its own throwaway schema and tests provisioning, deposits, withdrawals, paired transfers, replay, a forced ledger-write failure and migration preservation. This does not apply migrations to your live schema.
+- On a disposable RedM server, log in with two characters. Open the bank and confirm mouse and keyboard focus. Close with Esc, reopen and close with the button. Restart Economy while the bank is open and confirm the cursor is released. Test cash and bank movements, a transfer to the other online character, offline and self-transfer rejection, both history views and a character switch. Check in both clients that a successful transfer appears with opposite directions and matching amounts.
 
 ## Installation
 

@@ -82,23 +82,30 @@ Economy.Export('TransferAccounts', function(resource, fromId, toId, amount, opti
     return Economy.Apply('resource:' .. resource, 'transfer', fromId, toId, amount, options)
 end)
 
-local function moveOwnFunds(resource, playerSource, fromType, toType, amount, options)
+local function stillAuthorized(guard, sender, recipient)
+    return not guard or guard(sender, recipient)
+end
+
+function Economy.MoveCharacterFunds(actor, playerSource, fromType, toType, amount, options, guard)
     local ok, accounts = Economy.GetCharacterAccounts(playerSource)
     if not ok then
         return false, accounts
     end
-    return Economy.Apply('resource:' .. resource, 'transfer', accounts[fromType].id, accounts[toType].id, amount, options)
+    if not stillAuthorized(guard, accounts.characterId) then
+        return false, 'character_changed'
+    end
+    return Economy.Apply(actor, 'transfer', accounts[fromType].id, accounts[toType].id, amount, options)
 end
 
 Economy.Export('Deposit', function(resource, playerSource, amount, options)
-    return moveOwnFunds(resource, playerSource, 'cash', 'bank', amount, options)
+    return Economy.MoveCharacterFunds('resource:' .. resource, playerSource, 'cash', 'bank', amount, options)
 end)
 
 Economy.Export('Withdraw', function(resource, playerSource, amount, options)
-    return moveOwnFunds(resource, playerSource, 'bank', 'cash', amount, options)
+    return Economy.MoveCharacterFunds('resource:' .. resource, playerSource, 'bank', 'cash', amount, options)
 end)
 
-Economy.Export('TransferCharacters', function(resource, fromSource, toSource, amount, options)
+function Economy.TransferCharacters(actor, fromSource, toSource, amount, options, guard)
     local senderOk, sender = Economy.GetCharacterAccounts(fromSource)
     if not senderOk then
         return false, sender
@@ -107,10 +114,16 @@ Economy.Export('TransferCharacters', function(resource, fromSource, toSource, am
     if not receiverOk then
         return false, receiver
     end
-    if not Economy.IsCurrentCharacter(fromSource, sender.characterId) then
+    if not Economy.IsCurrentCharacter(fromSource, sender.characterId)
+        or not Economy.IsCurrentCharacter(toSource, receiver.characterId)
+        or not stillAuthorized(guard, sender.characterId, receiver.characterId) then
         return false, 'character_changed'
     end
-    return Economy.Apply('resource:' .. resource, 'transfer', sender.bank.id, receiver.bank.id, amount, options)
+    return Economy.Apply(actor, 'transfer', sender.bank.id, receiver.bank.id, amount, options)
+end
+
+Economy.Export('TransferCharacters', function(resource, fromSource, toSource, amount, options)
+    return Economy.TransferCharacters('resource:' .. resource, fromSource, toSource, amount, options)
 end)
 
 local function history(accountId, limit)
@@ -151,7 +164,7 @@ end
 Economy.Export('GetAccountTransactions', function(_, id, limit)
     return history(id, limit)
 end)
-Economy.Export('GetCharacterTransactions', function(_, playerSource, accountType, limit)
+function Economy.GetCharacterTransactions(playerSource, accountType, limit)
     if accountType ~= 'cash' and accountType ~= 'bank' then
         return false, 'invalid_account'
     end
@@ -164,4 +177,8 @@ Economy.Export('GetCharacterTransactions', function(_, playerSource, accountType
         return false, 'character_changed'
     end
     return read, result
+end
+
+Economy.Export('GetCharacterTransactions', function(_, playerSource, accountType, limit)
+    return Economy.GetCharacterTransactions(playerSource, accountType, limit)
 end)

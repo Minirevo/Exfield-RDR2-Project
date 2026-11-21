@@ -88,6 +88,63 @@ def main(client, *options):
         sql("CALL frontier_economy_provision_v1('f_000000000000000000000000000000ff')")
         sql(rollback, expect_error="Rollback requires the original migrated account set")
         assert sql("SELECT COUNT(*) FROM frontier_economy_identity_cutover") == "1"
+        # A disposable post-cutover character starts with one account of each type.
+        sql("""
+            CALL frontier_economy_provision_v1('f_000000000000000000000000000000ee');
+            CALL frontier_economy_provision_v1('f_000000000000000000000000000000ee');
+        """)
+        new_owner = "f_000000000000000000000000000000ee"
+        rows = sql(f"SELECT id, account_type, balance_minor FROM frontier_economy_accounts "
+                   f"WHERE owner_id = '{new_owner}' ORDER BY account_type").splitlines()
+        assert len(rows) == 2
+        (bank, bank_type, bank_balance), (cash, cash_type, cash_balance) = (row.split("\t") for row in rows)
+        assert (bank_type, bank_balance, cash_type, cash_balance) == ("bank", "0", "cash", "0")
+        recipient = sql("SELECT a.id FROM frontier_economy_accounts a JOIN frontier_economy_owner_upgrade m "
+                        "ON m.account_id = a.id WHERE m.old_owner_id = '12' AND a.account_type = 'bank'")
+
+        def post(key, kind, debit, credit, amount, error=None):
+            return sql(f"CALL frontier_economy_apply_v1('bank:fixture', '{key}', '{kind}', "
+                       f"{debit}, {credit}, {amount}, 'Fixture', '', '{{}}', 'USD')", expect_error=error)
+
+        def pair():
+            return sql(f"SELECT balance_minor FROM frontier_economy_accounts WHERE id IN ({bank}, {cash}) "
+                       "ORDER BY account_type").splitlines()
+
+        assert post("seed", "credit", 0, cash, 1000).startswith("ok")
+        assert post("deposit", "transfer", cash, bank, 325).startswith("ok")
+        assert pair() == ["325", "675"]
+        assert post("deposit", "transfer", cash, bank, 325).split("\t")[-1] == "1"
+        assert pair() == ["325", "675"]
+        assert post("withdraw", "transfer", bank, cash, 125).startswith("ok")
+        assert pair() == ["200", "800"]
+        assert post("too-much-cash", "transfer", cash, bank, 801) == "insufficient_funds"
+        assert post("too-much-bank", "transfer", bank, cash, 201) == "insufficient_funds"
+
+        transfer = post("online-transfer", "transfer", bank, recipient, 200).split("\t")
+        assert transfer[0] == "ok"
+        entries = sql(f"SELECT account_id, related_account_id, entry_type, amount_minor "
+                      f"FROM frontier_economy_ledger WHERE operation_id = {int(transfer[1])} "
+                      "ORDER BY entry_type").splitlines()
+        assert {tuple(row.split("\t")) for row in entries} == {
+            (bank, recipient, "debit", "200"), (recipient, bank, "credit", "200"),
+        }
+
+        assert post("restore-bank", "transfer", cash, bank, 300).startswith("ok")
+        before_failed = {statement: sql(statement) for statement in (balance, ledger, operations)}
+        sql("""
+            DELIMITER //
+            CREATE TRIGGER frontier_test_ledger_failure BEFORE INSERT ON frontier_economy_ledger
+            FOR EACH ROW BEGIN
+                IF NEW.entry_type = 'credit' THEN
+                    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Fixture ledger write failed';
+                END IF;
+            END//
+            DELIMITER ;
+        """.replace("            DELIMITER", "DELIMITER"))
+        post("rollback-transfer", "transfer", bank, recipient, 100, error="Fixture ledger write failed")
+        assert all(sql(statement) == value for statement, value in before_failed.items())
+        sql("DROP TRIGGER frontier_test_ledger_failure")
+        print("Frontier Economy provisioning, movements, paired ledger and forced rollback checks passed")
         print("Frontier Economy migration, replay and rollback checks passed")
     finally:
         sql(f"DROP DATABASE {schema}", use_schema=False)

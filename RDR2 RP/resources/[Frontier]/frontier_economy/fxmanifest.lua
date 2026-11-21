@@ -5,12 +5,22 @@ lua54 'yes'
 
 name 'frontier_economy'
 description 'Persistent Frontier accounts and financial ledger'
-version '0.1.0'
+version '1.0.0'
 
 dependencies {
     'oxmysql',
     'frontier_lib',
     'frontier_core',
+}
+
+shared_script 'shared/banking.lua'
+client_script 'client/banking.lua'
+
+ui_page 'html/index.html'
+files {
+    'html/index.html',
+    'html/style.css',
+    'html/app.js',
 }
 
 server_scripts {
@@ -22,4 +32,5 @@ server_scripts {
     'server/accounts.lua',
     'server/transactions.lua',
     'server/commands.lua',
+    'server/banking.lua',
 }

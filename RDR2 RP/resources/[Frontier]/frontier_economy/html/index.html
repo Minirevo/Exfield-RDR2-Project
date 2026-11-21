@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Frontier Bank</title>
+    <link rel="stylesheet" href="style.css">
+    <script defer src="app.js"></script>
+</head>
+<body>
+    <main id="terminal" hidden aria-labelledby="bank-title">
+        <header class="heading">
+            <div>
+                <h1 id="bank-title">Frontier Bank</h1>
+                <p id="character"></p>
+            </div>
+            <button id="close" type="button">Schließen <kbd>Esc</kbd></button>
+        </header>
+        <dl class="balances">
+            <div><dt>Bargeld</dt><dd id="cash">–</dd></div>
+            <div><dt>Bankguthaben</dt><dd id="bank">–</dd></div>
+        </dl>
+        <nav aria-label="Bankfunktionen" class="actions">
+            <button type="button" data-panel="deposit">Einzahlen</button>
+            <button type="button" data-panel="withdraw">Auszahlen</button>
+            <button type="button" data-panel="transfer">Überweisen</button>
+            <button type="button" data-panel="history">Verlauf</button>
+            <button type="button" id="refresh">Kontostand aktualisieren</button>
+        </nav>
+        <form id="payment" hidden>
+            <h2 id="payment-title"></h2>
+            <label id="recipient-field" hidden>Spieler-ID des Empfängers
+                <input id="recipient" inputmode="numeric" maxlength="10">
+            </label>
+            <label>Betrag in USD
+                <input id="amount" inputmode="decimal" maxlength="16" placeholder="0,00" required>
+            </label>
+            <label id="reason-field" hidden>Verwendungszweck (optional)
+                <input id="reason" maxlength="160" placeholder="Private Überweisung">
+            </label>
+            <button type="submit">Auftrag ausführen</button>
+        </form>
+        <section id="history" hidden aria-labelledby="history-title">
+            <div class="history-heading">
+                <h2 id="history-title">Buchungsverlauf</h2>
+                <label>Konto
+                    <select id="account">
+                        <option value="bank">Bank</option>
+                        <option value="cash">Bargeld</option>
+                    </select>
+                </label>
+                <button type="button" id="reload">Verlauf aktualisieren</button>
+            </div>
+            <p id="empty" hidden>Für dieses Konto liegen keine Buchungen vor.</p>
+            <div id="history-scroll" class="history-scroll" hidden>
+                <table>
+                    <thead>
+                        <tr><th>Datum und Uhrzeit</th><th>Buchung</th><th>Richtung</th><th>Betrag</th><th>Saldo danach</th><th>Verwendungszweck</th></tr>
+                    </thead>
+                    <tbody id="entries"></tbody>
+                </table>
+            </div>
+        </section>
+        <footer>
+            <p id="status" role="status" aria-live="polite"></p>
+            <button id="retry" type="button" hidden>Denselben Auftrag wiederholen</button>
+        </footer>
+    </main>
+</body>
+</html>
