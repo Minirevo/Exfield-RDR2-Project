@@ -3,10 +3,15 @@ local handlers = {}
 local registered = {}
 local invokingResource = 'economy_test'
 local statements = {}
-local players = { [1] = { source = 1, characterId = 'alpha' }, [2] = { source = 2, characterId = 'beta' } }
+local alpha = 'f_' .. string.rep('a', 32)
+local beta = 'f_' .. string.rep('b', 32)
+local gamma = 'f_' .. string.rep('c', 32)
+local players = { [1] = { source = 1, frontierCharacterId = alpha }, [2] = { source = 2, frontierCharacterId = beta } }
 local replaceSenderDuringLookup = false
 local nextReceipt
 local disconnectDatabase = false
+local cutoverMarker
+json = { encode = function() return '{}' end }
 
 function GetCurrentResourceName() return 'frontier_economy' end
 function GetInvokingResource() return invokingResource end
@@ -15,7 +20,7 @@ function AddEventHandler(name, fn) handlers[name] = fn end
 
 exports = setmetatable({
     frontier_core = {
-        GetPlayer = function(_, playerSource) return players[playerSource] end,
+        GetPlayerCharacterId = function(_, playerSource) local player = players[playerSource]; return player and player.frontierCharacterId end,
     },
 }, {
     __call = function(_, name, fn) registered[name] = fn end,
@@ -23,6 +28,7 @@ exports = setmetatable({
 
 MySQL = {
     ready = function() end,
+    scalar = { await = function() return cutoverMarker end },
     query = {
         await = function(statement, parameters)
             statements[#statements + 1] = { statement, parameters }
@@ -34,9 +40,9 @@ MySQL = {
                 nextReceipt = nil
                 return { { receipt }, {} }
             end
-            local id = parameters[1] == 'alpha' and 10 or 20
+            local id = parameters[1] == alpha and 10 or 20
             if id == 20 and replaceSenderDuringLookup then
-                players[1] = { source = 1, characterId = 'gamma' }
+                players[1] = { source = 1, frontierCharacterId = gamma }
             end
             return {
                 { id = tostring(id), account_type = 'cash', balance_minor = '42', currency = 'USD' },
@@ -77,6 +83,8 @@ expectError('invalid_metadata', registered.CreditAccount, 10, 1, {
 })
 assert(#statements == 0)
 
+expectError('identity_migration_required', registered.GetCharacterBalances, 1)
+cutoverMarker = 1
 local ok, balances = registered.GetCharacterBalances(1)
 assert(ok and balances.cash == 42 and balances.bank == 7)
 local credited, receipt = registered.CreditAccount(10, 12, options)

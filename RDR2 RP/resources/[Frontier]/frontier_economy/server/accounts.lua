@@ -1,13 +1,22 @@
 local core = exports.frontier_core
 local pending = {}
+local cutoverReady = false
+
+local function checkCutover()
+    if cutoverReady then return true end
+    local ok, marker = Economy.Db('scalar', 'SELECT id FROM frontier_economy_identity_cutover WHERE id = 1')
+    if not ok then return false, marker end
+    if tonumber(marker) ~= 1 then return false, 'identity_migration_required' end
+    cutoverReady = true
+    return true
+end
 
 local function currentCharacter(playerSource)
     if not Economy.PositiveInteger(playerSource, 2147483647) then
         return nil
     end
-    local player = core:GetPlayer(playerSource)
-    local id = player and player.characterId
-    if type(id) == 'string' and #id <= 64 and id:match('^[A-Za-z0-9_-]+$') then
+    local id = core:GetPlayerCharacterId(playerSource)
+    if type(id) == 'string' and #id == 34 and id:match('^f_[a-f0-9]+$') then
         return id
     end
 end
@@ -25,6 +34,8 @@ local function normalizeAccount(row)
 end
 
 local function provision(characterId)
+    local ready, issue = checkCutover()
+    if not ready then return false, issue end
     return Economy.Db('query', 'CALL frontier_economy_provision_v1(?)', { characterId })
 end
 
@@ -33,6 +44,9 @@ function Economy.GetCharacterAccounts(playerSource)
     if not characterId then
         return false, 'character_unavailable'
     end
+
+    local ready, issue = checkCutover()
+    if not ready then return false, issue end
 
     local function readAccounts()
         return Economy.Db('query', [[
@@ -94,10 +108,10 @@ function Economy.GetAccountBalance(accountId)
 end
 
 local function enqueue(player)
-    if type(player) == 'table' and currentCharacter(player.source) == player.characterId
-        and player.characterId ~= nil then
+    if type(player) == 'table' and currentCharacter(player.source) == player.frontierCharacterId
+        and player.frontierCharacterId ~= nil then
         -- A fresh token prevents an older attempt from clearing a new session's work.
-        pending[player.source] = { characterId = player.characterId }
+        pending[player.source] = { characterId = player.frontierCharacterId }
     end
 end
 

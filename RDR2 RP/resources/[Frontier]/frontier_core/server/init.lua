@@ -1,34 +1,34 @@
-local resourceName = GetCurrentResourceName()
+local Core = Frontier.Core
 
-AddEventHandler('onResourceStart', function(startedResource)
-    if startedResource ~= resourceName then
-        return
+MySQL.ready(function()
+    while not Core.Ready do
+        local ok = pcall(MySQL.query.await, [[
+            SELECT i.id FROM frontier_character_identities i
+            LEFT JOIN frontier_character_data d ON d.character_id = i.id LIMIT 0
+        ]])
+        if ok then
+            Core.Ready = true
+            Core.SyncOnline(Core.Provider)
+        else
+            FrontierLib.Log('ERROR', GetCurrentResourceName(), 'Character schema unavailable')
+            Wait(FrontierConfig.SessionRetryMs)
+        end
     end
-
-    FrontierLib.Log('INFO', resourceName, 'Starting Frontier Core', {
-        version = GetResourceMetadata(resourceName, 'version', 0) or 'unknown',
-        locale = FrontierConfig.Locale,
-    })
-
-    local core, reason = Frontier.Core.VORP.GetCore()
-    if not core then
-        Frontier.Core.Ready = false
-        FrontierLib.Log('ERROR', resourceName, 'VORP Core API validation failed; framework bridge is unavailable', {
-            reason = reason,
-        })
-        return
-    end
-
-    Frontier.Core.Ready = true
-    FrontierLib.Log('INFO', resourceName, 'Core API initialized; VORP getUser is available')
 end)
 
 exports('GetPlayer', Frontier.GetPlayer)
 exports('GetPlayers', Frontier.GetPlayers)
 exports('IsPlayerLoaded', Frontier.IsPlayerLoaded)
+exports('GetPlayerCharacterId', Frontier.GetPlayerCharacterId)
+exports('GetCharacterData', Frontier.GetCharacterData)
 exports('HasPermission', Frontier.HasPermission)
 exports('GetStatus', Frontier.GetStatus)
 exports('RegisterCallback', Frontier.RegisterCallback)
 exports('TriggerCallback', Frontier.TriggerCallback)
-
--- Server-side API is also available to resources that directly depend on core.
+exports('UpdateCharacterData', function(id, expectedVersion, patch)
+    local caller = GetInvokingResource()
+    if not caller or FrontierConfig.CharacterWriters[caller] ~= true then
+        return false, 'forbidden'
+    end
+    return Frontier.UpdateCharacterData(id, expectedVersion, patch)
+end)

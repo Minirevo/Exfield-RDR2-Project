@@ -4,6 +4,7 @@ local messages = {
     account_not_found = 'Das Konto wurde nicht gefunden.',
     character_changed = 'Der Charakter hat während der Anfrage gewechselt.',
     character_unavailable = 'Der Charakter ist noch nicht geladen.',
+    identity_migration_required = 'Die Migration der Wirtschaftskonten steht noch aus.',
     database_error = 'Die Wirtschaftsdatenbank ist momentan nicht verfügbar. Bei Wiederholung dieselbe Vorgangskennung verwenden.',
     idempotency_conflict = 'Diese Vorgangskennung wurde bereits für andere Daten verwendet.',
     invalid_amount = 'Der Betrag muss eine positive ganze Zahl in Cent sein.',

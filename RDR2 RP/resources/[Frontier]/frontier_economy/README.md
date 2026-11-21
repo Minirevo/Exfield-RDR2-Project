@@ -5,8 +5,9 @@ Frontier owns the accounts, balances and journal. Frontier Core supplies stable 
 ## Installation
 
 1. Use MySQL 8.0.16+ or MariaDB 10.6+ with InnoDB. With Economy stopped, apply `sql/migrations/001_create_economy_tables.sql` and then `002_create_economy_routine.sql` to the schema used by oxmysql. Use the mysql/mariadb client or a SQL tool that handles `DELIMITER`. Apply them under strict SQL mode with a durable routine definer that can read and write the Economy tables. Reapplying the migrations preserves data, but recreating the routines requires checking their EXECUTE grants again.
-2. Grant the FXServer database principal SELECT on the three `frontier_economy_*` tables and EXECUTE on both procedures. The procedures run as their definer, so runtime Economy access requires no direct table writes. A principal shared with other resources may already have broader schema privileges. Use a database principal with narrowly scoped grants where deployment permits. Treat the ledger and committed operation records as append-only.
-3. Start `oxmysql`, `vorp_core`, `frontier_lib` and `frontier_core` before `frontier_economy`. If categories already start these dependencies, add only the final ensure after Core.
+2. Apply the Core identity migration and Economy owner cutover described below. The cutover marker is required for character account reads and provisioning.
+3. Grant the FXServer database principal SELECT on the account, ledger, operation and cutover-marker tables and EXECUTE on both procedures. The procedures run as their definer, so runtime Economy access requires no direct table writes. A principal shared with other resources may already have broader schema privileges. Use a database principal with narrowly scoped grants where deployment permits. Treat the ledger and committed operation records as append-only.
+4. Start `oxmysql`, `vorp_core`, `frontier_lib` and `frontier_core` before `frontier_economy`. If categories already start these dependencies, add only the final ensure after Core.
 
 ```cfg
 ensure oxmysql
@@ -17,9 +18,9 @@ ensure frontier_economy
 add_ace group.admin frontier.economy.admin allow
 ```
 
-4. Add named server resources to `EconomyConfig.TrustedResources` only when they need access, for example `['frontier_jobs'] = true`. The allowlist is empty by default. A trusted resource owns authorization for any client request it forwards. Commands reply in German through the standard RedM chat event. The admin command also works from the server console.
+5. Add named server resources to `EconomyConfig.TrustedResources` only when they need access, for example `['frontier_jobs'] = true`. The allowlist is empty by default. A trusted resource owns authorization for any client request it forwards. Commands reply in German through the standard RedM chat event. The admin command also works from the server console.
 
-Startup queues existing Core players and future character loads queue provisioning. Transient provisioning errors retry for active characters. API reads can provision immediately. Accounts are looked up by the current Core character ID; source IDs are never persisted as owners. Account-based mutations already submitted to MySQL finish against their resolved accounts if a player disconnects or changes character in the meantime. If the Core identity provider changes, preserve its existing stable IDs or migrate the Economy ownership mapping first.
+Startup queues existing Core players and future character loads queue provisioning. Transient provisioning errors retry for active characters. API reads can provision immediately. Accounts are looked up exclusively by the current Frontier-owned Core ID; source IDs are never persisted as owners. Account-based mutations already submitted to MySQL finish against their resolved accounts if a player disconnects or changes character in the meantime. If the Core identity provider changes, preserve its existing stable IDs or migrate the Economy ownership mapping first.
 
 ## Money and API
 
@@ -61,7 +62,7 @@ return economy:CreditAccount(accounts.bank.id, 1250, {
 
 A mutation requires `options.key` (1–96 ASCII letters, digits, dots, underscores, colons or hyphens) and `options.reason` (1–255 UTF-8 bytes, nonblank). Optional `reference` is at most 128 UTF-8 bytes. Optional `metadataJson` is valid JSON text up to 4096 UTF-8 bytes. For exact retries, persist the key, resolved account IDs, amount and all option values including the exact JSON bytes. Keys are scoped to the invoking resource. A previously committed identical request returns its original receipt `{operationId, replayed = true}`. Reusing its key with different inputs returns `idempotency_conflict`. Declined requests roll back without consuming the key. After a database error the commit outcome can be unknown, so retry the same operation and key. Prefer account-based mutations for durable retries because the character behind a source can change.
 
-Errors include `forbidden`, `character_unavailable`, `character_changed`, `account_not_found`, `same_account`, `insufficient_funds`, `balance_limit`, `idempotency_conflict`, `database_error`, and validation codes `invalid_account`, `invalid_amount`, `invalid_options`, `invalid_key`, `invalid_reason`, `invalid_reference`, `invalid_metadata` and `invalid_limit`.
+Errors include `forbidden`, `character_unavailable`, `character_changed`, `identity_migration_required`, `account_not_found`, `same_account`, `insufficient_funds`, `balance_limit`, `idempotency_conflict`, `database_error`, and validation codes `invalid_account`, `invalid_amount`, `invalid_options`, `invalid_key`, `invalid_reason`, `invalid_reference`, `invalid_metadata` and `invalid_limit`.
 
 ## Commands
 
@@ -89,3 +90,42 @@ Run `lua54 tests/service.lua` (or the equivalent Lua 5.4 executable) from this r
 | Disconnect and reconnect, then restart Economy with players online | Same accounts and balances, and loaded players can read their accounts after restart |
 | Make the database unavailable and restore it | Operations surface database errors, queued provisioning recovers, and retrying with the original key cannot double-post |
 | Use the credit command without ACE and call a privileged export from an unlisted resource | Both requests fail and make no financial changes |
+
+## Character identity cutover
+
+1. Stop Economy and Core and prevent changes to VORP characters during the migration. Back up the database and record account IDs, owners, types, currencies and balances, along with ledger and operation snapshots, using consistent reads.
+2. Apply Core's `sql/migrations/001_characters.sql`. On a fresh deployment apply Economy 001 and 002 if needed. Verify the legacy owner preflight returns zero rows before running Economy 003. The original account implementation used VORP IDs, so the migration requires one exact canonical VORP `characters.charidentifier` per legacy owner. Resolve orphaned, noncanonical or ambiguous IDs outside this migration with verified ownership evidence.
+3. Apply `sql/migrations/003_frontier_character_owners.sql` using a deployment principal with CREATE/DROP ROUTINE, EXECUTE and DML on the Frontier tables, CREATE for the audit and marker tables, and SELECT on VORP `characters`. The procedure changes only `owner_id` on existing character accounts, records their old and new owners, and commits with the cutover marker. Existing ledger and operation references continue to address account IDs.
+4. Run the postflight queries and compare the account, ledger and operation snapshots against the backup. Install both resources from the same release before resuming traffic.
+
+Legacy owner preflight:
+
+```sql
+SELECT a.id, a.owner_id
+FROM frontier_economy_accounts a
+WHERE a.owner_type = 'character'
+  AND (a.owner_id NOT REGEXP '^[1-9][0-9]*$'
+       OR (SELECT COUNT(*) FROM characters c
+           WHERE CAST(c.charidentifier AS CHAR CHARACTER SET ascii) COLLATE ascii_bin = a.owner_id) <> 1);
+```
+
+Postflight before resuming traffic:
+
+```sql
+SELECT * FROM frontier_economy_identity_cutover WHERE id = 1;
+
+SELECT a.id, a.owner_id, a.account_type, a.currency, a.balance_minor, m.old_owner_id
+FROM frontier_economy_accounts a
+LEFT JOIN frontier_economy_owner_upgrade m ON m.account_id = a.id
+WHERE a.owner_type = 'character'
+ORDER BY a.id;
+
+SELECT a.id, a.owner_id
+FROM frontier_economy_accounts a
+LEFT JOIN frontier_character_identities i ON i.id = a.owner_id
+WHERE a.owner_type = 'character' AND i.id IS NULL;
+```
+
+Expect one marker and zero unresolved owners. Compare the account query with the original snapshot by ID. Ledger and operation snapshots should match exactly. Run `python tests/migration.py PATH_TO_MARIADB_CLIENT` on a disposable local database server for the upgrade and rollback fixture. The runner accepts normal local client options after the executable, such as `--protocol=PIPE --socket=FrontierTest --user=root`, and creates and removes a randomly named test schema.
+
+To roll back before provisioning any new character accounts, stop both resources, back up again, run `sql/rollback/003_frontier_character_owners.sql`, verify that legacy owners, account IDs, balances and journal match, and deploy both prior resources. The rollback refuses accounts introduced or reassigned after cutover. In that case do not force it. Preserve post-cutover transactions and plan a reviewed reconciliation or backup recovery. The rollback keeps Frontier identities and character profiles for a future upgrade.
