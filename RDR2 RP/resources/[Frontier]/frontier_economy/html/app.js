@@ -242,4 +242,3 @@ form.addEventListener('submit', (event) => {
     request(panel, data, nextSequence);
 });
 
-nui('bankReady').catch(() => {});
