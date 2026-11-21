@@ -32,5 +32,12 @@ RegisterCommand('frontier_status', function(playerSource)
     print(('[FRONTIER][STATUS] %s'):format(message))
     if playerSource ~= 0 then
         TriggerClientEvent('chat:addMessage', playerSource, { args = { 'Frontier', message } })
+        local player = Frontier.GetPlayer(playerSource)
+        if player then
+            local detail = ('Charakter-ID: %s | Name: %s'):format(
+                player.frontierCharacterId, player.name or 'unbekannt'
+            )
+            TriggerClientEvent('chat:addMessage', playerSource, { args = { 'Frontier', detail } })
+        end
     end
 end, false)
