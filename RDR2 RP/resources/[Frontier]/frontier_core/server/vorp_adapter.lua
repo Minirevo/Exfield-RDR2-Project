@@ -26,9 +26,24 @@ local function getVorpCore()
     end
 
     if type(coreOrError.getUser) ~= 'function' then
+        local apiKeys = {}
+        for key in pairs(coreOrError) do
+            apiKeys[#apiKeys + 1] = tostring(key)
+        end
+        table.sort(apiKeys)
+
+        local diagnostic = {
+            reason = 'missing_getUser',
+            vorpResourceState = GetResourceState('vorp_core'),
+            vorpResourceVersion = GetResourceMetadata('vorp_core', 'version', 0) or 'unknown',
+            apiKeys = apiKeys,
+            getUserType = type(coreOrError.getUser),
+        }
+
         Frontier.Core.VORP.core = nil
         Frontier.Core.VORP.available = false
         Frontier.Core.VORP.lastError = 'missing_getUser'
+        FrontierLib.Log('ERROR', 'frontier_core', 'VORP GetCore returned an API table without getUser', diagnostic)
         return nil, 'missing_getUser'
     end
 
