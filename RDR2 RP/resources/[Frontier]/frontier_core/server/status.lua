@@ -7,6 +7,7 @@ function Frontier.GetStatus()
     return {
         ready = Frontier.Core.Ready == true,
         vorpAvailable = Frontier.Core.VORP.available == true,
+        vorpApiIssue = Frontier.Core.VORP.lastError,
         registeredPlayers = playerCount,
         resource = GetCurrentResourceName(),
         version = GetResourceMetadata(GetCurrentResourceName(), 'version', 0) or 'unknown',
@@ -21,10 +22,14 @@ RegisterCommand('frontier_status', function(source)
         return
     end
 
+    -- Refresh the API check so the command reports the live export state,
+    -- rather than only the state observed during resource startup.
+    local _, apiIssue = Frontier.Core.VORP.GetCore()
     local status = Frontier.GetStatus()
-    local message = ('Ready: %s | VORP bridge: %s | Registered players: %d | Version: %s'):format(
+    local apiState = status.vorpAvailable and 'YES' or ('NO (%s)'):format(apiIssue or status.vorpApiIssue or 'unknown')
+    local message = ('Ready: %s | VORP API: %s | Registered players: %d | Version: %s'):format(
         status.ready and 'YES' or 'NO',
-        status.vorpAvailable and 'YES' or 'NO',
+        apiState,
         status.registeredPlayers,
         status.version
     )
