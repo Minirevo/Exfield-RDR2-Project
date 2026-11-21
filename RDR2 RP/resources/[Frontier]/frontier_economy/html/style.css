@@ -1,23 +1,168 @@
-
 html, body {
-    margin: 0;
-    padding: 0;
     width: 100%;
     height: 100%;
-    background: transparent;
+    margin: 0;
+    padding: 0;
     overflow: hidden;
-}
-
-body {
-    color: white;
+    background: transparent !important;
+    color: #fff;
     font-family: Arial, sans-serif;
-}
-
-main {
-    color: white;
-    background: black;
 }
 
 [hidden] {
     display: none !important;
+}
+
+main {
+    width: 90%;
+    max-width: 900px;
+    max-height: 90%;
+    overflow-y: auto;
+    margin: 3vh auto;
+    padding: 24px;
+    background: #000;
+    border: 1px solid #888;
+    color: #fff;
+}
+
+h1, h2, p {
+    margin-top: 0;
+}
+
+h1 {
+    font-size: 27px;
+    margin-bottom: 6px;
+}
+
+h2 {
+    font-size: 19px;
+    margin-bottom: 12px;
+}
+
+.heading {
+    overflow: hidden;
+    margin-bottom: 20px;
+}
+
+.heading > div {
+    float: left;
+}
+
+#close {
+    float: right;
+}
+
+#character, dt, #empty, kbd {
+    color: #ccc;
+}
+
+.balances {
+    margin: 18px 0;
+    overflow: hidden;
+}
+
+.balances div {
+    display: inline-block;
+    vertical-align: top;
+    width: 46%;
+    margin-right: 2%;
+    padding: 12px;
+    background: #191919;
+    border: 1px solid #555;
+}
+
+dd {
+    margin: 5px 0 0;
+    font-size: 24px;
+    font-weight: bold;
+}
+
+.actions {
+    margin: 16px 0;
+}
+
+button, input, select {
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+    color: #fff;
+    background: #1e1e1e;
+    border: 1px solid #888;
+    border-radius: 0;
+    padding: 9px 12px;
+    margin: 3px;
+}
+
+button {
+    cursor: pointer;
+}
+
+button:disabled {
+    color: #999;
+    cursor: default;
+}
+
+button:hover:not(:disabled),
+button[aria-pressed="true"] {
+    background: #333;
+    border-color: #fff;
+}
+
+form, section {
+    border-top: 1px solid #555;
+    margin-top: 18px;
+    padding-top: 16px;
+}
+
+form label {
+    display: block;
+    margin: 10px 0;
+}
+
+form label input,
+form label select {
+    display: block;
+    margin: 5px 0;
+}
+
+.history-heading {
+    margin-bottom: 12px;
+}
+
+.history-heading h2 {
+    display: inline-block;
+    margin-right: 16px;
+}
+
+.history-scroll {
+    width: 100%;
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+th, td {
+    padding: 8px;
+    border-bottom: 1px solid #444;
+    text-align: left;
+}
+
+th {
+    background: #191919;
+    white-space: nowrap;
+}
+
+footer {
+    margin-top: 16px;
+}
+
+#status:empty {
+    display: none;
+}
+
+#retry {
+    margin-top: 10px;
 }
