@@ -25,7 +25,7 @@ local function getVorpCore()
         return nil, 'invalid_core_object'
     end
 
-    if type(coreOrError.getUser) ~= 'function' then
+    if coreOrError.getUser == nil then
         local apiKeys = {}
         for key in pairs(coreOrError) do
             apiKeys[#apiKeys + 1] = tostring(key)
@@ -60,7 +60,9 @@ local function safeCall(object, methodName)
         return nil
     end
 
-    local ok, value = pcall(object[methodName])
+    local ok, value = pcall(function()
+        return object[methodName]()
+    end)
     return ok and value or nil
 end
 
@@ -100,7 +102,11 @@ function Frontier.Core.VORP.SyncPlayer(source)
         return false, coreError or 'vorp_core_api_unavailable'
     end
 
-    local ok, user = pcall(core.getUser, source)
+    -- Cross-resource exports may expose callable proxy tables rather than Lua
+    -- functions. Invoke through a closure so both functions and __call proxies work.
+    local ok, user = pcall(function()
+        return core.getUser(source)
+    end)
     if not ok then
         return false, 'vorp_getUser_failed'
     end
