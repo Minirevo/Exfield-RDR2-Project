@@ -1,0 +1,17 @@
+# Server cache
+cache/
+server-cache/
+server-cache-priv/
+
+# Logs
+*.log
+logs/
+
+# Local configuration
+server.cfg
+
+# Temporary files
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db
