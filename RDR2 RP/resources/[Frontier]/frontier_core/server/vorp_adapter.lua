@@ -1,24 +1,41 @@
 Frontier.Core.VORP = {
     available = false,
     core = nil,
+    lastError = 'not_initialized',
 }
 
 local function getVorpCore()
-    if Frontier.Core.VORP.core then
-        return Frontier.Core.VORP.core
-    end
-
-    local ok, core = pcall(function()
+    -- Always ask the export for the current API object. Do not permanently cache
+    -- an incomplete object: VORP may still be initializing when this resource starts.
+    local ok, coreOrError = pcall(function()
         return exports.vorp_core:GetCore()
     end)
 
-    if ok and type(core) == 'table' then
-        Frontier.Core.VORP.core = core
-        Frontier.Core.VORP.available = true
-        return core
+    if not ok then
+        Frontier.Core.VORP.core = nil
+        Frontier.Core.VORP.available = false
+        Frontier.Core.VORP.lastError = 'get_core_export_failed'
+        return nil, 'get_core_export_failed'
     end
 
-    return nil
+    if type(coreOrError) ~= 'table' then
+        Frontier.Core.VORP.core = nil
+        Frontier.Core.VORP.available = false
+        Frontier.Core.VORP.lastError = 'invalid_core_object'
+        return nil, 'invalid_core_object'
+    end
+
+    if type(coreOrError.getUser) ~= 'function' then
+        Frontier.Core.VORP.core = nil
+        Frontier.Core.VORP.available = false
+        Frontier.Core.VORP.lastError = 'missing_getUser'
+        return nil, 'missing_getUser'
+    end
+
+    Frontier.Core.VORP.core = coreOrError
+    Frontier.Core.VORP.available = true
+    Frontier.Core.VORP.lastError = nil
+    return coreOrError
 end
 
 Frontier.Core.VORP.GetCore = getVorpCore
@@ -41,6 +58,10 @@ local function normalizeCharacter(character)
     local last = character.lastname or character.lastName or character.LastName
     local charId = character.charIdentifier or character.charidentifier or character.CharId
 
+    if charId == nil then
+        return nil
+    end
+
     return {
         characterId = charId,
         firstname = first,
@@ -59,16 +80,22 @@ function Frontier.Core.VORP.SyncPlayer(source)
         return false, 'invalid_source'
     end
 
-    local core = getVorpCore()
-    if not core or type(core.getUser) ~= 'function' then
-        return false, 'vorp_core_api_unavailable'
+    local core, coreError = getVorpCore()
+    if not core then
+        return false, coreError or 'vorp_core_api_unavailable'
     end
 
     local ok, user = pcall(core.getUser, source)
-    if not ok or type(user) ~= 'table' then
+    if not ok then
+        return false, 'vorp_getUser_failed'
+    end
+
+    if type(user) ~= 'table' then
         return false, 'vorp_user_unavailable'
     end
 
+    -- VORP 3.4 exposes getUsedCharacter as a character table on the user
+    -- object, not as a function. Keep function support for compatible forks.
     local character = user.getUsedCharacter
     if type(character) == 'function' then
         local success, data = pcall(character)
@@ -76,7 +103,7 @@ function Frontier.Core.VORP.SyncPlayer(source)
     end
 
     local charData = normalizeCharacter(character)
-    if not charData or not charData.characterId then
+    if not charData then
         return false, 'character_not_selected'
     end
 
@@ -121,9 +148,8 @@ AddEventHandler('vorp:SelectedCharacter', function(source)
         return
     end
 
-    -- VORP fires this event when the character is selected. Wait one tick so
-    -- the core's selected-character state is fully established before querying.
     CreateThread(function()
+        -- VORP updates its selected character before emitting this event.
         Wait(0)
         local ok, reason = Frontier.Core.VORP.SyncPlayer(source)
         if not ok then
@@ -146,8 +172,22 @@ AddEventHandler('onResourceStart', function(resourceName)
 
     CreateThread(function()
         Wait(1000)
+        local core, coreError = getVorpCore()
+        if not core then
+            FrontierLib.Log('ERROR', 'frontier_core', 'VORP API validation failed during player sync', {
+                reason = coreError,
+            })
+            return
+        end
+
         for _, playerSource in ipairs(GetPlayers()) do
-            Frontier.Core.VORP.SyncPlayer(tonumber(playerSource))
+            local ok, reason = Frontier.Core.VORP.SyncPlayer(tonumber(playerSource))
+            if not ok then
+                FrontierLib.Log('WARN', 'frontier_core', 'Could not sync connected player', {
+                    source = tonumber(playerSource),
+                    reason = reason,
+                })
+            end
         end
     end)
 end)
