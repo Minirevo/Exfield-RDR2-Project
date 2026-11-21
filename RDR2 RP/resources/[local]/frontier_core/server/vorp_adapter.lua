@@ -21,6 +21,8 @@ local function getVorpCore()
     return nil
 end
 
+Frontier.Core.VORP.GetCore = getVorpCore
+
 local function safeCall(object, methodName)
     if type(object) ~= 'table' or type(object[methodName]) ~= 'function' then
         return nil

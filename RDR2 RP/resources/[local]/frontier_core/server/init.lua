@@ -10,15 +10,14 @@ AddEventHandler('onResourceStart', function(startedResource)
         locale = FrontierConfig.Locale,
     })
 
-    -- Resolve the VORP API during startup to report dependency readiness.
-    local core = Frontier.Core.VORP and Frontier.Core.VORP.SyncPlayer
+    local core = Frontier.Core.VORP.GetCore()
     if not core then
-        FrontierLib.Log('ERROR', resourceName, 'VORP adapter did not initialize')
+        FrontierLib.Log('ERROR', resourceName, 'Could not access VORP Core API; framework bridge is unavailable')
         return
     end
 
     Frontier.Core.Ready = true
-    FrontierLib.Log('INFO', resourceName, 'Core API initialized')
+    FrontierLib.Log('INFO', resourceName, 'Core API initialized; VORP bridge available')
 end)
 
 exports('GetPlayer', Frontier.GetPlayer)
