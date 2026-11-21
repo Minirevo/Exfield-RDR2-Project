@@ -82,6 +82,12 @@ function Frontier.Core.VORP.SyncPlayer(source)
 
     local identifier = safeCall(user, 'getIdentifier')
     local license = GetPlayerIdentifierByType(source, 'license')
+    local playerName = charData.name or GetPlayerName(source) or ('Player %s'):format(source)
+    local previous = Frontier.GetPlayer(source)
+
+    if previous and previous.characterId ~= tostring(charData.characterId) then
+        TriggerEvent('frontier:playerUnloaded', previous, 'character_switch')
+    end
 
     local registered, result = Frontier.Core.RegisterPlayer({
         source = source,
@@ -90,14 +96,14 @@ function Frontier.Core.VORP.SyncPlayer(source)
         characterId = charData.characterId,
         firstname = charData.firstname,
         lastname = charData.lastname,
-        name = charData.name,
-        group = charData.group or safeCall(user, 'getGroup') or 'user',
+        name = playerName,
+        group = user.getGroup or charData.group or 'user',
         job = charData.job,
         jobGrade = charData.jobGrade,
         jobLabel = charData.jobLabel,
     })
 
-    if registered then
+    if registered and (not previous or previous.characterId ~= result.characterId) then
         TriggerEvent('frontier:playerLoaded', result)
         FrontierLib.Log('INFO', 'frontier_core', 'Player/character registered', {
             source = source,

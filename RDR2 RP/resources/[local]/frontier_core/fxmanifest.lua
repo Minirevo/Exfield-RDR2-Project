@@ -17,12 +17,3 @@ server_scripts {
     'server/vorp_adapter.lua',
     'server/init.lua',
 }
-
-server_exports {
-    'GetPlayer',
-    'GetPlayers',
-    'IsPlayerLoaded',
-    'HasPermission',
-    'RegisterCallback',
-    'TriggerCallback',
-}
