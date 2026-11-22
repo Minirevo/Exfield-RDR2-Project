@@ -46,7 +46,7 @@ function Economy.Apply(actor, kind, debitId, creditId, amount, options)
     if actor ~= 'trade:escrow' then
         local checked, reserved = Economy.Db('scalar', [[
             SELECT COUNT(*) FROM frontier_economy_accounts
-            WHERE id IN (?, ?) AND owner_type = 'trade_hold'
+            WHERE id IN (?, ?) AND owner_type IN ('trade_hold','trade_npc')
         ]], { debitId, creditId })
         if not checked then return false, reserved end
         if tonumber(reserved) ~= 0 then return false, 'forbidden' end
