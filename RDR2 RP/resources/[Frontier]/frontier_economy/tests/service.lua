@@ -28,7 +28,10 @@ exports = setmetatable({
 
 MySQL = {
     ready = function() end,
-    scalar = { await = function() return cutoverMarker end },
+    scalar = { await = function(statement)
+        if statement:find('COUNT', 1, true) then return 0 end
+        return cutoverMarker
+    end },
     query = {
         await = function(statement, parameters)
             statements[#statements + 1] = { statement, parameters }
