@@ -56,8 +56,8 @@ start_job: BEGIN
         ROLLBACK; SELECT 'unavailable' AS code; LEAVE start_job;
     END IF;
     INSERT INTO frontier_production_jobs
-       (id,owner_id,recipe,mode,batches,materials,output_item,output_units,duration_seconds,remaining_seconds,wage_minor)
-    VALUES(p_id,p_owner,p_recipe,p_mode,p_batches,p_materials,p_output,p_units,p_seconds,p_seconds,p_wage);
+       (id,owner_id,recipe,mode,batches,materials,output_item,output_units,duration_seconds,remaining_seconds,wage_minor,retry_at,created_at)
+    VALUES(p_id,p_owner,p_recipe,p_mode,p_batches,p_materials,p_output,p_units,p_seconds,p_seconds,p_wage,UTC_TIMESTAMP(),UTC_TIMESTAMP());
     COMMIT; SELECT 'ok' AS code;
 END//
 CREATE PROCEDURE frontier_production_employee_v1(IN p_owner VARCHAR(64), IN p_action VARCHAR(8))
