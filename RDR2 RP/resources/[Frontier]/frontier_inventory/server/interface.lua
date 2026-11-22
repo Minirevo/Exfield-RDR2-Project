@@ -460,3 +460,42 @@ end)
 trusted('ClaimTradeDelivery', function(owner, delivery, character, item, quantity)
     return tradeMove(owner, delivery, character, item, quantity, false)
 end)
+
+trusted('MoveTradeSaleStock', function(owner, sale, offer, item, quantity, reverse)
+    if owner ~= 'frontier_trade' then return false, 'forbidden' end
+    if not tradeUuid(sale) or not tradeUuid(offer) or sale == offer
+        or not Inventory.Id(item,48) or not Inventory.Int(quantity,1000)
+        or type(reverse) ~= 'boolean' then return false, 'invalid_request' end
+    local key = sale .. (reverse and ':return' or ':allocate')
+    local actor = 'resource:' .. owner
+    local fingerprint = json.encode({ sale,offer,item,quantity,reverse })
+    local ok, result = Inventory.Replay(key,actor,fingerprint)
+    if not ok then return false,result end
+    if result then return true,key end
+    local saleBox = 'trade_' .. sale
+    local offerBox = 'trade_' .. offer
+    if not reverse then
+        ok,result = Inventory.Ensure(saleBox,'storage',200,100000000)
+        if not ok then return false,result end
+    end
+    local from,to
+    ok,from = Inventory.Load(reverse and saleBox or offerBox)
+    if not ok then return false,from end
+    ok,to = Inventory.Load(reverse and offerBox or saleBox)
+    if not ok then return false,to end
+    local remaining = quantity
+    for slot=1,from.slot_limit do
+        local stack=from.slots[slot]
+        if stack and stack.item == item then
+            local count=math.min(remaining,stack.quantity)
+            local taken, entry=Inventory.Take(from,slot,count)
+            if not taken then return false,entry end
+            local placed, issue=Inventory.Place(to,entry)
+            if not placed then return false,issue end
+            remaining=remaining-count
+            if remaining==0 then break end
+        end
+    end
+    if remaining~=0 then return false,'insufficient_stock' end
+    return Inventory.Commit(key,actor,fingerprint,from,to)
+end)
