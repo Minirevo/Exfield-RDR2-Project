@@ -1,4 +1,6 @@
-# Frontier Trade | funded purchase requests
+# Frontier Trade
+
+Aktuelle Installation, Verträge, Teillieferungen und Marktfenster stehen in [DELIVERIES.md](DELIVERIES.md).
 
 This branch implements the first executable slice of the Trade blueprint. Characters create fixed-price public purchase requests in Valentine. Economy moves the budget from the character bank account into a dedicated hold before Trade publishes a request. Cancellation and expiry return the held funds through the existing ledger routine. Each funding and release has a stable idempotency key. Inventory validates the configured product IDs.
 
@@ -13,6 +15,6 @@ Try `/handelsgesuch valentine bread 10 25` as a loaded character with at least 2
 
 ## Scope and verification
 
-No settlement, seller listings, goods reservations, acceptance, NPC activity, property integration, escalation, private agreements or market NUI is shipped in this increment. These require the cross-resource claim and delivery lifecycle from the blueprint. A refund can wait in retry if the original bank account cannot accept the returned amount. Leave Trade running until all funded listings are cancelled or expired before disabling it. Test with disposable accounts first.
+Player purchase requests now support contract acceptance, partial delivery, settlement, and a German market window. Selling offers, NPC activity, property integration and private agreements remain open. A refund can wait in retry if the original bank account cannot accept the returned amount. Leave Trade running until all funded listings, contracts and pending deliveries have been resolved before disabling it.
 
 Run `lua54 tests/requests.lua` from this directory. On a disposable RedM/MariaDB 10.4.32 setup, test insufficient funds, funded visibility, owner-only cancellation, expiry, and restart after an Economy commit but before the Trade state update. Compare both account ledger entries. Attempt privileged generic account movements to a hold and verify they are rejected.
