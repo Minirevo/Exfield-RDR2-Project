@@ -57,6 +57,7 @@ end
 function Economy.IsCurrentCharacter(id, character) return playerIds[id] == character end
 
 function Economy.Db(method, query, params)
+    if method == 'scalar' and query:find('COUNT', 1, true) then return true, 0 end
     if method == 'scalar' then
         tickets = tickets + 1
         return true, ('00000000-0000-0000-0000-%012d'):format(tickets)
