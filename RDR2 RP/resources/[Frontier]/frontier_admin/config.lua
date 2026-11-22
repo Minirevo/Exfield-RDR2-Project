@@ -1,9 +1,10 @@
 FrontierAdminConfig = {
-    TeleportCommand = 'tp',
+    -- Use a namespaced command to avoid collisions with generic /tp commands
+    -- registered by VORP, admin menus, or other server resources.
+    TeleportCommand = 'frontier_tp',
     CoordinatesCommand = 'coords',
     TeleportAce = 'frontier.admin.teleport',
 
-    -- Broad safety limits for RedM world coordinates.
     CoordinateLimits = {
         x = 10000.0,
         y = 10000.0,

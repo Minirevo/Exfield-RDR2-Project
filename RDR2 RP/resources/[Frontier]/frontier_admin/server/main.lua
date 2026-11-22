@@ -17,7 +17,7 @@ end
 
 RegisterCommand(FrontierAdminConfig.TeleportCommand, function(source, args)
     if source == 0 then
-        print('[FRONTIER][ADMIN] /tp kann nur von einem Spieler verwendet werden.')
+        print('[FRONTIER][ADMIN] /frontier_tp kann nur von einem Spieler verwendet werden.')
         return
     end
 
@@ -27,7 +27,7 @@ RegisterCommand(FrontierAdminConfig.TeleportCommand, function(source, args)
     end
 
     if #args ~= 3 then
-        notify(source, 'Verwendung: /tp X Y Z')
+        notify(source, 'Verwendung: /frontier_tp X Y Z')
         return
     end
 
@@ -45,8 +45,8 @@ RegisterCommand(FrontierAdminConfig.TeleportCommand, function(source, args)
         return
     end
 
-    TriggerClientEvent('frontier_admin:client:teleport', source, x, y, z)
-    print(('[FRONTIER][ADMIN] %s teleportiert zu X %.2f, Y %.2f, Z %.2f.'):format(
+    print(('[FRONTIER][ADMIN] Teleport-Anfrage von %s: X %.3f, Y %.3f, Z %.3f.'):format(
         GetPlayerName(source) or ('Spieler ' .. source), x, y, z
     ))
+    TriggerClientEvent('frontier_admin:client:teleport', source, x, y, z)
 end, false)
