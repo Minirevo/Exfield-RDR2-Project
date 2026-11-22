@@ -528,3 +528,142 @@ trusted('ChangeTradeNpcStock',function(owner,character,item,count,add,key)
     if replay then return true,key end
     return Inventory.Change({key=key,actor=actor,fingerprint=fingerprint},box,add,item,count)
 end)
+
+local function productionMove(from,to,requested)
+    if requested then
+        for _, item in ipairs(requested) do
+            local remaining=item.count
+            for slot=1,from.slot_limit do
+                local entry=from.slots[slot]
+                if entry and entry.item==item.id then
+                    local amount=math.min(remaining,entry.quantity)
+                    local ok,stack=Inventory.Take(from,slot,amount)
+                    if not ok then return false,stack end
+                    local put,reason=Inventory.Place(to,stack)
+                    if not put then return false,reason end
+                    remaining=remaining-amount
+                    if remaining==0 then break end
+                end
+            end
+            if remaining~=0 then return false,'insufficient_stock' end
+        end
+    else
+        for slot=1,from.slot_limit do
+            local stack=from.slots[slot]
+            if stack then
+                local ok,reason=Inventory.Place(to,stack)
+                if not ok then return false,reason end
+                from.slots[slot]=nil
+            end
+        end
+    end
+    return true
+end
+
+local function productionBox(id,kind,slots,grams)
+    local ok,reason=Inventory.Ensure(id,kind,slots,grams)
+    if not ok then return false,reason end
+    return Inventory.Load(id)
+end
+
+trusted('GetProductionStorage',function(resource,owner,slots,grams)
+    if resource~='frontier_production' then return false,'forbidden' end
+    if not Inventory.Id(owner,64) or not Inventory.Int(slots,200) or not Inventory.Int(grams,100000000) then
+        return false,'invalid_request'
+    end
+    local ok,box=productionBox('prod_'..owner,'storage',slots,grams)
+    if not ok then return false,box end
+    local present=Inventory.Present(box)
+    local used=0
+    for _,stack in pairs(box.slots) do used=used+stack.quantity end
+    present.units=used
+    return true,present
+end)
+
+trusted('ApplyProductionInventory',function(resource,action,owner,key,options)
+    if resource~='frontier_production' then return false,'forbidden' end
+    if not Inventory.Id(owner,64) or type(key)~='string' or not requestKey(key)
+        or type(options)~='table' then return false,'invalid_request' end
+    local holding=action=='reserve' or action=='return' or action=='finish'
+    local job=options.job
+    if holding and (type(job)~='string' or #job~=36 or not job:match('^[a-f0-9-]+$')) then
+        return false,'invalid_request'
+    end
+    local requested=options.items
+    if requested~=nil then
+        if type(requested)~='table' or #requested<1 or #requested>12 then return false,'invalid_request' end
+        local seen={}
+        for _,entry in ipairs(requested) do
+            if type(entry)~='table' or not Inventory.Id(entry.id,48) or not Inventory.items[entry.id]
+                or seen[entry.id] or not Inventory.Int(entry.count,10000) then return false,'invalid_item' end
+            seen[entry.id]=true
+        end
+    end
+    if (action=='reserve' or action=='finish') and not requested then return false,'invalid_request' end
+    local parts={action,owner,job or ''}
+    for _,entry in ipairs(requested or {}) do
+        parts[#parts+1]=entry.id; parts[#parts+1]=tostring(entry.count)
+    end
+    local actor='resource:'..resource
+    local fingerprint=table.concat(parts,':')
+    local checked,replay=Inventory.Replay(key,actor,fingerprint)
+    if not checked then return false,replay end
+    if replay then return true,key end
+
+    local ok,from,to
+    if action=='reserve' then
+        ok,from=productionBox('p_'..owner,'player',InventoryConfig.Slots,InventoryConfig.WeightGrams)
+        if not ok then return false,from end
+        ok,to=productionBox('prjob_'..job,'storage',200,100000000)
+    elseif action=='return' then
+        ok,from=Inventory.Load('prjob_'..job)
+        if not ok then return false,from end
+        ok,to=productionBox('p_'..owner,'player',InventoryConfig.Slots,InventoryConfig.WeightGrams)
+    elseif action=='finish' or action=='collect' then
+        if not Inventory.Int(options.slots,200) or not Inventory.Int(options.grams,100000000)
+            or not Inventory.Int(options.units,10000) then return false,'invalid_request' end
+        if action=='collect' then
+            ok,from=productionBox('prod_'..owner,'storage',options.slots,options.grams)
+            if not ok then return false,from end
+            if not next(from.slots) then return false,'insufficient_stock' end
+            ok,to=productionBox('p_'..owner,'player',InventoryConfig.Slots,InventoryConfig.WeightGrams)
+        else
+            ok,from=Inventory.Load('prjob_'..job)
+            if not ok then return false,from end
+            if not next(from.slots) then return false,'insufficient_stock' end
+            ok,to=productionBox('prod_'..owner,'storage',options.slots,options.grams)
+        end
+    else
+        return false,'invalid_request'
+    end
+    if not ok then return false,to end
+
+    if action=='finish' then
+        local used=0
+        for _,entry in pairs(to.slots) do used=used+entry.quantity end
+        for _,entry in ipairs(requested) do
+            local definition=Inventory.items[entry.id]
+            used=used+entry.count
+            if used>options.units then return false,'storage_full' end
+            if definition.stackable then
+                local put,reason=Inventory.Place(to,{item=entry.id,quantity=entry.count,metadata=definition.metadata})
+                if not put then return false,reason end
+            else
+                if entry.count>to.slot_limit then return false,'slots' end
+                for _=1,entry.count do
+                    local instance=Inventory.Uuid()
+                    if not instance then return false,'database_error' end
+                    local put,reason=Inventory.Place(to,{item=entry.id,quantity=1,metadata=definition.metadata,instance=instance})
+                    if not put then return false,reason end
+                end
+            end
+        end
+        from.slots={}
+    else
+        local wanted=requested
+        if action=='return' then wanted=nil end
+        local moved,reason=productionMove(from,to,wanted)
+        if not moved then return false,reason end
+    end
+    return Inventory.Commit(key,actor,fingerprint,from,to)
+end)

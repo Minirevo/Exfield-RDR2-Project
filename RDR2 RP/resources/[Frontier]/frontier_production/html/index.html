@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Frontier Produktion</title><link rel="stylesheet" href="style.css"><script defer src="app.js"></script></head>
+<body hidden><main>
+<header><h1>Frontier Produktion</h1><button id="close" type="button">Schließen (Esc)</button></header>
+<nav aria-label="Produktionsbereiche"><button data-tab="work">Produktion</button><button data-tab="recipes">Rezepte</button><button data-tab="stock">Lager</button><button data-tab="staff">Mitarbeiter</button></nav>
+<div class="controls"><button id="refresh">Aktualisieren</button><button id="retry" hidden>Dieselbe Anfrage wiederholen</button><p id="status" role="status"></p></div>
+<section id="work"><h2>Auftrag starten</h2>
+<form id="order">
+<label>Rezept <select id="recipe"></select></label>
+<label>Chargen <input id="batches" type="number" min="1" value="1" required></label>
+<label>Ausführung <select id="mode"><option value="player">Selbst produzieren</option><option value="npc">Mitarbeiter</option></select></label>
+<p id="preview"></p><label><input id="confirm" type="checkbox" required> Auftrag und Kosten bestätigen</label>
+<button type="submit">Auftrag starten</button>
+</form><h2>Aufträge</h2><div id="jobs"></div></section>
+<section id="recipes" hidden><h2>Rezeptbuch</h2><div id="recipe-list"></div></section>
+<section id="stock" hidden><h2>Fertige Produkte</h2><p id="usage"></p><button id="collect">Alles abholen</button><div id="goods"></div></section>
+<section id="staff" hidden><h2>Mitarbeiter</h2><p id="employee"></p><p id="wages"></p><p id="balance"></p><button id="hire">Mitarbeiter einstellen</button><button id="dismiss">Mitarbeiter entlassen</button></section>
+</main></body></html>
