@@ -203,6 +203,20 @@ RegisterNetEvent('frontier_trade:marketSnapshot', function(view, market)
         JOIN frontier_trade_requests r ON r.id=c.request_id WHERE c.seller_id=? OR r.buyer_id=?
         ORDER BY d.retry_at DESC,d.id LIMIT 40
     ]], { character, character, character })
+    local offers = db('query', [[
+        SELECT id,item_id,available,unit_minor, state,
+          IF(seller_id<>? AND active_sale IS NULL AND state='open',1,0) AS buyable,
+          IF(seller_id=? AND active_sale IS NULL AND state='open',1,0) AS cancellable
+        FROM frontier_trade_offers
+        WHERE market_id=? AND ((state='open' AND expires_at>UTC_TIMESTAMP()) OR seller_id=?)
+        ORDER BY expires_at DESC,id LIMIT 40
+    ]], { character,character,market,character })
+    local sales = db('query', [[
+        SELECT s.id,s.quantity,s.state,s.claimed_at,o.item_id,
+          IF(s.buyer_id=? AND s.state='complete' AND s.claimed_at IS NULL,1,0) AS claimable
+        FROM frontier_trade_sales s JOIN frontier_trade_offers o ON o.id=s.offer_id
+        WHERE s.buyer_id=? OR o.seller_id=? ORDER BY s.retry_at DESC,s.id LIMIT 40
+    ]], { character,character,character })
     local prices = db('query', [[
         SELECT item_id,price_minor,DATE_FORMAT(quoted_at,'%Y-%m-%d %H:%i') AS quoted_at
         FROM frontier_trade_price_history WHERE market_id=? ORDER BY id DESC LIMIT 25
@@ -210,8 +224,8 @@ RegisterNetEvent('frontier_trade:marketSnapshot', function(view, market)
     if core:GetPlayerCharacterId(player) ~= character or marketRequestAt[player] ~= now then return end
     TriggerClientEvent('frontier_trade:marketSnapshot', player, view, {
         market = market, markets = TradeConfig.Markets, products = TradeConfig.Products,
-        requests = requests or {}, contracts = contracts or {}, deliveries = deliveries or {}, prices = prices or {},
-        available = requests ~= nil and contracts ~= nil and deliveries ~= nil and prices ~= nil,
+        requests = requests or {}, contracts = contracts or {}, deliveries = deliveries or {}, prices = prices or {}, offers = offers or {}, sales = sales or {},
+        available = requests ~= nil and contracts ~= nil and deliveries ~= nil and prices ~= nil and offers ~= nil and sales ~= nil,
     })
 end)
 AddEventHandler('playerDropped', function() marketRequestAt[tonumber(source) or 0] = nil end)
