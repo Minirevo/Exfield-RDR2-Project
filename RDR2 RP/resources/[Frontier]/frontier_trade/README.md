@@ -15,6 +15,6 @@ Try `/handelsgesuch valentine bread 10 25` as a loaded character with at least 2
 
 ## Scope and verification
 
-Player purchase requests now support contract acceptance, partial delivery, settlement, and a German market window. Selling offers, NPC activity, property integration and private agreements remain open. A refund can wait in retry if the original bank account cannot accept the returned amount. Leave Trade running until all funded listings, contracts and pending deliveries have been resolved before disabling it.
+Player purchase requests now support contract acceptance, partial delivery, settlement, and a German market window. Selling offers reserve inventory before listing and support partial purchases. NPC activity, property integration and private agreements remain open. A refund can wait in retry if the original bank account cannot accept the returned amount. Leave Trade running until all funded listings, contracts and pending deliveries have been resolved before disabling it.
 
 Run `lua54 tests/requests.lua` from this directory. On a disposable RedM/MariaDB 10.4.32 setup, test insufficient funds, funded visibility, owner-only cancellation, expiry, and restart after an Economy commit but before the Trade state update. Compare both account ledger entries. Attempt privileged generic account movements to a hold and verify they are rejected.
