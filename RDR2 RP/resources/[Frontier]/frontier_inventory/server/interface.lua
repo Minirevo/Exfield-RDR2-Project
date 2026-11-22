@@ -424,3 +424,10 @@ RegisterCommand('frontier_inv_test', function(source, args)
     local ok, issue = change(Inventory.resource, source, false, true, args[1], tonumber(args[2]) or 1)
     TriggerClientEvent(events .. 'notice', source, ok and 'Testgegenstand hinzugefügt.' or message(issue))
 end, false)
+
+trusted('GetTradeItemDefinition', function(owner, item)
+    if owner ~= 'frontier_trade' then return false, 'forbidden' end
+    local definition = Inventory.Id(item, 48) and Inventory.items[item]
+    if not definition then return false, 'invalid_item' end
+    return true, { id = item, name = definition.name, transferable = definition.transfer }
+end)
