@@ -20,11 +20,13 @@ local function db(method, statement, params)
     return true, result
 end
 
-local function create(source, id, market, item, quantity, price)
+local function create(source, id, market, item, quantity, price, cap)
+    cap = cap or price
     if not reference(id) or type(market) ~= 'string' or not config.Markets[market]
         or type(item) ~= 'string' or not config.Products[item]
         or not integer(quantity, math.min(config.MaxQuantity, 1000))
-        or not integer(price, math.min(config.MaxUnitMinor, 10000)) then return false, 'invalid_request' end
+        or not integer(price, math.min(config.MaxUnitMinor, 10000))
+        or not integer(cap, math.min(config.MaxUnitMinor, 10000)) or cap < price then return false, 'invalid_request' end
 
     local character = core:GetPlayerCharacterId(source)
     if not character then return false, 'character_unavailable' end
@@ -38,18 +40,19 @@ local function create(source, id, market, item, quantity, price)
     end
     local saved, issue = db('update', [[
         INSERT INTO frontier_trade_requests
-          (id, buyer_id, bank_id, market_id, item_id, quantity, price_minor, budget_minor, state, expires_at, retry_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'funding', DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? HOUR), UTC_TIMESTAMP())
+          (id, buyer_id, bank_id, market_id, item_id, quantity, price_minor, budget_minor, state, expires_at, retry_at,
+           base_quote_minor, quote_minor, next_quote_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'funding', DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? HOUR), UTC_TIMESTAMP(), ?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? HOUR))
         ON DUPLICATE KEY UPDATE id = id
-    ]], { id, character, accounts.bank.id, market, item, quantity, price, quantity * price, config.LifetimeHours })
+    ]], { id, character, accounts.bank.id, market, item, quantity, cap, quantity * cap, config.LifetimeHours, price, price, config.EscalationHours })
     if not saved then return false, issue end
     local read, row = db('single', [[
-        SELECT buyer_id, market_id, item_id, quantity, price_minor, state
+        SELECT buyer_id, market_id, item_id, quantity, price_minor, base_quote_minor, state
         FROM frontier_trade_requests WHERE id = ?
     ]], { id })
     if not read then return false, row end
     if not row or row.buyer_id ~= character or row.market_id ~= market or row.item_id ~= item
-        or tonumber(row.quantity) ~= quantity or tonumber(row.price_minor) ~= price then
+        or tonumber(row.quantity) ~= quantity or tonumber(row.price_minor) ~= cap or (tonumber(row.base_quote_minor) or tonumber(row.price_minor)) ~= price then
         return false, 'request_conflict'
     end
     return true, { id = id, state = row.state }
@@ -61,7 +64,7 @@ local function cancel(source, id)
     if not character then return false, 'character_unavailable' end
     local saved, count = db('update', [[
         UPDATE frontier_trade_requests SET state = 'refund', retry_at = UTC_TIMESTAMP(), attempts = 0
-        WHERE id = ? AND buyer_id = ? AND state = 'open'
+        WHERE id = ? AND buyer_id = ? AND state = 'open' AND active_contract IS NULL
     ]], { id, character })
     if not saved then return false, count end
     if count == 1 then return true end
@@ -75,7 +78,7 @@ end
 local function list(market)
     if type(market) ~= 'string' or not config.Markets[market] then return false, 'invalid_request' end
     return db('query', [[
-        SELECT id, item_id, quantity, price_minor FROM frontier_trade_requests
+        SELECT id, item_id, quantity - settled_quantity AS quantity, COALESCE(quote_minor,price_minor) AS price_minor FROM frontier_trade_requests
         WHERE market_id = ? AND state = 'open' AND expires_at > UTC_TIMESTAMP()
         ORDER BY expires_at, id LIMIT 20
     ]], { market })
@@ -85,7 +88,12 @@ local decline = { insufficient_funds = true }
 local function step(row)
     local funding = row.state == 'funding'
     local handler = funding and economy.FundTradeHold or economy.ReleaseTradeHold
-    local ok, result = handler(economy, row.id, row.buyer_id, tonumber(row.bank_id), tonumber(row.budget_minor))
+    local amount = tonumber(row.budget_minor)
+    if not funding and (tonumber(row.settled_quantity) or 0) > 0 then
+        handler = economy.RefundTradeRemainder
+        amount = amount - tonumber(row.spent_minor)
+    end
+    local ok, result = handler(economy, row.id, row.buyer_id, tonumber(row.bank_id), amount)
     if ok or (funding and decline[result]) then
         local nextState = ok and (funding and 'open' or 'closed') or 'rejected'
         db('update', [[
@@ -107,14 +115,24 @@ local function step(row)
 end
 
 local function tick()
+    if config.EscalationPercent > 0 then
+        db('update', [[
+            UPDATE frontier_trade_requests
+            SET quote_minor=LEAST(price_minor,quote_minor+GREATEST(1,FLOOR(quote_minor*?/100))),
+                next_quote_at=DATE_ADD(UTC_TIMESTAMP(),INTERVAL ? HOUR)
+            WHERE state='open' AND active_contract IS NULL AND next_quote_at<=UTC_TIMESTAMP()
+              AND quote_minor<price_minor AND expires_at>UTC_TIMESTAMP()
+            ORDER BY next_quote_at,id LIMIT ?
+        ]], { config.EscalationPercent, config.EscalationHours, config.Batch })
+    end
     local expired = db('update', [[
         UPDATE frontier_trade_requests SET state = 'refund', retry_at = UTC_TIMESTAMP(), attempts = 0
-        WHERE state = 'open' AND expires_at <= UTC_TIMESTAMP()
+        WHERE state = 'open' AND active_contract IS NULL AND expires_at <= UTC_TIMESTAMP()
         ORDER BY expires_at, id LIMIT ?
     ]], { config.Batch })
     if not expired then return end
     local known, rows = db('query', [[
-        SELECT id, buyer_id, bank_id, budget_minor, state, attempts FROM frontier_trade_requests
+        SELECT id, buyer_id, bank_id, budget_minor, state, attempts, settled_quantity, spent_minor FROM frontier_trade_requests
         WHERE state IN ('funding','refund') AND retry_at <= UTC_TIMESTAMP()
         ORDER BY retry_at, id LIMIT ?
     ]], { config.Batch })
@@ -143,12 +161,12 @@ RegisterCommand('handelsgesuch', function(source, args)
     submitted[source] = now
     local market, item, quantity, price = args[1], args[2], tonumber(args[3]), tonumber(args[4])
     if not market or not item or not quantity or not price then
-        notify(source, 'Verwendung: /handelsgesuch <Markt> <Ware> <Menge> <Cent je Stück>')
+        notify(source, 'Verwendung: /handelsgesuch <Markt> <Ware> <Menge> <Cent je Stück> [Höchstpreis in Cent]')
         return
     end
     local ok, id = db('scalar', 'SELECT UUID()')
     if not ok then notify(source, 'Der Markt ist momentan nicht erreichbar.'); return end
-    local accepted, info = create(source, id, market, item, quantity, price)
+    local accepted = create(source, id, market, item, quantity, price, args[5] and (tonumber(args[5]) or 0))
     if accepted then
         notify(source, 'Gesuch eingereicht. Die Budgetprüfung läuft. Vorgang: ' .. id)
     else
@@ -181,7 +199,7 @@ RegisterCommand('handelsstatus', function(source, args)
         { args[1], character })
     if core:GetPlayerCharacterId(source) ~= character then return end
     local labels = { funding = 'Budgetprüfung läuft', open = 'Veröffentlicht', refund = 'Rückzahlung läuft',
-        closed = 'Abgeschlossen und zurückgezahlt', rejected = 'Abgelehnt: Guthaben reicht nicht' }
+        closed = 'Abgeschlossen', rejected = 'Abgelehnt: Guthaben reicht nicht' }
     notify(source, ok and row and labels[row.state] or 'Dieser Vorgang ist nicht verfügbar.')
 end, false)
 
