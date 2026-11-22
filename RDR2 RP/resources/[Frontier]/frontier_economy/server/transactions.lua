@@ -43,6 +43,15 @@ function Economy.Apply(actor, kind, debitId, creditId, amount, options)
         return false, 'invalid_metadata'
     end
 
+    if actor ~= 'trade:escrow' then
+        local checked, reserved = Economy.Db('scalar', [[
+            SELECT COUNT(*) FROM frontier_economy_accounts
+            WHERE id IN (?, ?) AND owner_type = 'trade_hold'
+        ]], { debitId, creditId })
+        if not checked then return false, reserved end
+        if tonumber(reserved) ~= 0 then return false, 'forbidden' end
+    end
+
     local ok, result = Economy.Db('query', applySql, {
         actor, key, kind, debitId, creditId, amount, reason, reference, metadata, 'USD',
     })
