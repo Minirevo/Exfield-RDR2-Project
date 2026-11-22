@@ -33,9 +33,31 @@ function record(list, text) {
 function render() {
     if (!state) return;
     const filter = byId('filter').value;
+    const offers = byId('offers'), sales = byId('sales');
+    offers.replaceChildren(); sales.replaceChildren();
     const name = (id) => state.products[id] || id;
     const market = byId('requests'), contracts = byId('contracts'), deliveries = byId('deliveries'), prices = byId('prices');
     market.replaceChildren(); contracts.replaceChildren(); deliveries.replaceChildren(); prices.replaceChildren();
+    for (const row of rows(state.offers)) {
+        if (filter && filter !== row.item_id) continue;
+        const labels = { stock: 'Warenprüfung', open: 'Offen', return: 'Rückgabe läuft', closed: 'Abgeschlossen', rejected: 'Abgelehnt' };
+        const node = record(offers, name(row.item_id) + ' × ' + row.available + ' | ' + row.unit_minor + ' Cent | ' + labels[row.state] + ' ');
+        if (Number(row.buyable)) {
+            const count = document.createElement('input');
+            count.type = 'number'; count.min = '1'; count.max = String(row.available); count.value = '1';
+            count.setAttribute('aria-label','Kaufmenge');
+            node.append(count,button('Kaufen',() => {
+                if (!count.checkValidity()) { count.reportValidity(); return; }
+                submit('buy',[row.id,count.value]);
+            }));
+        }
+        if (Number(row.cancellable)) node.append(button('Angebot stornieren',() => submit('cancelOffer',[row.id])));
+    }
+    for (const row of rows(state.sales)) {
+        const node = record(sales,name(row.item_id) + ' × ' + row.quantity + ' | ' +
+            (row.claimed_at ? 'Abgeholt' : row.state === 'reverse' ? 'Warenrückgabe' : types[row.state]) + ' ');
+        if (Number(row.claimable)) node.append(button('Kauf abholen',() => submit('claimSale',[row.id])));
+    }
     for (const row of rows(state.requests)) {
         if (filter && filter !== row.item_id) continue;
         const node = record(market, name(row.item_id) + ' × ' + row.remaining + ' | ' + row.price_minor + ' Cent je Stück ');
@@ -63,7 +85,7 @@ function render() {
         if (filter && filter !== row.item_id) continue;
         record(prices, name(row.item_id) + ' | ' + row.price_minor + ' Cent | ' + row.quoted_at + ' UTC');
     }
-    for (const node of [market, contracts, deliveries, prices]) if (!node.childElementCount) record(node, 'Keine Einträge.');
+    for (const node of [market, contracts, deliveries, prices, offers, sales]) if (!node.childElementCount) record(node, 'Keine Einträge.');
 }
 window.addEventListener('message', ({ data: event }) => {
     if (event?.type === 'close') { document.body.hidden = true; state = null; return; }
@@ -99,5 +121,9 @@ byId('create').addEventListener('submit',(event) => {
         args.push(byId('cap').value);
     }
     submit('create',args);
+});
+byId('sell').addEventListener('click',() => {
+    if (!byId('quantity').reportValidity() || !byId('price').reportValidity()) return;
+    submit('sell',[byId('market').value,byId('product').value,byId('quantity').value,byId('price').value]);
 });
 nui('ready').catch(() => {});
