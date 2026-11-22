@@ -32,6 +32,7 @@ async function main() {
             available: true, market: 'valentine', markets: { valentine: 'Valentine' }, products: { bread: 'Brot' },
             requests: [{ id: request, item_id: 'bread', remaining: 10, price_minor: 25, available: 1 }],
             contracts: [{ id: request, item_id: 'bread', remaining: 4, state: 'active', due_at: '2026-11-22 18:30', deliverable: 1 }],
+            offers: [{ id: request, item_id: 'bread', available: 8, unit_minor: 25, state: 'open', buyable: 1 }],
             deliveries: [{ id: request, item_id: 'bread', quantity: 6, state: 'complete', claimable: 1 }],
         } });
         await page.getByRole('button', { name: 'Annehmen', exact: true }).click();
@@ -43,6 +44,12 @@ async function main() {
             await new Promise((resolve) => setTimeout(resolve, 20));
         }
         assert.deepEqual(actions[1], { action: 'deliver', args: [request, '2'] });
+        await page.getByRole('spinbutton', { name: 'Kaufmenge' }).fill('3');
+        await page.getByRole('button', { name: 'Kaufen', exact: true }).click();
+        for (let index = 0; index < 100 && actions.length < 3; index += 1) {
+            await new Promise((resolve) => setTimeout(resolve,20));
+        }
+        assert.deepEqual(actions[2],{ action:'buy', args:[request,'3'] });
         await page.keyboard.press('Escape');
         await page.locator('body').waitFor({ state: 'hidden' });
         assert.deepEqual(errors, []);
