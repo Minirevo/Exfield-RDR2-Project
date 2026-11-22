@@ -24,10 +24,18 @@ In einer leeren Testdatenbank Trade 001 und 002, dann `tests/contracts.sql` ausf
 
 Die optionale Preisobergrenze eines neuen Gesuchs wird vollständig vorfinanziert. Der Worker erhöht den angebotenen Preis auf freie Gesuche nach Konfiguration (standardmäßig alle sechs Stunden um 20 %, mindestens einen Cent) bis zur Obergrenze. Annahme aus der Oberfläche prüft den angezeigten Preis. Der Vertrag speichert seinen Preis; die Abrechnung addiert tatsächliche Ausgaben. Überschüsse werden nach Abschluss oder Storno ausgezahlt. Alte Festpreisgesuche bleiben Festpreisgesuche.
 
-NPC-Teilnehmer und -Simulation, Spielerbetriebe und die erweiterte Marktstatistik sind weiterhin offen.
+Die Property-Anbindung für Spielerbetriebe wartet auf ein künftiges Property-System.
 
 ## Verkaufsangebote
 
 Nach Trade 002 auch `sql/migrations/003_sales.sql` anwenden. Runtime benötigt Zugriff auf die neuen Offer-/Sale-Tabellen und EXECUTE auf frontier_trade_sale_v1. Das Marktfenster kann Ware reservieren und Teilmengen kaufen. Per Chat funktionieren /handelsangebot, /handelskaufen, /handelsangebotstorno und /handelskaufabholung. Bei Storno gehen nicht verkaufte Stücke zurück in das Frontier-Inventar des Verkäufers. Reicht der Platz für die Rückgabe nicht, bleibt die Ware reserviert und die Rückgabe wird wiederholt.
 
 Verkaufsangebote werden erst nach atomarer Warenreservierung veröffentlicht. Pro Angebot kann ein Kauf gleichzeitig bearbeitet werden. Der Worker reserviert die Kaufmenge separat, zahlt mit einem einmaligen Economy-Schlüssel und gibt die Abholung erst nach bestätigter Zahlung frei. Eindeutige Zahlungsablehnungen führen zur Warenrückgabe. Bei unbekanntem Ergebnis wird dieselbe Zahlung wiederholt.
+
+## NPC-Handel und regionaler Preis
+
+Nach Trade 003 zunächst Economy 005 für die geschützten NPC-Bankkonten und dann Trade 004 für die dauerhafte Taktverfolgung anwenden. Die Economy-Runtime braucht EXECUTE auf frontier_economy_provision_trade_npc, Trade benötigt SELECT/INSERT/UPDATE für frontier_trade_npc_ticks. Deploy Economy, Inventory und Trade zusammen. Auf dem Testserver NpcEnabled aktivieren. Die Einstellungen begrenzen Produktion, Verbrauch, Mindest- und Zielbestand und die Chance auf Annahme. Beim Start werden verpasste Takte nicht nachproduziert.
+
+NPCs sind dauerhaft zahlungsfähig. Schlägt eine NPC-Zahlung mangels Geld fehl, bucht Economy einmalig pro Vorgang genau den Betrag nach und wiederholt die ursprüngliche Buchung. Nachbuchungen sind im Ledger sichtbar und pro Vorgang gedeckelt. Spieler können keine NPC-Konten auswählen oder generisch ändern. Ware bleibt an die tatsächlichen Lagerbestände und Kapazitäten gebunden. NPCs dürfen dieselben Gesuche und Angebote wie Spieler nutzen. Regionale Nachfrage und verfügbares Angebot beeinflussen den nächsten Preisschritt innerhalb des gefüllten Budgetrahmens.
+
+Das spätere Property-System kann nach Konfiguration GetTradePropertyAccess(characterId,siteId,action) exportieren. Die Trade-Schnittstelle ResolveTradeBusinessSite prüft Provider und aktuelle Figur. Ohne Property-Ressource ist keine Betriebsfreigabe möglich.
