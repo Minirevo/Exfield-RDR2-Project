@@ -13,10 +13,21 @@ end
 
 local function db(method, statement, params)
     local ok, result = pcall(MySQL[method].await, statement, params)
+
     if not ok then
-        FrontierLib.Log('ERROR', resource, 'Trade query failed', { method = method })
+        FrontierLib.Log('ERROR', resource, 'Trade query failed', {
+            method = method,
+            error = tostring(result)
+        })
+
+        print(('[frontier_trade] SQL ERROR (%s): %s'):format(
+            tostring(method),
+            tostring(result)
+        ))
+
         return false, 'database_error'
     end
+
     return true, result
 end
 
