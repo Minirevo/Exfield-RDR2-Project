@@ -1,0 +1,90 @@
+local defaults = {
+    bread = { name = 'Brot', description = 'Ein Laib Brot.', grams = 350, maxStack = 10, category = 'Nahrung' },
+    water = { name = 'Wasserflasche', description = 'Eine Flasche Trinkwasser.', grams = 550, maxStack = 10, category = 'Getränke' },
+    apple = { name = 'Apfel', description = 'Ein frischer Apfel.', grams = 150, maxStack = 20, category = 'Nahrung' },
+    bandage = { name = 'Verband', description = 'Ein sauberer Stoffverband.', grams = 80, maxStack = 15, category = 'Medizin', usable = true },
+    tonic = { name = 'Heiltonikum', description = 'Eine Flasche mit etikettiertem Inhalt.', grams = 280,
+        maxStack = 5, category = 'Medizin', usable = true, metadata = '{"charge":"standard"}' },
+    lantern = { name = 'Laterne', description = 'Eine tragbare Laterne.', grams = 2200,
+        maxStack = 1, category = 'Werkzeug', condition = true, classification = 'tool', metadata = '{"condition":100}' },
+}
+
+function Inventory.Text(value, max)
+    return type(value) == 'string' and #value > 0 and #value <= max and utf8.len(value) ~= nil
+        and not value:find('%c') and FrontierLib.Trim(value) ~= ''
+end
+
+function Inventory.Metadata(value, condition)
+    if type(value) ~= 'string' or #value > 8192 or not utf8.len(value) or not value:match('^%s*{') then
+        return false
+    end
+    local ok, payload = pcall(json.decode, value)
+    if not ok or type(payload) ~= 'table' then return false end
+    local durability = payload.condition
+    return not condition or durability == nil or durability == 0 or Inventory.Int(durability, 100)
+end
+
+local function normalize(id, input)
+    if not Inventory.Id(id, 48) or type(input) ~= 'table' or not Inventory.Text(input.name, 100)
+        or not Inventory.Text(input.description, 500) or not Inventory.Text(input.category, 60)
+        or not Inventory.Int(input.grams, 1000000) or not Inventory.Int(input.maxStack, 10000) then return end
+    local def = { id = id, name = input.name, description = input.description, category = input.category,
+        grams = input.grams, maxStack = input.maxStack, stackable = input.maxStack > 1,
+        metadata = input.metadata == nil and '{}' or input.metadata }
+    if input.stackable ~= nil and input.stackable ~= def.stackable then return end
+    for _, key in ipairs({ 'usable', 'condition', 'drop', 'transfer', 'store' }) do
+        local value = input[key]
+        if value ~= nil and type(value) ~= 'boolean' then return end
+        def[key] = value == true or (value == nil and key ~= 'usable' and key ~= 'condition')
+    end
+    for _, key in ipairs({ 'icon', 'classification' }) do
+        if input[key] ~= nil and not Inventory.Id(input[key], 48) then return end
+        def[key] = input[key]
+    end
+    if Inventory.Metadata(def.metadata, def.condition) then return def end
+end
+
+function Inventory.Register(owner, id, input)
+    local def = normalize(id, input)
+    if not def or not Inventory.Text(owner, 96) then
+        Inventory.Log('WARN', 'Rejected inventory item definition')
+        return false, 'invalid_item'
+    end
+    local ok, err = Inventory.Db('update', [[
+        INSERT INTO frontier_inventory_items (id, owner_resource, definition, grams, max_stack)
+        VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE id = id
+    ]], { id, owner, json.encode(def), def.grams, def.maxStack })
+    if not ok then return false, err end
+    local loaded, row = Inventory.Db('single', [[
+        SELECT owner_resource, definition FROM frontier_inventory_items WHERE id = ?
+    ]], { id })
+    if not loaded then return false, row end
+    if not row or row.owner_resource ~= owner then return false, 'forbidden' end
+    local saved = json.decode(row.definition)
+    for key, value in pairs(def) do
+        if saved[key] ~= value then return false, 'definition_conflict' end
+    end
+    for key in pairs(saved) do
+        if def[key] == nil then return false, 'definition_conflict' end
+    end
+    saved.owner = owner
+    Inventory.items[id] = saved
+    return true, id
+end
+
+function Inventory.BootItems()
+    local ok, rows = Inventory.Db('query', 'SELECT id, owner_resource, definition FROM frontier_inventory_items')
+    if not ok then return false end
+    for _, row in ipairs(rows) do
+        local def = normalize(row.id, json.decode(row.definition))
+        if not def then return false end
+        def.owner = row.owner_resource
+        Inventory.items[row.id] = def
+    end
+    for id, def in pairs(defaults) do
+        if not Inventory.Register(Inventory.resource, id, def) then return false end
+    end
+    Inventory.handlers.bandage = { owner = Inventory.resource, consume = true, callback = function() return true end }
+    Inventory.handlers.tonic = { owner = Inventory.resource, consume = true, callback = function() return true end }
+    return true
+end
