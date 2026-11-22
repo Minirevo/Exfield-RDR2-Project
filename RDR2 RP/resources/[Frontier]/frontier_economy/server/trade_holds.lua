@@ -95,3 +95,19 @@ end)
 tradeExport('RefundTradeRemainder', function(reference, character, bankId, amount)
     return settle(reference, reference, character, bankId, amount, true)
 end)
+
+tradeExport('PayTradeSale', function(reference, buyer, debit, seller, credit, amount)
+    if not validReference(reference) or type(buyer) ~= 'string' or type(seller) ~= 'string'
+        or buyer == seller or not Economy.PositiveInteger(debit, Economy.MaxId)
+        or not Economy.PositiveInteger(credit, Economy.MaxId)
+        or not Economy.PositiveInteger(amount, Economy.MaxMinor) then return false, 'invalid_request' end
+    local ok, count = Economy.Db('scalar', [[
+        SELECT COUNT(*) FROM frontier_economy_accounts
+        WHERE owner_type='character' AND account_type='bank' AND currency='USD'
+          AND ((id=? AND owner_id=?) OR (id=? AND owner_id=?))
+    ]], { debit, buyer, credit, seller })
+    if not ok then return false, count end
+    if tonumber(count) ~= 2 then return false, 'forbidden' end
+    return Economy.Apply('trade:escrow', 'transfer', debit, credit, amount,
+        { key = reference .. ':sale', reason = 'Marktverkauf bezahlt' })
+end)
