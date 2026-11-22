@@ -21,6 +21,8 @@ function GetPlayerPed(source) return selected[source] and source or 0 end
 function DoesEntityExist(ped) return ped > 0 end
 function GetEntityCoords(ped) return positions[ped] end
 function GetEntityHealth() return 100 end
+local deadPeds = {}
+function IsPedDeadOrDying(ped) return deadPeds[ped] == true end
 function GetPlayerRoutingBucket() return 0 end
 exports = setmetatable({ frontier_core = {
     GetPlayerCharacterId = function(_, source) return selected[source] end,
@@ -39,6 +41,14 @@ InventoryConfig.Slots = 4
 InventoryConfig.WeightGrams = 7500
 assert(Inventory.BootItems())
 Inventory.ready = true
+
+-- The native death state, rather than an unreliable health value, gates access.
+assert(Inventory.Session(1) == A)
+deadPeds[1] = true
+local deadId, deadIssue = Inventory.Session(1)
+assert(deadId == nil and deadIssue == 'restricted')
+deadPeds[1] = nil
+assert(Inventory.Session(1) == A)
 
 local function result(ok, value) assert(ok, value); return value end
 local function failure(expected, ok, value) assert(not ok and value == expected, tostring(value)) end
