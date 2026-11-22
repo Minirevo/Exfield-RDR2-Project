@@ -29,3 +29,5 @@ The teleport command uses a Frontier-specific name to avoid collisions with gene
 The client logs both the received target and resulting position in F8, so a failed or redirected teleport can be diagnosed without guessing.
 
 Player-facing messages are German. The resource does not depend on VORP or Frontier Core.
+
+ghaxg
