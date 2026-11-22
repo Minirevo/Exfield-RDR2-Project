@@ -1,7 +1,7 @@
 TradeConfig = {
     Markets = { valentine = 'Valentine', saint_denis = 'Saint Denis', rhodes = 'Rhodes',
         strawberry = 'Strawberry', blackwater = 'Blackwater', tumbleweed = 'Tumbleweed', annesburg = 'Annesburg' },
-    Products = { bread = 'Brot', apple = 'Apfel', water = 'Wasserflasche' },
+    Products = { flour='Mehl', meat='Fleisch', wood='Holz', iron_ore='Eisenerz', coal='Kohle', cooked_meat='Gebratenes Fleisch', wooden_planks='Holzbretter', iron_ingot='Eisenbarren',  bread = 'Brot', apple = 'Apfel', water = 'Wasserflasche' },
     MaxQuantity = 1000,
     MaxUnitMinor = 10000,
     LifetimeHours = 24,
