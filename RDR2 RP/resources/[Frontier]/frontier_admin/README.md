@@ -21,9 +21,11 @@ Replace the placeholder with your full `license:...` identifier. Restart the ser
 
 ## Commands
 
-- `/tp X Y Z` — teleport yourself to the supplied world coordinates. Example: `/tp -281 806 119.4`.
-- `/coords` — print your current coordinates and a ready-to-copy `/tp` command in the client F8 console.
+- `/frontier_tp X Y Z` — teleport yourself to the supplied world coordinates. Example: `/frontier_tp -278 807 119`.
+- `/coords` — print your current coordinates and a ready-to-copy `/frontier_tp` command in the client F8 console.
 
-The teleport command is registered server-side and requires the `frontier.admin.teleport` ACE permission. Coordinates are checked against broad configurable world bounds in `config.lua`.
+The teleport command uses a Frontier-specific name to avoid collisions with generic `/tp` commands from other resources. It requires the `frontier.admin.teleport` ACE permission. Coordinates are validated server-side.
+
+The client logs both the received target and resulting position in F8, so a failed or redirected teleport can be diagnosed without guessing.
 
 Player-facing messages are German. The resource does not depend on VORP or Frontier Core.
