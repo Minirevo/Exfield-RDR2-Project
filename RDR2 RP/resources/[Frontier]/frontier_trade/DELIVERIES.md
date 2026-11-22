@@ -24,4 +24,10 @@ In einer leeren Testdatenbank Trade 001 und 002, dann `tests/contracts.sql` ausf
 
 Die optionale Preisobergrenze eines neuen Gesuchs wird vollständig vorfinanziert. Der Worker erhöht den angebotenen Preis auf freie Gesuche nach Konfiguration (standardmäßig alle sechs Stunden um 20 %, mindestens einen Cent) bis zur Obergrenze. Annahme aus der Oberfläche prüft den angezeigten Preis. Der Vertrag speichert seinen Preis; die Abrechnung addiert tatsächliche Ausgaben. Überschüsse werden nach Abschluss oder Storno ausgezahlt. Alte Festpreisgesuche bleiben Festpreisgesuche.
 
-Verkaufsangebote, NPC-Teilnehmer und -Simulation, Spielerbetriebe und die erweiterte Marktstatistik sind weiterhin offen.
+NPC-Teilnehmer und -Simulation, Spielerbetriebe und die erweiterte Marktstatistik sind weiterhin offen.
+
+## Verkaufsangebote
+
+Nach Trade 002 auch `sql/migrations/003_sales.sql` anwenden. Runtime benötigt Zugriff auf die neuen Offer-/Sale-Tabellen und EXECUTE auf frontier_trade_sale_v1. Das Marktfenster kann Ware reservieren und Teilmengen kaufen. Per Chat funktionieren /handelsangebot, /handelskaufen, /handelsangebotstorno und /handelskaufabholung. Bei Storno gehen nicht verkaufte Stücke zurück in das Frontier-Inventar des Verkäufers. Reicht der Platz für die Rückgabe nicht, bleibt die Ware reserviert und die Rückgabe wird wiederholt.
+
+Verkaufsangebote werden erst nach atomarer Warenreservierung veröffentlicht. Pro Angebot kann ein Kauf gleichzeitig bearbeitet werden. Der Worker reserviert die Kaufmenge separat, zahlt mit einem einmaligen Economy-Schlüssel und gibt die Abholung erst nach bestätigter Zahlung frei. Eindeutige Zahlungsablehnungen führen zur Warenrückgabe. Bei unbekanntem Ergebnis wird dieselbe Zahlung wiederholt.
