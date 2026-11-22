@@ -42,9 +42,11 @@ local function create(source, id, market, item, quantity, price, cap)
     local character = core:GetPlayerCharacterId(source)
     if not character then return false, 'character_unavailable' end
     local known, definition = inventory:GetTradeItemDefinition(item)
+	print('[FRONTIER DEBUG] inventory definition:', known, definition)
     if not known then return false, definition end
     if not definition.transferable then return false, 'invalid_request' end
     local ready, accounts = economy:GetCharacterAccounts(source)
+	print('[FRONTIER DEBUG] economy accounts:', ready, accounts)
     if not ready then return false, accounts end
     if accounts.characterId ~= character or core:GetPlayerCharacterId(source) ~= character then
         return false, 'character_unavailable'
@@ -193,8 +195,10 @@ RegisterCommand('handelsgesuch', function(source, args)
         return
     end
     local ok, id = db('scalar', 'SELECT UUID()')
+	print('[FRONTIER DEBUG] UUID generated:', ok, id)
     if not ok then notify(source, 'Der Markt ist momentan nicht erreichbar.'); return end
-    local accepted = create(source, id, market, item, quantity, price, args[5] and (tonumber(args[5]) or 0))
+    local accepted, createIssue = create(source, id, market, item, quantity, price, args[5] and (tonumber(args[5]) or 0))
+	print('[FRONTIER DEBUG] create() result:', accepted, createIssue)
     if accepted then
         notify(source, 'Gesuch eingereicht. Die Budgetprüfung läuft. Vorgang: ' .. id)
     else
@@ -222,6 +226,7 @@ end, false)
 RegisterCommand('handelsstatus', function(source, args)
     if source == 0 or not reference(args[1]) then return end
     local character = core:GetPlayerCharacterId(source)
+	print('[FRONTIER DEBUG] character:', character)
     if not character then return end
     local ok, row = db('single', 'SELECT state FROM frontier_trade_requests WHERE id = ? AND buyer_id = ?',
         { args[1], character })

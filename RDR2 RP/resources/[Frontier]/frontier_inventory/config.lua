@@ -17,7 +17,9 @@ InventoryConfig = {
     StorageWeightGrams = 50000,
     RestrictDead = false,
     IncapacitatedHealth = 0, -- Set a server-side health threshold or use SetRestricted.
-    TrustedResources = {},
+    TrustedResources = {
+		frontier_trade = true,
+	},
     Debug = false,
     Development = true,
     AdminAce = 'frontier.inventory.admin',

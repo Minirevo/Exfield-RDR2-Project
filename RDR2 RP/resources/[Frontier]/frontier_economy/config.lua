@@ -1,6 +1,8 @@
 EconomyConfig = {
     -- Enable individual resources explicitly when they need the server API.
-    TrustedResources = {},
+    TrustedResources = {
+		frontier_trade = true,
+	},
 
     AdminPermission = 'frontier.economy.admin',
     AdminCreditCommand = 'frontier_gutschrift',
