@@ -392,6 +392,33 @@ RegisterCommand('inventarlager', function(source)
     if not ok then TriggerClientEvent(events .. 'notice', source, message(issue)) end
 end, false)
 
+RegisterCommand('frontier_inv_permission_test', function(source)
+    if source == 0 then
+        print('[FRONTIER][DEBUG] This command must be run in-game.')
+        return
+    end
+
+    local permission = Config.AdminAce
+
+    local aceAllowed = IsPlayerAceAllowed(source, permission)
+    local coreOk, coreAllowed = pcall(function()
+        return core:HasPermission(source, permission)
+    end)
+
+    print(('[FRONTIER][DEBUG] Permission diagnostic for player %s'):format(source))
+    print(('[FRONTIER][DEBUG] Permission: %s'):format(permission))
+    print(('[FRONTIER][DEBUG] Direct ACE: %s'):format(tostring(aceAllowed)))
+    print(('[FRONTIER][DEBUG] Core call succeeded: %s'):format(tostring(coreOk)))
+    print(('[FRONTIER][DEBUG] Core permission result: %s'):format(tostring(coreAllowed)))
+
+    TriggerClientEvent(events .. 'notice', source,
+        ('ACE: %s | Core: %s'):format(
+            tostring(aceAllowed),
+            coreOk and tostring(coreAllowed) or 'ERROR'
+        )
+    )
+end, false)
+
 RegisterCommand('frontier_inv_test', function(source, args)
     if source == 0 or not Config.Development or not core:HasPermission(source, Config.AdminAce) then return end
     local ok, issue = change(Inventory.resource, source, false, true, args[1], tonumber(args[2]) or 1)
