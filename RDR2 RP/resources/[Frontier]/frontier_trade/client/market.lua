@@ -49,7 +49,9 @@ RegisterNUICallback('refresh', function(data, cb)
 end)
 
 local actions = { create = { 'handelsgesuch', 4, 5 }, accept = { 'handelannehmen', 2 },
-    deliver = { 'handelliefern', 2 }, claim = { 'handelsabholung', 1 }, cancel = { 'handelsstorno', 1 }, cancelContract = { 'handelsvertragsstorno', 1 } }
+    deliver = { 'handelliefern', 2 }, claim = { 'handelsabholung', 1 }, cancel = { 'handelsstorno', 1 }, cancelContract = { 'handelsvertragsstorno', 1 },
+    sell = { 'handelsangebot', 4 }, buy = { 'handelskaufen', 2 },
+    cancelOffer = { 'handelsangebotstorno', 1 }, claimSale = { 'handelskaufabholung', 1 } }
 RegisterNUICallback('action', function(data, cb)
     local spec = focused and type(data) == 'table' and actions[data.action]
     local args = spec and data.args
