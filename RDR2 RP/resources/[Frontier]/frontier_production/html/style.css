@@ -1,0 +1,11 @@
+html,body{margin:0;padding:0;background:transparent}
+[hidden]{display:none!important}
+body{color:#fff;font:15px Arial,sans-serif}
+main{width:820px;max-width:94vw;max-height:86vh;overflow:auto;box-sizing:border-box;margin:5vh auto 0;padding:16px;background:#000;border:1px solid #777}
+header button{float:right} h1,h2{margin:4px 0 10px}h1{font-size:23px}h2{font-size:17px}
+section,form,.controls{border-top:1px solid #555;margin-top:10px;padding-top:8px}
+button,select,input{color:#fff;background:#222;border:1px solid #777;border-radius:0;padding:5px;margin:3px;font:inherit}
+input[type=number]{width:70px}button{cursor:pointer}button:disabled{color:#888;cursor:default}
+article{padding:7px 0;border-bottom:1px solid #333;overflow-wrap:anywhere}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid #fff}
+progress{display:block;width:min(260px,95%);margin-top:5px;accent-color:#bbb}
