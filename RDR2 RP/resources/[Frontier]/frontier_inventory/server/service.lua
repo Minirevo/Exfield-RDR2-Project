@@ -29,8 +29,20 @@ function Inventory.Session(source)
     local position = Inventory.Position(source)
     if not position then return nil, 'character' end
     local health = GetEntityHealth(position.ped)
-    if (Config.RestrictDead and health <= 0)
-        or (Config.IncapacitatedHealth > 0 and health <= Config.IncapacitatedHealth) then return nil, 'restricted' end
+    if Config.RestrictDead then
+        -- RedM/RDR2 health values can be misleading during player state transitions.
+        -- Prefer the native death-state check; use health only if the native is unavailable/errors.
+        local dead
+        if type(IsPedDeadOrDying) == 'function' then
+            local ok, result = pcall(IsPedDeadOrDying, position.ped, true)
+            if ok then dead = result == true or result == 1 end
+        end
+        if dead == nil then dead = health <= 0 end
+        if dead then return nil, 'restricted' end
+    end
+    if Config.IncapacitatedHealth > 0 and health <= Config.IncapacitatedHealth then
+        return nil, 'restricted'
+    end
     return id, position
 end
 
