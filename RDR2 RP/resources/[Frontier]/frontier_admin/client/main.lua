@@ -5,19 +5,27 @@ RegisterNetEvent('frontier_admin:client:teleport', function(x, y, z)
         return
     end
 
+    -- IMPORTANT: RDR3 native float arguments must be actual Lua floats.
+    -- Whole-number Lua values (e.g. 280) can be marshalled as integers and
+    -- interpreted as garbage by native float parameters. The + 0.0 forces
+    -- floating-point values even when the user enters whole coordinates.
     x, y, z = tonumber(x), tonumber(y), tonumber(z)
-    if not x or not y or not z then
+    if not x or not y or not z
+        or x ~= x or y ~= y or z ~= z
+        or x == math.huge or x == -math.huge
+        or y == math.huge or y == -math.huge
+        or z == math.huge or z == -math.huge then
         TriggerEvent('frontier_admin:client:notify', 'Teleport fehlgeschlagen: Ungültige Koordinaten vom Server erhalten.')
         return
     end
+
+    x, y, z = x + 0.0, y + 0.0, z + 0.0
 
     print(('[FRONTIER][ADMIN] Client erhielt Zielkoordinaten: X %.3f, Y %.3f, Z %.3f.'):format(x, y, z))
 
     DoScreenFadeOut(250)
     Wait(300)
 
-    -- Request destination collision before moving, then use the no-offset native
-    -- so the supplied world coordinates are applied directly.
     RequestCollisionAtCoord(x, y, z)
     SetEntityCoordsNoOffset(ped, x, y, z, false, false, false)
 
