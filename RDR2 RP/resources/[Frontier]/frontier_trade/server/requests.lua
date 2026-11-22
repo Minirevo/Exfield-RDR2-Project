@@ -116,14 +116,31 @@ end
 
 local function tick()
     if config.EscalationPercent > 0 then
-        db('update', [[
-            UPDATE frontier_trade_requests
-            SET quote_minor=LEAST(price_minor,quote_minor+GREATEST(1,FLOOR(quote_minor*?/100))),
-                next_quote_at=DATE_ADD(UTC_TIMESTAMP(),INTERVAL ? HOUR)
-            WHERE state='open' AND active_contract IS NULL AND next_quote_at<=UTC_TIMESTAMP()
-              AND quote_minor<price_minor AND expires_at>UTC_TIMESTAMP()
-            ORDER BY next_quote_at,id LIMIT ?
-        ]], { config.EscalationPercent, config.EscalationHours, config.Batch })
+        local due, quotes = db('query', [[
+            SELECT id,market_id,item_id,quote_minor,
+                (SELECT COALESCE(SUM(o.available),0) FROM frontier_trade_offers o
+                 WHERE o.market_id=r.market_id AND o.item_id=r.item_id AND o.state='open'
+                   AND o.active_sale IS NULL AND o.expires_at>UTC_TIMESTAMP()) AS supply,
+                (SELECT COALESCE(SUM(d.quantity-d.settled_quantity),0) FROM frontier_trade_requests d
+                 WHERE d.market_id=r.market_id AND d.item_id=r.item_id AND d.state='open'
+                   AND d.active_contract IS NULL AND d.expires_at>UTC_TIMESTAMP()) AS demand
+            FROM frontier_trade_requests r
+            WHERE r.state='open' AND r.active_contract IS NULL AND r.next_quote_at<=UTC_TIMESTAMP()
+              AND r.quote_minor<r.price_minor AND r.expires_at>UTC_TIMESTAMP()
+            ORDER BY r.next_quote_at,r.id LIMIT ?
+        ]], {config.Batch})
+        if due then for _,row in ipairs(quotes) do
+            local pressure = tonumber(row.demand) > tonumber(row.supply) and 1.25 or 0.75
+            local modifier = (config.RegionalPricePercent or {})[row.market_id] or 100
+            local rate = config.EscalationPercent * pressure * modifier / 100
+            db('update', [[
+                UPDATE frontier_trade_requests
+                SET quote_minor=LEAST(price_minor,quote_minor+GREATEST(1,FLOOR(quote_minor*?/100))),
+                    next_quote_at=DATE_ADD(UTC_TIMESTAMP(),INTERVAL ? HOUR)
+                WHERE id=? AND quote_minor=? AND state='open' AND active_contract IS NULL
+                  AND next_quote_at<=UTC_TIMESTAMP() AND expires_at>UTC_TIMESTAMP()
+            ]], {rate,config.EscalationHours,row.id,tonumber(row.quote_minor)})
+        end end
     end
     local expired = db('update', [[
         UPDATE frontier_trade_requests SET state = 'refund', retry_at = UTC_TIMESTAMP(), attempts = 0
