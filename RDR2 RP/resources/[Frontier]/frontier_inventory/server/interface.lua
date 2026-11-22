@@ -404,3 +404,59 @@ trusted('GetTradeItemDefinition', function(owner, item)
     if not definition then return false, 'invalid_item' end
     return true, { id = item, name = definition.name, transferable = definition.transfer }
 end)
+
+local function tradeUuid(value)
+    return type(value) == 'string' and #value == 36 and value:match('^[a-f0-9-]+$') ~= nil
+end
+
+local function tradeMove(owner, delivery, character, item, quantity, taking)
+    if owner ~= 'frontier_trade' then return false, 'forbidden' end
+    if not tradeUuid(delivery) or not Inventory.Id(character, 64) or not Inventory.Id(item, 48)
+        or not Inventory.Int(quantity, 1000) then return false, 'invalid_request' end
+    local definition = Inventory.items[item]
+    if not definition or not definition.transfer then return false, 'invalid_item' end
+    local key = delivery .. (taking and ':stock' or ':claim')
+    local actor = 'resource:' .. owner
+    local fingerprint = json.encode({ delivery, character, item, quantity, taking })
+    local checked, replay = Inventory.Replay(key, actor, fingerprint)
+    if not checked then return false, replay end
+    if replay then return true, key end
+
+    local boxId = 'trade_' .. delivery
+    if taking then
+        local created, issue = Inventory.Ensure(boxId, 'storage', 200, 100000000)
+        if not created then return false, issue end
+    else
+        local created, issue = Inventory.Ensure('p_' .. character, 'player',
+            InventoryConfig.Slots, InventoryConfig.WeightGrams)
+        if not created then return false, issue end
+    end
+    local ok, player = Inventory.Load('p_' .. character)
+    if not ok then return false, player end
+    local loaded, box = Inventory.Load(boxId)
+    if not loaded then return false, box end
+    local from, to = player, box
+    if not taking then from, to = box, player end
+    local remaining = quantity
+    for slot = 1, from.slot_limit do
+        local stack = from.slots[slot]
+        if stack and stack.item == item then
+            local chunk = math.min(remaining, stack.quantity)
+            local removed, value = Inventory.Take(from, slot, chunk)
+            if not removed then return false, value end
+            local placed, issue = Inventory.Place(to, value)
+            if not placed then return false, issue end
+            remaining = remaining - chunk
+            if remaining == 0 then break end
+        end
+    end
+    if remaining ~= 0 then return false, 'insufficient_stock' end
+    return Inventory.Commit(key, actor, fingerprint, from, to)
+end
+
+trusted('ReserveTradeDelivery', function(owner, delivery, character, item, quantity)
+    return tradeMove(owner, delivery, character, item, quantity, true)
+end)
+trusted('ClaimTradeDelivery', function(owner, delivery, character, item, quantity)
+    return tradeMove(owner, delivery, character, item, quantity, false)
+end)
