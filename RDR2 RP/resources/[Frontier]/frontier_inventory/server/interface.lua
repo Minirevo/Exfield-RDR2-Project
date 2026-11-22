@@ -499,3 +499,32 @@ trusted('MoveTradeSaleStock', function(owner, sale, offer, item, quantity, rever
     if remaining~=0 then return false,'insufficient_stock' end
     return Inventory.Commit(key,actor,fingerprint,from,to)
 end)
+
+local function npcBox(owner, character, item)
+    if owner ~= 'frontier_trade' then return false,'forbidden' end
+    if not Inventory.Id(character,48) or not character:match('^npc_')
+        or not Inventory.Id(item,48) or not Inventory.items[item] then return false,'invalid_request' end
+    local ready, issue=Inventory.Ensure('p_'..character,'player',InventoryConfig.Slots,InventoryConfig.WeightGrams)
+    if not ready then return false,issue end
+    return Inventory.Load('p_'..character)
+end
+
+trusted('GetTradeNpcStock',function(owner,character,item)
+    local ok,box=npcBox(owner,character,item)
+    if not ok then return false,box end
+    return true,countEntries(box,item)
+end)
+
+trusted('ChangeTradeNpcStock',function(owner,character,item,count,add,key)
+    if not Inventory.Int(count,1000) or type(add)~='boolean' or not requestKey(key) or type(key)~='string' then
+        return false,'invalid_request'
+    end
+    local ok,box=npcBox(owner,character,item)
+    if not ok then return false,box end
+    local actor='resource:'..owner
+    local fingerprint=json.encode({'npc-stock',character,item,count,add})
+    local checked,replay=Inventory.Replay(key,actor,fingerprint)
+    if not checked then return false,replay end
+    if replay then return true,key end
+    return Inventory.Change({key=key,actor=actor,fingerprint=fingerprint},box,add,item,count)
+end)
