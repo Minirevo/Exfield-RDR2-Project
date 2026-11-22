@@ -31,6 +31,7 @@ server_scripts {
     'server/database.lua',
     'server/accounts.lua',
     'server/transactions.lua',
+    'server/trade_holds.lua',
     'server/commands.lua',
     'server/banking.lua',
 }
