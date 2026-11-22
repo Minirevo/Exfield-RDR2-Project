@@ -1,0 +1,4 @@
+CREATE TABLE IF NOT EXISTS frontier_trade_npc_ticks (
+    owner_id VARCHAR(48) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+    last_epoch BIGINT UNSIGNED NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
