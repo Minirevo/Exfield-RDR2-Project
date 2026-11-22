@@ -9,4 +9,12 @@ TradeConfig = {
     Batch = 20,
     EscalationHours = 6,
     EscalationPercent = 20,
+    RegionalPricePercent = { valentine=100, saint_denis=110 },
+    PropertyProvider = nil, -- Future resource exporting GetTradePropertyAccess(character,site,action).
+    NpcTickMinutes = 15,
+    NpcEnabled = false, -- Enable after testing supply and simulated treasury issuance.
+    NpcMerchants = {
+        npc_valentine_baker = { market='valentine',item='bread',target=12,minimum=6,maximum=24,produce=2,consume=1,price=25,chance=30 },
+        npc_valentine_store = { market='valentine',item='bread',target=18,minimum=10,maximum=28,produce=0,consume=2,price=30,chance=40 },
+    },
 }
