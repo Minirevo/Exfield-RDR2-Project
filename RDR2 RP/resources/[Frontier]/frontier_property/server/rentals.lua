@@ -5,6 +5,11 @@ local function validInteger(value, max)
     return math.type(value) == 'integer' and value > 0 and value <= max
 end
 
+local function depositFor(price, deposit)
+    if deposit == nil or deposit == 0 then return 0 end
+    if validInteger(deposit, 9000000000000 - price) then return deposit end
+end
+
 local function tell(source, message)
     TriggerClientEvent('chat:addMessage', source, { args = { 'Frontier Vermietung', message } })
 end
@@ -12,6 +17,7 @@ end
 local function locateOffer(source, id)
     local offer = PropertyConfig.GovernmentRentals[id]
     if not offer or not validInteger(offer.price, 9000000000000)
+        or depositFor(offer.price, offer.deposit) == nil
         or not validInteger(offer.seconds, 31536000)
         or GetPlayerRoutingBucket(source) ~= 0 then return nil end
     local ped = GetPlayerPed(source)
@@ -40,19 +46,20 @@ RegisterCommand('grundmiete', function(source, args)
     local id = tonumber(args[2])
     local offer = id and locateOffer(source, id)
     if not offer then return tell(source, 'Gib ein Mietangebot am zuständigen Makler an.') end
+    local deposit = depositFor(offer.price, offer.deposit)
     if args[1] == 'angebot' then
-        return tell(source, ('#%d: $%.2f für %.2f Stunden. Möblieren: %s. Bestätigen: /grundmiete buchen %d %d'):format(
-            id, offer.price / 100, offer.seconds / 3600, offer.furnish and 'ja' or 'nein', id, offer.price
+        return tell(source, ('#%d: $%.2f für %.2f Stunden, Kaution $%.2f. Möblieren: %s. Bestätigen: /grundmiete buchen %d %d %d'):format(
+            id, offer.price / 100, offer.seconds / 3600, deposit / 100, offer.furnish and 'ja' or 'nein', id, offer.price, deposit
         ))
     end
-    if args[1] ~= 'buchen' or tonumber(args[3]) ~= offer.price then
+    if args[1] ~= 'buchen' or tonumber(args[3]) ~= offer.price or tonumber(args[4]) ~= deposit then
         return tell(source, 'Rufe zuerst das aktuelle Angebot auf: /grundmiete angebot NUMMER.')
     end
     local ok, accounts = economy:GetCharacterAccounts(source)
     if not ok or accounts.characterId ~= character or core:GetPlayerCharacterId(source) ~= character
         or locateOffer(source, id) ~= offer then return end
-    local result = MySQL.query.await('CALL frontier_property_rent_reserve_v1(?,?,?,?,?,?)', {
-        id, character, accounts.bank.id, offer.price, offer.seconds, offer.furnish and 1 or 0,
+    local result = MySQL.query.await('CALL frontier_property_rent_reserve_v2(?,?,?,?,?,?,?)', {
+        id, character, accounts.bank.id, offer.price, offer.seconds, offer.furnish and 1 or 0, deposit,
     })
     if core:GetPlayerCharacterId(source) ~= character then return end
     local receipt = result and result[1] and result[1][1]
@@ -80,13 +87,13 @@ RegisterCommand('privatmiete', function(source, args)
     local action = args[1]
     if action == 'angebot' then
         local entry = MySQL.single.await([[
-            SELECT price_cents,duration_seconds,allow_furnish,offer_version
+            SELECT price_cents,duration_seconds,allow_furnish,offer_version,deposit_cents
             FROM frontier_property_private_offers WHERE property_id=?
         ]], { id })
         if core:GetPlayerCharacterId(source) ~= character or not atPrivateAgent(source) then return end
         if not entry then return tell(source, 'Kein privates Mietangebot gefunden.') end
-        return tell(source, ('#%d: $%.2f für %.2f Stunden. Möblieren: %s. Bestätigen: /privatmiete buchen %d %s'):format(
-            id, entry.price_cents / 100, entry.duration_seconds / 3600,
+        return tell(source, ('#%d: $%.2f für %.2f Stunden, Kaution $%.2f. Möblieren: %s. Bestätigen: /privatmiete buchen %d %s'):format(
+            id, entry.price_cents / 100, entry.duration_seconds / 3600, entry.deposit_cents / 100,
             tonumber(entry.allow_furnish) == 1 and 'ja' or 'nein', id, entry.offer_version))
     end
 
@@ -95,16 +102,18 @@ RegisterCommand('privatmiete', function(source, args)
         local price, hours = tonumber(args[3]), tonumber(args[4])
         if not validInteger(price, 9000000000000) or not validInteger(hours, 8760)
             or (args[5] ~= 'ja' and args[5] ~= 'nein') then
-            return tell(source, 'Verwendung: /privatmiete anbieten ID CENT STUNDEN ja|nein.')
+            return tell(source, 'Verwendung: /privatmiete anbieten ID CENT STUNDEN ja|nein [KAUTION_CENT].')
         end
-        sql = 'CALL frontier_property_rent_offer_v1(?,?,?,?,?,?)'
-        parameters = { id, character, false, price, hours * 3600, args[5] == 'ja' and 1 or 0 }
+        local deposit = depositFor(price, args[6] and (tonumber(args[6]) or false))
+        if deposit == nil then return tell(source, 'Gib eine gültige Kaution in Cent an.') end
+        sql = 'CALL frontier_property_rent_offer_v2(?,?,?,?,?,?,?)'
+        parameters = { id, character, false, price, hours * 3600, args[5] == 'ja' and 1 or 0, deposit }
     elseif action == 'buchen' then
         local version = args[3]
         if type(version) ~= 'string' or #version ~= 36 or not version:match('^[0-9a-f%-]+$') then
             return tell(source, 'Rufe zuerst /privatmiete angebot ID auf.')
         end
-        sql = 'CALL frontier_property_private_rent_v1(?,?,?,?)'
+        sql = 'CALL frontier_property_private_rent_v2(?,?,?,?)'
         parameters = { id, character, false, version }
     else
         return tell(source, 'Verwendung: /privatmiete anbieten|angebot|buchen ID.')
@@ -127,7 +136,15 @@ local function settle(rental)
         key = 'property:rent:' .. tostring(rental.id), reason = 'Grundmiete', reference = tostring(rental.id),
     }
     local paid, issue
-    if rental.landlord_bank_id then
+    if rental.deposit_cents > 0 then
+        options.key = options.key .. ':collect'
+        paid, issue = economy:DebitAccount(rental.account_id, rental.price_cents + rental.deposit_cents, options)
+        if paid and rental.landlord_bank_id then
+            options.key = 'property:rent:' .. tostring(rental.id) .. ':landlord'
+            local credited = economy:CreditAccount(rental.landlord_bank_id, rental.price_cents, options)
+            if not credited then return end
+        end
+    elseif rental.landlord_bank_id then
         paid, issue = economy:TransferAccounts(rental.account_id, rental.landlord_bank_id, rental.price_cents, options)
     else
         paid, issue = economy:DebitAccount(rental.account_id, rental.price_cents, options)
@@ -150,13 +167,32 @@ MySQL.ready(function()
             local ok = pcall(function()
                 MySQL.update.await([[UPDATE frontier_property_rentals SET state='expired'
                     WHERE state='active' AND ends_at <= UTC_TIMESTAMP()]])
-                local rows = MySQL.query.await([[SELECT id,account_id,price_cents,landlord_bank_id FROM frontier_property_rentals
+                local rows = MySQL.query.await([[SELECT id,account_id,price_cents,landlord_bank_id,deposit_cents FROM frontier_property_rentals
                     WHERE state='reserved' AND retry_at<=NOW() ORDER BY retry_at,id LIMIT 20]])
                 for _, row in ipairs(rows) do
                     local claimed = MySQL.update.await([[UPDATE frontier_property_rentals
                         SET retry_at=DATE_ADD(NOW(),INTERVAL 30 SECOND)
                         WHERE id=? AND state='reserved' AND retry_at<=NOW()]], { row.id })
                     if claimed == 1 then settle(row) end
+                end
+                local refunds = MySQL.query.await([[SELECT id,account_id,deposit_cents
+                    FROM frontier_property_rentals WHERE state='expired'
+                    AND deposit_refunded=0 AND deposit_cents>0 AND retry_at<=NOW()
+                    ORDER BY retry_at,id LIMIT 20]])
+                for _, row in ipairs(refunds) do
+                    local claimed = MySQL.update.await([[UPDATE frontier_property_rentals
+                        SET retry_at=DATE_ADD(NOW(),INTERVAL 30 SECOND)
+                        WHERE id=? AND state='expired' AND deposit_refunded=0 AND retry_at<=NOW()]], { row.id })
+                    if claimed == 1 then
+                        local refunded = economy:CreditAccount(row.account_id, row.deposit_cents, {
+                            key='property:rent:' .. tostring(row.id) .. ':refund',
+                            reason='Mietkaution zurückgezahlt', reference=tostring(row.id),
+                        })
+                        if refunded then
+                            MySQL.update.await('UPDATE frontier_property_rentals SET deposit_refunded=1 WHERE id=?',
+                                { row.id })
+                        end
+                    end
                 end
             end)
             if not ok then print('[frontier_property] Mietverarbeitung wird wiederholt.') end
