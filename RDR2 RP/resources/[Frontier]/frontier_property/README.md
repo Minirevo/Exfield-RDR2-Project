@@ -88,3 +88,12 @@ under a database lock before payment or registration. This export makes no terra
 pricing or database changes. Plot purchase and expansion still require those workflows.
 
 On staging, `/grundbesitz` shows the current character's first ten active direct holdings and ownership shares using the server's chat resource. No properties are seeded. Use disposable fixture records for a smoke test. Run `lua54 tests/overview.lua` to check identity scope and character changes during a query.
+
+### In-game survey preview
+
+Configure a staging zone in `PropertyConfig.SurveyZones` with a boundary polygon, exclusions
+and a positive integer `priceCentsPerSquareMeter`. No live map zones are enabled by default.
+Run `/grundvermessung start ZONE`, add corners with `punkt`, undo with `zurück`, and preview
+with `prüfen`. Position comes from the server's OneSync player entity in the public bucket.
+The displayed quote uses configured exclusions only. Registered plot overlap, terrain checks,
+payment, ownership changes and approvals still require the claim transaction workflow.
