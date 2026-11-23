@@ -131,4 +131,13 @@ Tenants inspect with `/privatmiete angebot ID` and use the displayed booking com
 the offer invalidates old quotes. A booking reserves the property under the same row lock as
 government rentals and transfers the fixed-term price to the landlord's bank with a durable
 Economy idempotency key. Check the latest request with `/grundmiete status`. This flow does
-not yet handle deposits, lease transfers, co-owner rental approvals or furniture recovery.
+not yet handle lease transfers, co-owner rental approvals or furniture recovery.
+
+### Refundable rental deposits
+Apply `005_deposits.sql` after migration 004. Allow EXECUTE on the three v2 routines. The optional
+`deposit` for government offers and final `KAUTION_CENT` argument for private offers are integer cents.
+A deposit-bearing booking collects rent and deposit in one bank debit. Private rent is then credited
+to the landlord. Rent and refundable liability are separate. On expiry the worker refunds the tenant
+in full. Collection, landlord credit and refund have separate durable receipt keys. A full destination
+account leaves the corresponding payout pending and replayable. Existing zero-deposit contracts
+retain their original payment keys. Stop the resource during migration and run one worker per schema.
