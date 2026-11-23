@@ -15,7 +15,7 @@ local function tell(source, message)
 end
 
 local function locateOffer(source, id)
-    local offer = PropertyConfig.GovernmentRentals[id]
+    local offer = GetPropertyRentalOffer(id)
     if not offer or not validInteger(offer.price, 9000000000000)
         or depositFor(offer.price, offer.deposit) == nil
         or not validInteger(offer.seconds, 31536000)
