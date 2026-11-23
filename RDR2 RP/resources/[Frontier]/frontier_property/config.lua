@@ -10,6 +10,15 @@ PropertyConfig = {
     FurnishingRooms = {}, -- By property ID: min, max, bucket and capacity.
     FurnitureCatalog = {}, -- By key: model, positive price in cents and collision radius.
     FurnitureRecoveryAgent = nil,
+    ConstructionPlans = {}, -- Model, radius, value in cents, and stages with item/count/tool.
+    Upkeep = {
+        enabled = false,
+        rateBps = 100,
+        intervalSeconds = 86400,
+        forecloseDebtCents = 10000,
+        graceSeconds = 604800,
+        treasuryBank = nil,
+    },
     ForeclosureDeductionBps = 3000,
     ForeclosureStatePenaltyBps = 5000,
 
