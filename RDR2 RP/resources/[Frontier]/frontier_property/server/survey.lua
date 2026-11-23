@@ -84,7 +84,7 @@ local function contact(left, right)
     return false
 end
 
-local function validateSurvey(points, allowedZone, blockedZones)
+function ValidatePropertySurvey(points, allowedZone, blockedZones)
     local plot, area = polygon(points)
     if not plot then return nil, area end
     if area < PropertyConfig.SurveyMinArea or area > PropertyConfig.SurveyMaxArea then
@@ -109,4 +109,4 @@ local function validateSurvey(points, allowedZone, blockedZones)
 end
 
 -- Call only with authoritative allowed and blocked polygons, in metres.
-exports('ValidatePropertySurvey', validateSurvey)
+exports('ValidatePropertySurvey', ValidatePropertySurvey)
