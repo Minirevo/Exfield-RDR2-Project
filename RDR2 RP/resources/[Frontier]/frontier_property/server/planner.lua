@@ -18,7 +18,7 @@ end
 
 RegisterNetEvent('frontier_property:plannerStart', function()
     local player = source
-    if rateLimit(player) then return end
+    if rateLimit(player) or (sessions[player] and sessions[player].busy) then return end
     local actor, origin = core:GetPlayerCharacterId(player), position(player)
     if not actor or not origin then return end
     local zones = {}
@@ -26,6 +26,7 @@ RegisterNetEvent('frontier_property:plannerStart', function()
         if zone.enablePurchase == true then zones[#zones + 1] = key end
     end
     table.sort(zones)
+    if PropertyConfig.WorldSurvey and PropertyConfig.WorldSurvey.enabled then table.insert(zones,1,'world') end
     sessions[player] = { actor=actor, origin=origin, expires=os.time()+600 }
     TriggerClientEvent('frontier_property:plannerOpen',player,{radius=radius,zones=zones})
 end)
