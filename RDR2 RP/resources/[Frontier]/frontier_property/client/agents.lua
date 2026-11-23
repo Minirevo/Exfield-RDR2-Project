@@ -22,9 +22,14 @@ RegisterNUICallback('command',function(payload,cb)
     local text=payload and payload.command
     local allowed=type(text)=='string' and #text<=120 and text:match('^[%w _%-]+$')
         and (text:find('grundmiete ',1,true)==1 or text:find('privatmiete ',1,true)==1
-            or text:find('grundverkauf ',1,true)==1)
-    if visible and allowed then ExecuteCommand(text) end
-    cb({ok=visible and not not allowed})
+            or text:find('grundverkauf ',1,true)==1 or text:find('grundzimmer ',1,true)==1
+            or text:find('grundbau vorschau ',1,true)==1)
+    local accepted=visible and not not allowed
+    if accepted then
+        if text:find('grundzimmer ',1,true)==1 or text:find('grundbau vorschau ',1,true)==1 then close() end
+        ExecuteCommand(text)
+    end
+    cb({ok=accepted})
 end)
 
 CreateThread(function()
