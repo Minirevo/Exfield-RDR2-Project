@@ -84,7 +84,7 @@ local function snapshot(source,id)
         SELECT id,recipe,mode,batches,state,wage_minor,output_units,duration_seconds,
             IF(mode='npc' AND state='running',
                GREATEST(0,TIMESTAMPDIFF(SECOND,UTC_TIMESTAMP(),completes_at)),remaining_seconds) AS remaining
-        FROM frontier_production_jobs WHERE owner_id=? AND state NOT IN ('rejected','collected')
+        FROM frontier_production_jobs WHERE owner_id=? AND state<>'rejected'
         ORDER BY state IN ('complete','cancelled'), created_at DESC,id LIMIT 40
     ]],{id})
     if not read then return false,jobs end
@@ -215,9 +215,9 @@ local function action(source,id,key,name,data)
         -- the completed jobs visible.
         local stored,box=inventory:GetProductionStorage(id,cfg.StorageSlots,cfg.StorageGrams)
         if stored and tonumber(box.units)==0 then
-            local marked,reason=db('update',[[UPDATE frontier_production_jobs
-                SET state='collected' WHERE owner_id=? AND state='complete']],{id})
-            if not marked then log('warn','Could not mark collected production jobs',{owner=id,reason=reason}) end
+            local marked,reason=db('update',[[DELETE FROM frontier_production_jobs
+                WHERE owner_id=? AND state='complete']],{id})
+            if not marked then log('warn','Could not clear collected production jobs',{owner=id,reason=reason}) end
         end
         return true
     end
