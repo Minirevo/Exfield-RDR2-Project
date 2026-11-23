@@ -131,7 +131,7 @@ Tenants inspect with `/privatmiete angebot ID` and use the displayed booking com
 the offer invalidates old quotes. A booking reserves the property under the same row lock as
 government rentals and transfers the fixed-term price to the landlord's bank with a durable
 Economy idempotency key. Check the latest request with `/grundmiete status`. This flow does
-not yet handle lease transfers, co-owner rental approvals or furniture recovery.
+supports sole-owner rental offers. Co-owner authorization for offering a rental remains outside that command.
 
 ### Refundable rental deposits
 Apply `005_deposits.sql` after migration 004. Allow EXECUTE on the three v2 routines. The optional
@@ -154,3 +154,14 @@ the placed furniture from clients and preserves it in persistent recovery; use
 `/grundmoebel lager` at the recovery agent and `/grundmoebel auslagern ID MODELL NUMMER`
 to place it elsewhere without a second charge. Confirm model size, doors, collision and
 synchronization in RedM. Furniture bought here is a persistent property asset.
+
+### Character property sales and lease assumption
+Apply `007_sales.sql` and configure a public `SaleAgent` vector3. At the agent, a character
+owner offers the property to an online buyer with `/grundverkauf anbieten OBJEKT SPIELER CENT`.
+All character co-owners must approve the fixed offer with `zustimmen ANGEBOT`. Both sides
+can inspect with `info ANGEBOT`. The buyer uses `kaufen ANGEBOT CENT`, adding `miete-ja`
+to explicitly accept the existing prepaid lease. A replacement lease invalidates the offer.
+A sale is blocked by outstanding debt, pending rentals or pending furniture purchases.
+The worker debits the buyer and pays owner shares by replayable receipts before transferring
+ownership. Active tenancy continues. Former non-tenant furniture is moved to recovery.
+A full destination bank account leaves settlement pending. Use one worker per schema.
