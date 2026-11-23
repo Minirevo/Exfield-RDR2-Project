@@ -36,7 +36,7 @@ function render(){
     if(!rows.length)content.append(paragraph('Keine Einträge verfügbar.'));
     for(const entry of rows){
         const row=document.createElement('article'),title=document.createElement('h2');
-        title.textContent=entry.label||entry.model;
+        title.textContent=entry.label||entry.model||entry.key;
         row.append(title);
         if(section==='listings'){
             row.append(paragraph(entry.kind+' · '+number(entry.price)+' · Kaution '+number(entry.deposit)
@@ -49,6 +49,20 @@ function render(){
             if(yes(entry.buyer))confirm(row,entry.lease?'Kaufen und Mietvertrag übernehmen':'Kaufen',
                 'grundverkauf kaufen '+entry.id+' '+entry.price+(entry.lease?' miete-ja':''));
             else confirm(row,'Verkauf zustimmen','grundverkauf zustimmen '+entry.id);
+        }else if(section==='leases'){
+            row.append(paragraph('Aktiver Mietvertrag'));
+            if(entry.enter)confirm(row,'Innenraum betreten','grundzimmer '+entry.id);
+        }else if(section==='plans'){
+            row.append(paragraph('Radius '+entry.radius+' m · Schätzwert '+number(entry.value||0)));
+            const select=document.createElement('select');
+            for(const property of snapshot.owns||[])select.add(new Option(property.label,property.id));
+            if(select.options.length){
+                row.append(select);
+                row.append(button('Vorschau am Bauplatz',async()=>{
+                    try{await send('command',{command:'grundbau vorschau '+select.value+' '+entry.key});}
+                    catch{notice.textContent='Die Vorschau konnte nicht geöffnet werden.';}
+                }));
+            }else row.append(paragraph('Kein eigener Bauplatz vorhanden.'));
         }else if(section==='owns')row.append(paragraph('Eigentumsanteil: '+(entry.share/100)+' %'));
         else row.append(paragraph('Lagernummer '+entry.id+' · Im Zielraum auslagern.'));
         content.append(row);
