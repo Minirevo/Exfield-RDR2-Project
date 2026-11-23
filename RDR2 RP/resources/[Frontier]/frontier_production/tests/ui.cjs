@@ -49,6 +49,14 @@ async function main(){
         await page.getByRole('button',{name:'Abholen',exact:true}).click();
         for(let i=0;i<100&&actions.length<2;i++)await new Promise(resolve=>setTimeout(resolve,20));
         assert.deepEqual(actions[1].data,{item:'bread',quantity:1});
+
+        state.jobs=[{id:'00000000-0000-0000-0000-000000000001',name:'Brot backen',
+            output_units:2,mode:'player',status:'In Arbeit',state:'running',remaining:120,duration_seconds:300,wage_minor:0}];
+        await send({type:'open',snapshot:state});
+        await page.getByRole('button',{name:'Auftrag abbrechen und Zutaten zurückgeben'}).click();
+        for(let i=0;i<100&&actions.length<3;i++)await new Promise(resolve=>setTimeout(resolve,20));
+        assert.deepEqual(actions[2].data,{job:'00000000-0000-0000-0000-000000000001'});
+
         await page.keyboard.press('Escape');
         await page.locator('body').waitFor({state:'hidden'});
         assert.deepEqual(errors,[]);
