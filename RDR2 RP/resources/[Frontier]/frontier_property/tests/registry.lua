@@ -10,7 +10,7 @@ MySQL = {
     end },
     scalar = { await = function(sql, args)
         assert(sql:find('frontier_character_identities', 1, true))
-        assert(args[1] == actor and args[2] == 'enter' and args[5] == 9)
+        assert(args[1] == 'enter' and args[3] == actor and args[8] == 9)
         calls = calls + 1
         return decision
     end },
@@ -32,3 +32,4 @@ assert(not exported.CanAccessProperty(actor, 9, 'enter'))
 decision = 1
 assert(exported.CanAccessProperty(actor, 9, 'enter') and calls == 5)
 print('Property registry Lua contract passed')
+
