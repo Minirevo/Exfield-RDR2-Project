@@ -1,6 +1,6 @@
 # Frontier Property
 
-First milestone: persistent, server-only property registry. No properties are seeded.
+First milestone: persistent, server-only property registry. Default government properties are seeded under stable keys.
 This resource provides a read-only overview, land purchase, fixed-term rental, furnishings and recovery, construction, property sales and foreclosure. World interactions are opt-in through config and need a server-specific staging check.
 
 ## Repository audit
@@ -116,7 +116,7 @@ reservation conflicts, successful registration, replay and refusal.
 Apply `003_rentals.sql` before starting the updated resource. Configure active buildings owned
 100% by the government with tested interior keys, and set an offer by property ID in
 `GovernmentRentals` (`price = 1000, seconds = 86400, furnish = false`).
-No offers are seeded. At the configured agent position use `/grundmiete angebot ID` and
+Default government offers are seeded automatically. At the configured agent position use `/grundmiete angebot ID` and
 the displayed booking command. A reserved contract serializes bookings and the worker
 debits the bank once before activating the time-limited lease. The access API recognizes
 active tenants. Keep one worker per database. Grant runtime SELECT and UPDATE on
@@ -145,7 +145,7 @@ retain their original payment keys. Stop the resource during migration and run o
 Apply `006_furniture.sql`. Grant SELECT and UPDATE on the furniture table and EXECUTE on
 the placement routine. Configure `FurnishingRooms` by property ID with surveyed
 `min`/`max` vector3 bounds, routing bucket and a capacity no greater than 100. The shipped furniture catalogue includes a bed, chest, cupboard, table and workshop table.
-Model identifiers were checked against the RDR3 Discoveries data. Review collision and clearances in RedM. The shared agent lists recovered furnishings. No rooms are enabled by default.
+Model identifiers were checked against the RDR3 Discoveries data. Review collision and clearances in RedM. The shared agent lists recovered furnishings. Seeded government buildings include default furnishing rooms.
 Use `/grundmoebel kaufen ID MODELL CENT` inside a supported room to place furniture at
 your position and heading. Renters need a live lease permitting furnishing. Expiry removes
 the placed furniture from clients and preserves it in persistent recovery; use
@@ -198,7 +198,7 @@ A full payout account keeps the settlement pending. Use one worker per schema.
 
 ### Staging checklist
 
-Apply Core and Economy migrations first, then Property 001 through 010 in order on a disposable
+Apply Core and Economy migrations first, then Property 001 through 011 in order on a disposable
 database, then start Inventory, Economy, chat and Property with OneSync. Keep upkeep disabled
 until other test cases finish. Configure one reviewed survey zone, building/room, rental agent,
 furniture model, sale agent and construction plan for the test. Use two characters and test:
@@ -214,8 +214,7 @@ Approach the default agent in Valentine, Rhodes, Saint Denis or Blackwater and p
 The same agent covers rentals, sale approvals and purchase, owned-property information and recovery
 listings. The menu uses existing server transaction handlers, with proximity verified from OneSync.
 The default locations are in `shared/agents.lua`. Exact terrain height, placement and NPC model
-streaming still need a live RedM check. This version lists configured government rentals and
-existing private offers. Automatic discovery and seeding of government buildings is not included.
+streaming still need a live RedM check. The menu lists seeded and custom government rentals alongside private offers.
 Existing chat commands still handle owner listings, offers and furnishing or construction outside
 the agent interface.
 
@@ -226,4 +225,33 @@ points on the north-up grid, remove a point with right-click, and undo with the 
 shows local world metres around the server-observed origin and is not a terrain overlay.
 The server checks geometry, existing reservations and exclusions, and issues the price. Confirm
 that quote to create the existing durable land-purchase reservation. Leave the grid open at the
-original position while submitting a quote. This workflow still requires enabled purchase zones.
+original position while submitting a quote. The Spielwelt option uses the default country coverage. Custom zones can also be enabled.
+
+## Default world, rentals and building plans
+
+Apply migration 011 after 010 and grant EXECUTE on `frontier_property_seed_v1`. The deployed
+resource now registers a curated government catalogue under stable keys. Existing properties at
+the same interior or within ten metres are skipped. No IDs or rental offers need manual entry.
+Four entries cover Valentine, Strawberry and Saint Denis. The common agent shows vacancies, and
+`Meine Mietobjekte` offers access to a leased default room. `/grundzimmer verlassen` returns you
+to the originating agent. Rooms use reserved routing buckets and conservative furnishing boxes.
+Disable individual titles with `DisabledGovernmentBuildings` if another resource uses their sites.
+Bring default agents and the known interiors through a live RedM smoke test. Interior anchors
+are drawn from RDR3 Discoveries and are not surveyed room collision meshes.
+
+`/grundplan` now offers Spielwelt by default, without defining zones. Existing custom zones still
+work. The server applies town buffers, 290 deduplicated interior anchors and any extra configured
+exclusions, then checks all prior land reservations and purchases. The catalogue cannot detect every
+road, mission script, doorway, shoreline or building without a mapped interior. RedM terrain and
+isolated-room behavior require live verification. Extend the country exclusions centrally.
+
+Default plans include a shelter, shack and cabin made from Frontier wood, planks and iron.
+The plans are public; custom plans may still require a blueprint item. Select a plan and plot at
+the shared agent or open `/grundbau vorschau GRUNDSTÜCK PLAN`. Walk the ghost to the position,
+rotate with R, confirm a green footprint with E, or cancel with Esc. The footprint is a conservative
+circle and server confirmation reruns plot boundary and structure checks. Material work is staged.
+Model dimensions, collision and native handling require your final in-game test.
+
+Data references: [RDR3 interior anchors](https://github.com/femga/rdr3_discoveries/blob/master/interiors/interiors_coords_and_hashes.lua),
+[object models](https://github.com/femga/rdr3_discoveries/blob/master/objects/object_list.lua) and
+[marker types](https://github.com/femga/rdr3_discoveries/blob/master/graphics/markers/marker_types.lua).
