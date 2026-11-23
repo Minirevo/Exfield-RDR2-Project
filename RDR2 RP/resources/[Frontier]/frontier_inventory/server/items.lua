@@ -6,6 +6,70 @@ local defaults = {
     tonic = { name = 'Heiltonikum', description = 'Eine Flasche mit etikettiertem Inhalt.', grams = 280,
         maxStack = 5, category = 'Medizin', usable = true, metadata = '{"charge":"standard"}' },
     lantern = { name = 'Laterne', description = 'Eine tragbare Laterne.', grams = 2200,
+	    -- Production materials
+    flour = {
+        name = 'Mehl',
+        description = 'Fein gemahlenes Getreidemehl.',
+        grams = 1000,
+        maxStack = 20,
+        category = 'Rohstoffe'
+    },
+
+    meat = {
+        name = 'Rohes Fleisch',
+        description = 'Frisches rohes Fleisch.',
+        grams = 500,
+        maxStack = 10,
+        category = 'Nahrung'
+    },
+
+    cooked_meat = {
+        name = 'Gebratenes Fleisch',
+        description = 'Eine frisch zubereitete Portion Fleisch.',
+        grams = 450,
+        maxStack = 10,
+        category = 'Nahrung'
+    },
+
+    wood = {
+        name = 'Holz',
+        description = 'Ein Stück unbearbeitetes Holz.',
+        grams = 2000,
+        maxStack = 20,
+        category = 'Rohstoffe'
+    },
+
+    planks = {
+        name = 'Holzbretter',
+        description = 'Verarbeitete Holzbretter.',
+        grams = 1500,
+        maxStack = 20,
+        category = 'Materialien'
+    },
+
+    iron_ore = {
+        name = 'Eisenerz',
+        description = 'Roherz mit einem hohen Eisenanteil.',
+        grams = 2500,
+        maxStack = 20,
+        category = 'Rohstoffe'
+    },
+
+    coal = {
+        name = 'Kohle',
+        description = 'Brennstoff für Öfen und Schmelzarbeiten.',
+        grams = 1000,
+        maxStack = 20,
+        category = 'Rohstoffe'
+    },
+
+    iron_ingot = {
+        name = 'Eisenbarren',
+        description = 'Ein geschmolzener und gegossener Eisenbarren.',
+        grams = 2000,
+        maxStack = 10,
+        category = 'Materialien'
+    },
         maxStack = 1, category = 'Werkzeug', condition = true, classification = 'tool', metadata = '{"condition":100}' },
 }
 

@@ -393,9 +393,48 @@ RegisterCommand('inventarlager', function(source)
 end, false)
 
 RegisterCommand('frontier_inv_test', function(source, args)
-    if source == 0 or not Config.Development or not core:HasPermission(source, Config.AdminAce) then return end
-    local ok, issue = change(Inventory.resource, source, false, true, args[1], tonumber(args[2]) or 1)
-    TriggerClientEvent(events .. 'notice', source, ok and 'Testgegenstand hinzugefügt.' or message(issue))
+    local allowed = source ~= 0
+		and IsPlayerAceAllowed(source, Config.AdminAce)
+
+    Inventory.Log('INFO', 'Test command invoked', {
+        source = source,
+        development = Config.Development,
+        permission = allowed,
+        ace = Config.AdminAce,
+        item = args[1],
+        quantity = args[2]
+    })
+
+    if source == 0 then
+        return
+    end
+
+    if not Config.Development then
+        TriggerClientEvent(events .. 'notice', source, 'Development-Modus ist deaktiviert.')
+        return
+    end
+
+    if not allowed then
+        TriggerClientEvent(events .. 'notice', source, 'Keine Berechtigung für diesen Befehl.')
+        return
+    end
+
+    local ok, issue = change(
+        Inventory.resource,
+        source,
+        false,
+        true,
+        args[1],
+        tonumber(args[2]) or 1
+    )
+
+    Inventory.Log('INFO', 'Test command result', {
+        success = ok,
+        result = issue
+    })
+
+    TriggerClientEvent(events .. 'notice', source,
+        ok and 'Testgegenstand hinzugefügt.' or message(issue))
 end, false)
 
 trusted('GetTradeItemDefinition', function(owner, item)
