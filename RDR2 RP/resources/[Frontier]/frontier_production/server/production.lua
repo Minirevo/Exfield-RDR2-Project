@@ -84,7 +84,7 @@ local function snapshot(source,id)
         SELECT id,recipe,mode,batches,state,wage_minor,output_units,duration_seconds,
             IF(mode='npc' AND state='running',
                GREATEST(0,TIMESTAMPDIFF(SECOND,UTC_TIMESTAMP(),completes_at)),remaining_seconds) AS remaining
-        FROM frontier_production_jobs WHERE owner_id=? AND state<>'rejected'
+        FROM frontier_production_jobs WHERE owner_id=? AND state NOT IN ('rejected','collected')
         ORDER BY state IN ('complete','cancelled'), created_at DESC,id LIMIT 40
     ]],{id})
     if not read then return false,jobs end
@@ -207,7 +207,19 @@ local function action(source,id,key,name,data)
             items={{id=data.item,count=data.quantity}}
         end
         if owner(source)~=id then return false,'forbidden' end
-        return inventory:ApplyProductionInventory('collect',id,key..':collect',storageOptions(items))
+        local collected,issue=inventory:ApplyProductionInventory('collect',id,key..':collect',storageOptions(items))
+        if not collected then return false,issue end
+
+        -- Completed jobs share one output warehouse. Clear their history only
+        -- once the warehouse is completely empty, so partial collections keep
+        -- the completed jobs visible.
+        local stored,box=inventory:GetProductionStorage(id,cfg.StorageSlots,cfg.StorageGrams)
+        if stored and tonumber(box.units)==0 then
+            local marked,reason=db('update',[[UPDATE frontier_production_jobs
+                SET state='collected' WHERE owner_id=? AND state='complete']],{id})
+            if not marked then log('warn','Could not mark collected production jobs',{owner=id,reason=reason}) end
+        end
+        return true
     end
     return false,'invalid'
 end
