@@ -14,7 +14,7 @@ local function boundaries()
     return revision, blocked
 end
 
-function ReservePropertyLand(source, character, zoneKey, points, expectedCost)
+function QuotePropertyLand(zoneKey, points)
     local zone = PropertyConfig.SurveyZones[zoneKey]
     if not zone or zone.enablePurchase ~= true or #zoneKey > 64
         or not zoneKey:match('^[a-z0-9_-]+$') then return nil, 'disabled' end
@@ -28,6 +28,13 @@ function ReservePropertyLand(source, character, zoneKey, points, expectedCost)
     if not area then return nil, 'unavailable' end
     local price = math.ceil(area * rate)
     if price > 9000000000000 then return nil, 'invalid_price' end
+    return { price = price, area = area, revision = revision }
+end
+
+function ReservePropertyLand(source, character, zoneKey, points, expectedCost)
+    local quote, issue = QuotePropertyLand(zoneKey, points)
+    if not quote then return nil, issue end
+    local price, area, revision = quote.price, quote.area, quote.revision
     if price ~= expectedCost then return nil, 'price_changed' end
     local ok, accounts = economy:GetCharacterAccounts(source)
     if not ok or accounts.characterId ~= character or core:GetPlayerCharacterId(source) ~= character then
