@@ -255,3 +255,34 @@ Model dimensions, collision and native handling require your final in-game test.
 Data references: [RDR3 interior anchors](https://github.com/femga/rdr3_discoveries/blob/master/interiors/interiors_coords_and_hashes.lua),
 [object models](https://github.com/femga/rdr3_discoveries/blob/master/objects/object_list.lua) and
 [marker types](https://github.com/femga/rdr3_discoveries/blob/master/graphics/markers/marker_types.lua).
+
+## Property overhaul
+
+Apply `012_property_management.sql` after 011. The runtime needs EXECUTE on
+`frontier_property_manage_v1`, SELECT on the existing catalogue and permission tables.
+Migration 012 retains every old lease and prevents new government reservations. The agent
+only lists private offers. Existing tenants keep access, deposit refunds and furniture recovery.
+The resource no longer seeds government rooms. Existing catalogue entries remain available
+until their leases expire.
+
+Use `/grundstück` or `/grundstueck` for the property manager. Owners can rename an active
+property, grant/revoke an individual permission and publish or retract a private rental offer. The
+name registry prevents case-insensitive duplicates among custom names. Existing generated
+labels are retained; renames also check them. Other owners and tenants keep their roles.
+
+Use `/grundgrenze start`, then walk each corner and mark it with `/grundgrenze punkt`.
+`zurueck`, `neustart`, `fertig` and `abbrechen` control the walking session. The server samples
+OneSync positions and supplies the price. The on-screen polygon is a grid overlay while
+walking, with world point markers. The original clickable planner remains available.
+
+Select “Bauplan abholen” at the shared agent or use `/bauplan`. The Inventory item is
+reusable and opens the catalogue on an owned plot. The catalogue displays candidate
+models and material stages. New placement requires an actually verified interior;
+the supplied candidates remain disabled pending validation. Existing construction jobs remain playable. In-progress sites show the saved stage as a stockpile model. See [asset review](ASSET_REVIEW.md).
+
+Apply `013_furniture_management.sql` and grant EXECUTE on
+`frontier_property_furniture_manage_v1`. In a supported room use
+`/grundmoebel liste OBJEKT`, `einlagern OBJEKT MÖBEL` or
+`verschieben OBJEKT MÖBEL [WINKEL]`. These move assets into recovery or relocate
+them with the room's radius and collision checks. An owner can set separate permissions
+for moving/removing. Physical furniture still belongs to the purchasing character.
