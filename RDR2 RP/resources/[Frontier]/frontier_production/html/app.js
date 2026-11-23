@@ -80,6 +80,9 @@ function render(){
         node.append(progress);
         if(job.state==='unpaid')node.append(button('Lohn erneut prüfen',()=>submit('resume',{job:job.id})),
             button('Stornieren und Zutaten zurückgeben',()=>submit('cancel',{job:job.id})));
+        else if(job.state==='running')node.append(button('Auftrag abbrechen und Zutaten zurückgeben',
+            ()=>submit('cancel',{job:job.id})));
+        else if(job.state==='return')node.append(line(node,'Zutaten werden zurückgegeben …'));
     }
     for(const item of rows(data.goods)){
         const node=line(el('goods'),item.name+' × '+item.count+(item.description?' · '+item.description:''));
