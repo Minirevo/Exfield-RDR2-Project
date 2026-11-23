@@ -1,7 +1,7 @@
 # Frontier Property
 
 First milestone: persistent, server-only property registry. No properties are seeded.
-This branch contains a read-only in-game overview, registry and server-side policy and survey checks. Property transactions and furnishing are pending.
+This branch contains a read-only in-game overview, registry and server-side policy and survey checks. Land purchase is enabled per configured zone. Other property transactions and furnishing are pending.
 
 ## Repository audit
 
@@ -95,5 +95,20 @@ Configure a staging zone in `PropertyConfig.SurveyZones` with a boundary polygon
 and a positive integer `priceCentsPerSquareMeter`. No live map zones are enabled by default.
 Run `/grundvermessung start ZONE`, add corners with `punkt`, undo with `zurück`, and preview
 with `prüfen`. Position comes from the server's OneSync player entity in the public bucket.
-The displayed quote uses configured exclusions only. Registered plot overlap, terrain checks,
-payment, ownership changes and approvals still require the claim transaction workflow.
+The displayed quote uses configured exclusions only. The purchase step checks registered plot
+boundaries again before payment. Add authoritative map and terrain exclusions before enabling purchases.
+
+### Land purchase
+Apply `002_land.sql` after Core and Property 001 using a MariaDB client supporting DELIMITER.
+Start Economy before Property. Grant Property SELECT on both land tables, UPDATE on claim retry
+timestamps and EXECUTE on the two Land procedures. The Economy allowlist on this branch includes
+Property. Use one Property worker per schema.
+
+Each configured purchasing zone must be reviewed for terrain and map restrictions. Enter its
+boundary and exclusion polygons, set the rate, and explicitly set `enablePurchase = true`.
+After previewing, use `/grundvermessung kaufen` to reserve the plot and debit the character's
+bank account. Use `/grundvermessung status` to see whether the latest purchase is pending,
+registered or declined. The ordered revision prevents overlapping claims from winning the same
+race. A persisted reservation blocks overlap even during retries. The worker reuses the debit key
+after interruptions. Insufficient funds releases the reservation. See the SQL fixture for
+reservation conflicts, successful registration, replay and refusal.
