@@ -25,7 +25,8 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
             listings:[{label:'Testhaus',kind:'Staatlich',id:3,price:1000,deposit:500,duration:3600,furnish:true,available:true},
                 {label:'Belegt',kind:'Privat',price:2000,deposit:100,duration:3600,available:false}],
             sales:[{id:9,label:'Mietobjekt',price:20000,lease:7,buyer:true}],
-            owns:[{label:'Land',share:5000}],recovery:[{id:2,model:'bett'}]};
+            owns:[{id:12,label:'Land',share:5000}],recovery:[{id:2,model:'bett'}],
+            leases:[{id:3,label:'Testzimmer',enter:true}],plans:[{key:'huette',label:'Hütte',radius:4,value:9000}]};
         await page.evaluate(input=>window.postMessage({action:'open',data:input},'*'),data);
         await page.getByRole('heading',{name:'Testhaus'}).waitFor();
         assert.equal(await page.getByRole('button',{name:'Mieten',exact:true}).count(),1);
@@ -43,6 +44,16 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
         assert.deepEqual(commands.at(-1),['command',{command:'grundverkauf kaufen 9 20000 miete-ja'}]);
         await page.getByRole('button',{name:'Rückgabelager'}).click();
         await page.getByRole('heading',{name:'bett'}).waitFor();
+        await page.getByRole('button',{name:'Meine Mietobjekte'}).click();
+        await page.getByRole('heading',{name:'Testzimmer'}).waitFor();
+        await page.getByRole('button',{name:'Innenraum betreten'}).click();
+        await Promise.all([page.waitForResponse(r=>r.url()==='https://frontier_property/command'),
+            page.getByRole('button',{name:'Bestätigen'}).click()]);
+        assert.deepEqual(commands.at(-1),['command',{command:'grundzimmer 3'}]);
+        await page.getByRole('button',{name:'Baupläne'}).click();
+        await Promise.all([page.waitForResponse(r=>r.url()==='https://frontier_property/command'),
+            page.getByRole('button',{name:'Vorschau am Bauplatz'}).click()]);
+        assert.deepEqual(commands.at(-1),['command',{command:'grundbau vorschau 12 huette'}]);
         assert.deepEqual(errors,[]);
         console.log('Property agent NUI passed');
     }finally{await browser.close();}
