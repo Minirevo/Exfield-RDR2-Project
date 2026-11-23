@@ -84,8 +84,8 @@ local function snapshot(source,id)
         SELECT id,recipe,mode,batches,state,wage_minor,output_units,duration_seconds,
             IF(mode='npc' AND state='running',
                GREATEST(0,TIMESTAMPDIFF(SECOND,UTC_TIMESTAMP(),completes_at)),remaining_seconds) AS remaining
-        FROM frontier_production_jobs WHERE owner_id=?
-        ORDER BY state IN ('complete','cancelled','rejected'), created_at DESC,id LIMIT 40
+        FROM frontier_production_jobs WHERE owner_id=? AND state<>'rejected'
+        ORDER BY state IN ('complete','cancelled'), created_at DESC,id LIMIT 40
     ]],{id})
     if not read then return false,jobs end
     local known,bag=inventory:GetInventory(source)
@@ -120,11 +120,29 @@ local function materialSnapshot(recipe,batches)
     return items
 end
 
-local function start(id,key,data)
+local function start(source,id,key,data)
     if type(data.recipe)~='string' or not integer(data.batches,cfg.MaxBatches)
         or (data.mode~='player' and data.mode~='npc') or data.confirm~=true then return false,'invalid' end
     local recipe=cfg.Recipes[data.recipe]
     if not recipe or recipe[data.mode]~=true then return false,'invalid' end
+
+    local known,bag=inventory:GetInventory(source)
+    if not known then return false,bag end
+    local counts={}
+    for _,stack in pairs(bag.slots or {}) do
+        counts[stack.item]=(counts[stack.item] or 0)+stack.quantity
+    end
+    local missing={}
+    for item,count in pairs(recipe.inputs) do
+        local required=count*data.batches
+        local absent=required-(counts[item] or 0)
+        if absent>0 then missing[#missing+1]=absent..'x '..itemName(item) end
+    end
+    if #missing>0 then
+        table.sort(missing)
+        return false,'missing:Nicht genügend Rohstoffe: '..table.concat(missing,', ')..'.'
+    end
+
     local seconds=recipe.seconds*data.batches
     local cost=data.mode=='npc' and math.ceil(seconds*cfg.WageMinor/cfg.WageIntervalSeconds) or 0
     local saved,result=db('query','CALL frontier_production_start_v1(?,?,?,?,?,?,?,?,?,?,?)',
@@ -137,22 +155,39 @@ end
 
 local function action(source,id,key,name,data)
     if name=='refresh' then return true end
-    if name=='start' then return start(id,key,data) end
+    if name=='start' then return start(source,id,key,data) end
     if name=='hire' or name=='dismiss' then
         local ok,rows=db('query','CALL frontier_production_employee_v1(?,?)',{id,name})
         if not ok then return false,rows end
         local code=rows and rows[1] and rows[1][1] and rows[1][1].code
         return code=='ok',code or 'database_error'
     end
-    if name=='resume' or name=='cancel' then
+    if name=='resume' then
         if not uuid(data.job) then return false,'invalid' end
-        local nextState=name=='resume' and 'wage' or 'return'
         local ok,changed=db('update',[[
             UPDATE frontier_production_jobs j JOIN frontier_production_businesses b ON b.owner_id=j.owner_id
-            SET j.state=?,j.retry_at=UTC_TIMESTAMP(),b.employee='hired'
+            SET j.state='wage',j.retry_at=UTC_TIMESTAMP(),b.employee='hired'
             WHERE j.id=? AND j.owner_id=? AND j.state='unpaid' AND b.employee='unpaid'
-        ]],{nextState,data.job,id})
+        ]],{data.job,id})
         return ok and changed>0,ok and 'unavailable' or changed
+    end
+    if name=='cancel' then
+        if not uuid(data.job) then return false,'invalid' end
+        local ok,changed=db('update',[[
+            UPDATE frontier_production_jobs j JOIN frontier_production_businesses b ON b.owner_id=j.owner_id
+            SET j.state='return',j.retry_at=UTC_TIMESTAMP(),b.employee='hired'
+            WHERE j.id=? AND j.owner_id=? AND j.state='unpaid' AND b.employee='unpaid'
+        ]],{data.job,id})
+        if not ok then return false,changed end
+        if changed>0 then return true end
+        ok,changed=db('update',[[
+            UPDATE frontier_production_jobs SET state='return',retry_at=UTC_TIMESTAMP()
+            WHERE id=? AND owner_id=? AND state='running'
+        ]],{data.job,id})
+        if not ok then return false,changed end
+        if changed>0 then return true end
+        local read,row=db('single','SELECT state FROM frontier_production_jobs WHERE id=? AND owner_id=?',{data.job,id})
+        return read and row and (row.state=='return' or row.state=='cancelled'),'unavailable'
     end
     if name=='collect' then
         local items
@@ -221,6 +256,7 @@ RegisterNetEvent(E..'request',function(ticket,seq,name,data)
         ok,reason=false,'database_error'
     end
     result(source,ticket,seq,ok and true or false,ok and (name=='start' and 'Auftrag eingereicht.' or 'Aktualisiert.')
+        or (type(reason)=='string' and reason:sub(1,8)=='missing:' and reason:sub(9))
         or (texts[reason] or 'Die Aktion ist derzeit nicht möglich.'),observed and loaded and state or nil,not ok and reason=='database_error')
 end)
 
