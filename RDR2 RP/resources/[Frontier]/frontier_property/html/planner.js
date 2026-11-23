@@ -102,7 +102,7 @@ document.addEventListener('keydown',event=>{if(event.key==='Escape')closePlanner
 window.addEventListener('message',event=>{
     if(event.data.action==='plannerOpen'){
         planner.hidden=false;points=[];history=[];pending=false;radius=event.data.data.radius;drag=-1;
-        zone.replaceChildren(...event.data.data.zones.map(name=>new Option(name,name)));
+        zone.replaceChildren(...event.data.data.zones.map(name=>new Option(name==='world'?'Spielwelt':name,name)));
         change();
         if(!zone.value)status.textContent='Auf diesem Server ist keine Kaufzone freigegeben.';
     }else if(event.data.action==='plannerClose')planner.hidden=true;
