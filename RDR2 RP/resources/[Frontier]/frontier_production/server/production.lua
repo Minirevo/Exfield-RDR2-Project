@@ -126,6 +126,15 @@ local function start(source,id,key,data)
     local recipe=cfg.Recipes[data.recipe]
     if not recipe or recipe[data.mode]~=true then return false,'invalid' end
 
+    -- A repeated request must remain successful even if its ingredients have
+    -- already been reserved by the worker after the original submission.
+    local checked,existing=db('single',[[SELECT id FROM frontier_production_jobs
+        WHERE id=? AND owner_id=? AND recipe=? AND mode=? AND batches=?]],{
+        key,id,data.recipe,data.mode,data.batches
+    })
+    if not checked then return false,existing end
+    if existing then return true end
+
     local known,bag=inventory:GetInventory(source)
     if not known then return false,bag end
     local counts={}
