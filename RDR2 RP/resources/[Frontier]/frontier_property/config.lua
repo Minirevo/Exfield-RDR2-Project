@@ -1,4 +1,6 @@
 PropertyConfig = {
+    SurveyMinArea = 25,
+    SurveyMaxArea = 2500,
     ForeclosureDeductionBps = 3000,
     ForeclosureStatePenaltyBps = 5000,
 
