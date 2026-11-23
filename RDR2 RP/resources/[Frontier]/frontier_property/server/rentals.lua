@@ -20,8 +20,7 @@ local function locateOffer(source, id)
         or depositFor(offer.price, offer.deposit) == nil
         or not validInteger(offer.seconds, 31536000)
         or GetPlayerRoutingBucket(source) ~= 0 then return nil end
-    local ped = GetPlayerPed(source)
-    if ped == 0 or #(GetEntityCoords(ped) - offer.agent) > 4 then return nil end
+    if not NearbyPropertyAgent(source) then return nil end
     return offer
 end
 
@@ -70,10 +69,7 @@ RegisterCommand('grundmiete', function(source, args)
 end, false)
 
 local function atPrivateAgent(source)
-    local agent = PropertyConfig.PrivateRentalAgent
-    if not agent or GetPlayerRoutingBucket(source) ~= 0 then return false end
-    local ped = GetPlayerPed(source)
-    return ped ~= 0 and #(GetEntityCoords(ped) - agent) <= 4
+    return NearbyPropertyAgent(source) ~= nil
 end
 
 RegisterCommand('privatmiete', function(source, args)
