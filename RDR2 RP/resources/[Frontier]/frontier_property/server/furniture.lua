@@ -28,9 +28,7 @@ RegisterCommand('grundmoebel', function(source, args)
     local actor = core:GetPlayerCharacterId(source)
     if not actor then return message(source,'Wähle zuerst einen Charakter.') end
     if args[1] == 'lager' then
-        local agent = PropertyConfig.FurnitureRecoveryAgent
-        local position = currentPosition(source)
-        if not agent or not position or GetPlayerRoutingBucket(source) ~= 0 or #(position-agent) > 4 then
+        if not NearbyPropertyAgent(source) then
             return message(source,'Gehe zum Makler für das Rückgabelager.')
         end
         local rows = MySQL.query.await([[SELECT id,model_key FROM frontier_property_furniture
