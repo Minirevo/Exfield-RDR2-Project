@@ -86,7 +86,11 @@ local function purchase(source, propertyId)
         return false, 'Dein Bankkonto ist momentan nicht verfügbar.'
     end
 
-    local requestKey = ('property:%s:%s'):format(propertyId, id)
+    local generated, attempt = db('scalar', 'SELECT UUID()')
+    if not generated or type(attempt) ~= 'string' then
+        return false, 'Der Kauf konnte nicht vorbereitet werden.'
+    end
+    local requestKey = ('property:%s:%s'):format(propertyId, attempt)
     local reserved, changed = db('update', [[
         UPDATE frontier_properties SET state='purchasing',owner_id=?,purchase_bank=?,purchase_key=?
         WHERE id=? AND state='available' AND owner_id IS NULL
