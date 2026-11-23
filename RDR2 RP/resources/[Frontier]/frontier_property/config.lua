@@ -1,5 +1,7 @@
 PropertyConfig = {
     -- Keyed by name. Set boundary, exclusions, and priceCentsPerSquareMeter per staging zone.
+    -- Configure government rentals by property ID with agent vector3, price, seconds and furnish.
+    GovernmentRentals = {},
     SurveyZones = {},
     SurveyMinArea = 25,
     SurveyMaxArea = 2500,
