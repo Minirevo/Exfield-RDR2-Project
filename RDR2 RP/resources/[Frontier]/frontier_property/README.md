@@ -1,7 +1,7 @@
 # Frontier Property
 
 First milestone: persistent, server-only property registry. No properties are seeded.
-This branch is a foundation for review and is not a playable property resource yet.
+This branch contains a read-only in-game overview, registry and server-side policy and survey checks. Property transactions and furnishing are pending.
 
 ## Repository audit
 
@@ -86,3 +86,5 @@ Run `lua54 tests/survey.lua` from the resource directory.
 The calling workflow must supply authoritative map/exclusion and existing plot data and revalidate
 under a database lock before payment or registration. This export makes no terrain, ownership,
 pricing or database changes. Plot purchase and expansion still require those workflows.
+
+On staging, `/grundbesitz` shows the current character's first ten active direct holdings and ownership shares using the server's chat resource. No properties are seeded. Use disposable fixture records for a smoke test. Run `lua54 tests/overview.lua` to check identity scope and character changes during a query.
