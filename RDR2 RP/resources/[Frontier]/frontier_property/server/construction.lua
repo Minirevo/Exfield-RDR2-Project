@@ -52,6 +52,13 @@ local function runBuild(player,args)
         local plan=key and PropertyConfig.ConstructionPlans[key]
         if not plan or type(plan.stages)~='table' or not valid(#plan.stages,64) or type(plan.radius)~='number'
             or not (plan.radius>0 and plan.radius<=50) or type(plan.model)~='string' or #plan.model>64 then return tell(player,'Ungültiger Bauplan.') end
+        if plan.verifiedInterior~=true then
+            return tell(player,'Das Interior dieses Bauplans ist noch nicht für neue Bauten freigegeben.')
+        end
+        local blueprintOk, blueprintHeld=inventory:HasItem(player,'frontier_blueprint',1)
+        if not blueprintOk or not blueprintHeld or core:GetPlayerCharacterId(player)~=actor then
+            return tell(player,'Dafür brauchst du den Bauplan des Grundbuchamts.')
+        end
         if not plan.public and (type(plan.item)~='string' or #plan.item>48) then
             return tell(player,'Für diesen Entwurf fehlt der Bauplan-Gegenstand in der Konfiguration.')
         end
