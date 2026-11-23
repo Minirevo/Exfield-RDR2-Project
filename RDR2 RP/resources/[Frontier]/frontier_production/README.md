@@ -4,6 +4,8 @@
 
 ## Installation
 
+- Abgeschlossene Aufträge bleiben sichtbar, solange sich noch Waren im Produktionslager befinden. Sobald das Lager vollständig abgeholt wurde, werden die zugehörigen abgeschlossenen Aufträge aus der Auftragsliste und Datenbank entfernt.
+
 1. Vorhandene Core-, Economy- und Inventory-Migrationen müssen angewendet sein. `sql/migrations/001_production.sql` in der oxmysql-Datenbank mit einem SQL-Client ausführen, der DELIMITER unterstützt. Die Runtime braucht SELECT/INSERT/UPDATE auf den beiden Produktionstabellen und EXECUTE auf frontier_production_start_v1 und frontier_production_employee_v1.
 2. Die Änderungen an Economy, Inventory und Trade zusammen mit dieser Ressource deployen. Bei eigenen Serverkonfigurationen die bestehenden Allowlist-Einträge erhalten und `frontier_production = true` unter TrustedResources von Economy und Inventory ergänzen.
 3. Oxmysql, VORP Core, Frontier Lib, Core, Economy und Inventory starten, dann `ensure frontier_production`. Frontier Trade kann die konfigurierten Zutaten und Ergebnisse über seinen bestehenden Markt handeln. Für die Produktion selbst ist der Markt optional.
