@@ -2,6 +2,7 @@ PropertyConfig = {
     -- Keyed by name. Set boundary, exclusions, and priceCentsPerSquareMeter per staging zone.
     -- Configure government rentals by property ID with agent vector3, price, seconds and furnish.
     GovernmentRentals = {},
+    SaleAgent = nil, -- Public vector3 for property sales.
     PrivateRentalAgent = nil, -- Set a reviewed vector3 to enable private rental commands.
     SurveyZones = {},
     SurveyMinArea = 25,
