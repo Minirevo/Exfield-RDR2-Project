@@ -82,7 +82,11 @@ function render(){
             button('Stornieren und Zutaten zurückgeben',()=>submit('cancel',{job:job.id})));
         else if(job.state==='running')node.append(button('Auftrag abbrechen und Zutaten zurückgeben',
             ()=>submit('cancel',{job:job.id})));
-        else if(job.state==='return')node.append(line(node,'Zutaten werden zurückgegeben …'));
+        else if(job.state==='return'){
+            const note=document.createElement('p');
+            note.textContent='Zutaten werden zurückgegeben …';
+            node.append(note);
+        }
     }
     for(const item of rows(data.goods)){
         const node=line(el('goods'),item.name+' × '+item.count+(item.description?' · '+item.description:''));
