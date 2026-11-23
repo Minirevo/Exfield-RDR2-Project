@@ -183,3 +183,8 @@ end)
 AddEventHandler('onClientResourceStop', function(resource)
     if resource == GetCurrentResourceName() and active then SetNuiFocus(false, false) end
 end)
+
+-- Closes this UI before an authorized blueprint opens the property catalogue.
+exports('CloseForProperty',function()
+    if GetInvokingResource()=='frontier_property' and active then close() end
+end)
