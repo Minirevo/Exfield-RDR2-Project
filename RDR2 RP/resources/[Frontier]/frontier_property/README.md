@@ -115,7 +115,7 @@ reservation conflicts, successful registration, replay and refusal.
 ### Government rentals
 Apply `003_rentals.sql` before starting the updated resource. Configure active buildings owned
 100% by the government with tested interior keys, and set an offer by property ID in
-`GovernmentRentals` (`agent = vector3(...), price = 1000, seconds = 86400, furnish = false`).
+`GovernmentRentals` (`price = 1000, seconds = 86400, furnish = false`).
 No offers are seeded. At the configured agent position use `/grundmiete angebot ID` and
 the displayed booking command. A reserved contract serializes bookings and the worker
 debits the bank once before activating the time-limited lease. The access API recognizes
@@ -123,7 +123,7 @@ active tenants. Keep one worker per database. Grant runtime SELECT and UPDATE on
 `frontier_property_rentals` and EXECUTE on `frontier_property_rent_reserve_v1`.
 
 ### Private fixed-term rentals
-Apply `004_private_rentals.sql` after 003. Configure `PrivateRentalAgent` and grant the runtime
+Apply `004_private_rentals.sql` after 003. Grant the runtime
 principal SELECT on `frontier_property_private_offers` and EXECUTE on the two new procedures.
 A sole character owner can publish terms at the agent with `/privatmiete anbieten ID CENT STUNDEN ja|nein`.
 Tenants inspect with `/privatmiete angebot ID` and use the displayed booking command. Updating
@@ -144,9 +144,8 @@ retain their original payment keys. Stop the resource during migration and run o
 ### Furniture and rental recovery
 Apply `006_furniture.sql`. Grant SELECT and UPDATE on the furniture table and EXECUTE on
 the placement routine. Configure `FurnishingRooms` by property ID with surveyed
-`min`/`max` vector3 bounds, routing bucket and a capacity no greater than 100. Populate the
-server-only `FurnitureCatalog` with reviewed model names, prices in cents and clearance
-radii. Configure `FurnitureRecoveryAgent` as a public vector3. No rooms are enabled by default.
+`min`/`max` vector3 bounds, routing bucket and a capacity no greater than 100. The shipped furniture catalogue includes a bed, chest, cupboard, table and workshop table.
+Model identifiers were checked against the RDR3 Discoveries data. Review collision and clearances in RedM. The shared agent lists recovered furnishings. No rooms are enabled by default.
 Use `/grundmoebel kaufen ID MODELL CENT` inside a supported room to place furniture at
 your position and heading. Renters need a live lease permitting furnishing. Expiry removes
 the placed furniture from clients and preserves it in persistent recovery; use
@@ -155,7 +154,7 @@ to place it elsewhere without a second charge. Confirm model size, doors, collis
 synchronization in RedM. Furniture bought here is a persistent property asset.
 
 ### Character property sales and lease assumption
-Apply `007_sales.sql` and configure a public `SaleAgent` vector3. At the agent, a character
+Apply `007_sales.sql` and configure a shared agent location if desired. At the agent, a character
 owner offers the property to an online buyer with `/grundverkauf anbieten OBJEKT SPIELER CENT`.
 All character co-owners must approve the fixed offer with `zustimmen ANGEBOT`. Both sides
 can inspect with `info ANGEBOT`. The buyer uses `kaufen ANGEBOT CENT`, adding `miete-ja`
@@ -178,12 +177,13 @@ visual footprint, terrain and collision in RedM for each configured plan.
 
 ### Upkeep and foreclosure
 
-Apply `009_foreclosure.sql` after 008. Decide the rate, period and overdue threshold for staging
-before enabling `Upkeep.enabled`. Configure `treasuryBank` with the Economy account to receive
-the surplus penalty. Without a valid configured treasury, accrual may run but new foreclosures
-remain disabled. Grant SELECT and UPDATE on upkeep/foreclosure records, SELECT on Finance and
-read access to the existing Economy account IDs, plus EXECUTE on the five new routines.
-All actual money mutations go through Economy. Do not reuse a live account for staging.
+Apply 009 and forward migration 010. Grant EXECUTE on the two v2 foreclosure routines in addition
+to the upkeep routines. Configure rate and grace period before opting into automatic upkeep.
+No government account is required. Upkeep payments debit the payer, and the foreclosure
+deduction, debt settlement and state penalty are recorded without crediting any recipient.
+Only the former owners' calculated shares are issued. Legacy treasury receipt fields remain
+available for reconciliation. Existing pending cases now finish owner payouts without sending
+a treasury payment, and historical payments are not reversed. All actual money mutations go through Economy. Do not reuse a live account for staging.
 
 Upkeep accrues on a real-world schedule. Owners can inspect and pay outstanding taxes with
 `/grundsteuer info OBJEKT` and the displayed payment command. The foreclosure transaction checks
@@ -193,12 +193,12 @@ Existing buildings, completed construction and eligible furniture are valued, an
 furniture goes to recovery. There is no separate attached-goods inventory in this integration.
 Land itself is released without payout after settlement. The worker applies configured 30% and
 50% defaults in sequence, applies liquidation funds to debt, forgives the balance if needed,
-credits the state and owners with stable receipt keys, and releases the land only after receipts.
+credits owners with stable receipt keys, and releases the land only after receipts.
 A full payout account keeps the settlement pending. Use one worker per schema.
 
 ### Staging checklist
 
-Apply Core and Economy migrations first, then Property 001 through 009 in order on a disposable
+Apply Core and Economy migrations first, then Property 001 through 010 in order on a disposable
 database, then start Inventory, Economy, chat and Property with OneSync. Keep upkeep disabled
 until other test cases finish. Configure one reviewed survey zone, building/room, rental agent,
 furniture model, sale agent and construction plan for the test. Use two characters and test:
@@ -207,3 +207,14 @@ complete a build with the required tools, sell with all owners' approval and exp
 for an active lease, and finally enable a short upkeep interval and verify the foreclosure ledger.
 The SQL fixtures target their matching migrations. Furniture, construction and gameplay
 make use of server-specific config and still need the live RedM model/collision checks.
+
+### Shared property agent and menu
+
+Approach the default agent in Valentine, Rhodes, Saint Denis or Blackwater and press **E**.
+The same agent covers rentals, sale approvals and purchase, owned-property information and recovery
+listings. The menu uses existing server transaction handlers, with proximity verified from OneSync.
+The default locations are in `shared/agents.lua`. Exact terrain height, placement and NPC model
+streaming still need a live RedM check. This version lists configured government rentals and
+existing private offers. Automatic discovery and seeding of government buildings is not included.
+Existing chat commands still handle owner listings, offers and furnishing or construction outside
+the agent interface.
