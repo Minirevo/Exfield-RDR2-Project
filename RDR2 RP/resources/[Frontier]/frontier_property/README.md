@@ -1,7 +1,7 @@
 # Frontier Property
 
 First milestone: persistent, server-only property registry. No properties are seeded.
-This branch contains a read-only in-game overview, registry and server-side policy and survey checks. Land purchase is enabled per configured zone. Other property transactions and furnishing are pending.
+This resource provides a read-only overview, land purchase, fixed-term rental, furnishings and recovery, construction, property sales and foreclosure. World interactions are opt-in through config and need a server-specific staging check.
 
 ## Repository audit
 
@@ -57,7 +57,7 @@ unanimous ownership approval for a voluntary sale, and require explicit buyer co
 active lease. An active lease blocks structural construction in this policy. For tenant furnishing,
 deny by default and require both an active lease and explicit permission. Calling workflows must
 still enforce ownership, actor identity, tenancy, proximity, and operation locking. These rules are
-available as server exports. The gameplay flows, payout allocation and durable settlement remain to be built.
+available as server exports. Purchase, building and foreclosure workflows apply the same rules under the property lock.
 Exclude furniture from voluntary market valuation, and keep recovered tenant items without automatic
 deletion initially.
 
@@ -65,8 +65,7 @@ deletion initially.
 
 `p_bed01x`, `p_chest01x`, `p_armoir04x`, `p_mp_furnace01x`, and `p_sawbucktable01x`.
 The last model is a carpentry table candidate. A working saw or distinct blast furnace still
-needs an in-game candidate. These entries only identify assets for testing. No storage,
-station capability or prop placement is enabled. Verify streaming, bounds, collision and
+needs an in-game candidate. These candidate entries identify assets for testing. Add reviewed models to FurnitureCatalog to enable placement. Verify streaming, bounds, collision and
 synchronization with two clients before enabling any candidate.
 
 Reference: [RDR3 Discoveries object list](https://github.com/femga/rdr3_discoveries/blob/master/objects/object_list.lua)
@@ -165,3 +164,46 @@ A sale is blocked by outstanding debt, pending rentals or pending furniture purc
 The worker debits the buyer and pays owner shares by replayable receipts before transferring
 ownership. Active tenancy continues. Former non-tenant furniture is moved to recovery.
 A full destination bank account leaves settlement pending. Use one worker per schema.
+
+### Construction
+Apply `008_construction.sql`. Install the included Inventory allowlist change and start Inventory
+before Property. Grant SELECT and UPDATE on build jobs, SELECT on construction and EXECUTE
+on both build routines. Configure `ConstructionPlans` with a model, radius, a blueprint inventory `item`, value in cents and
+stages of `{ item='...', count=1, tool='...', workSeconds=5 }`; omit the tool when unnecessary. Each stage
+consumes a single configured batch through Inventory, with replay protection. The owner starts
+a site on a surveyed plot with `/grundbau start GRUNDSTÜCK BAUPLAN`; the owner or authorized
+workers complete stages near it using `/grundbau arbeiten BAUSTELLE`. Incomplete sites block
+sales. Completed assets are streamed to nearby players in the public world. Test elevation,
+visual footprint, terrain and collision in RedM for each configured plan.
+
+### Upkeep and foreclosure
+
+Apply `009_foreclosure.sql` after 008. Decide the rate, period and overdue threshold for staging
+before enabling `Upkeep.enabled`. Configure `treasuryBank` with the Economy account to receive
+the surplus penalty. Without a valid configured treasury, accrual may run but new foreclosures
+remain disabled. Grant SELECT and UPDATE on upkeep/foreclosure records, SELECT on Finance and
+read access to the existing Economy account IDs, plus EXECUTE on the five new routines.
+All actual money mutations go through Economy. Do not reuse a live account for staging.
+
+Upkeep accrues on a real-world schedule. Owners can inspect and pay outstanding taxes with
+`/grundsteuer info OBJEKT` and the displayed payment command. The foreclosure transaction checks
+overdue time and the threshold, snapshots allocation, and locks the property against new sales
+and construction by marking it inactive. Active leases and unsettled purchases block seizure.
+Existing buildings, completed construction and eligible furniture are valued, and held tenant
+furniture goes to recovery. There is no separate attached-goods inventory in this integration.
+Land itself is released without payout after settlement. The worker applies configured 30% and
+50% defaults in sequence, applies liquidation funds to debt, forgives the balance if needed,
+credits the state and owners with stable receipt keys, and releases the land only after receipts.
+A full payout account keeps the settlement pending. Use one worker per schema.
+
+### Staging checklist
+
+Apply Core and Economy migrations first, then Property 001 through 009 in order on a disposable
+database, then start Inventory, Economy, chat and Property with OneSync. Keep upkeep disabled
+until other test cases finish. Configure one reviewed survey zone, building/room, rental agent,
+furniture model, sale agent and construction plan for the test. Use two characters and test:
+rent with a deposit, wait for expiry and check recovery/refund, place and recover furniture,
+complete a build with the required tools, sell with all owners' approval and explicit consent
+for an active lease, and finally enable a short upkeep interval and verify the foreclosure ledger.
+The SQL fixtures target their matching migrations. Furniture, construction and gameplay
+make use of server-specific config and still need the live RedM model/collision checks.
