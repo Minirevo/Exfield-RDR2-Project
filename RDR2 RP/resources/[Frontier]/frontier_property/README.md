@@ -218,3 +218,12 @@ streaming still need a live RedM check. This version lists configured government
 existing private offers. Automatic discovery and seeding of government buildings is not included.
 Existing chat commands still handle owner listings, offers and furnishing or construction outside
 the agent interface.
+
+### Visual plot planner
+
+Open `/grundplan` while in the public world. Select a purchase-enabled zone, draw and move
+points on the north-up grid, remove a point with right-click, and undo with the button. The grid
+shows local world metres around the server-observed origin and is not a terrain overlay.
+The server checks geometry, existing reservations and exclusions, and issues the price. Confirm
+that quote to create the existing durable land-purchase reservation. Leave the grid open at the
+original position while submitting a quote. This workflow still requires enabled purchase zones.
