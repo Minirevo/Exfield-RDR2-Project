@@ -110,3 +110,19 @@ end
 
 -- Call only with authoritative allowed and blocked polygons, in metres.
 exports('ValidatePropertySurvey', ValidatePropertySurvey)
+
+function ConstructionFitsProperty(boundary, centre, radius)
+    local ring = polygon(boundary)
+    if not ring or not coordinate(centre.x) or not coordinate(centre.y) then return false end
+    local point = { x = math.floor(centre.x * 100 + 0.5), y = math.floor(centre.y * 100 + 0.5) }
+    if locate(ring, point) ~= 'interior' then return false end
+    local threshold = (radius * 100 + 2)^2
+    for i, a in ipairs(ring) do
+        local b = ring[nextIndex(i,#ring)]
+        local dx, dy = b.x-a.x, b.y-a.y
+        local fraction = ((point.x-a.x)*dx + (point.y-a.y)*dy)/(dx*dx+dy*dy)
+        fraction = math.max(0, math.min(1, fraction))
+        if (point.x-a.x-fraction*dx)^2 + (point.y-a.y-fraction*dy)^2 <= threshold then return false end
+    end
+    return true
+end
