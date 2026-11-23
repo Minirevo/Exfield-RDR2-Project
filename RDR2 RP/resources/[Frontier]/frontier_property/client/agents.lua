@@ -70,3 +70,44 @@ AddEventHandler('onClientResourceStop',function(resource)
     if visible then close() end
     for _, ped in pairs(peds) do DeleteEntity(ped) end
 end)
+
+local planning, requestDeadline = false, 0
+RegisterCommand('grundplan',function()
+    if IsNuiFocused() then return end
+    requestDeadline=GetGameTimer()+8000
+    TriggerServerEvent('frontier_property:plannerStart')
+end,false)
+
+RegisterNetEvent('frontier_property:plannerOpen',function(data)
+    if source~=65535 or IsNuiFocused() or GetGameTimer()>requestDeadline then return end
+    planning=true
+    SetNuiFocus(true,true)
+    SendNUIMessage({action='plannerOpen',data=data})
+end)
+
+RegisterNetEvent('frontier_property:plannerResult',function(result)
+    if source==65535 and planning then SendNUIMessage({action='plannerResult',data=result}) end
+end)
+
+RegisterNUICallback('plannerAction',function(data,cb)
+    if planning and type(data)=='table' and type(data.zone)=='string'
+        and (data.action=='quote' or data.action=='buy') then
+        TriggerServerEvent('frontier_property:plannerAction',data.action,data.zone,data.points)
+    end
+    cb({ok=planning})
+end)
+
+RegisterNUICallback('plannerClose',function(_,cb)
+    if planning then
+        planning=false
+        requestDeadline=0
+        SetNuiFocus(false,false)
+        SendNUIMessage({action='plannerClose'})
+        TriggerServerEvent('frontier_property:plannerClose')
+    end
+    cb({ok=true})
+end)
+
+AddEventHandler('onClientResourceStop',function(resource)
+    if resource==GetCurrentResourceName() and planning then SetNuiFocus(false,false) end
+end)
