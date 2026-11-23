@@ -6,7 +6,11 @@ local function boundaries()
     local revision = MySQL.scalar.await('SELECT revision FROM frontier_land_revision WHERE id=1')
     local rows = MySQL.query.await("SELECT polygon_json FROM frontier_land_claims WHERE state IN ('reserved','owned')")
     local blocked = {}
-    for _, row in ipairs(rows) do blocked[#blocked + 1] = json.decode(row.polygon_json) end
+    for _, row in ipairs(rows) do
+        local points = json.decode(row.polygon_json)
+        if type(points) ~= 'table' then error('Invalid registered land polygon') end
+        blocked[#blocked + 1] = points
+    end
     return revision, blocked
 end
 
@@ -23,6 +27,7 @@ function ReservePropertyLand(source, character, zoneKey, points, expectedCost)
     local area = ValidatePropertySurvey(points, zone.boundary, blocked)
     if not area then return nil, 'unavailable' end
     local price = math.ceil(area * rate)
+    if price > 9000000000000 then return nil, 'invalid_price' end
     if price ~= expectedCost then return nil, 'price_changed' end
     local ok, accounts = economy:GetCharacterAccounts(source)
     if not ok or accounts.characterId ~= character or core:GetPlayerCharacterId(source) ~= character then
