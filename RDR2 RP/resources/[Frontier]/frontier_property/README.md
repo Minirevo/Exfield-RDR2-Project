@@ -141,3 +141,16 @@ to the landlord. Rent and refundable liability are separate. On expiry the worke
 in full. Collection, landlord credit and refund have separate durable receipt keys. A full destination
 account leaves the corresponding payout pending and replayable. Existing zero-deposit contracts
 retain their original payment keys. Stop the resource during migration and run one worker per schema.
+
+### Furniture and rental recovery
+Apply `006_furniture.sql`. Grant SELECT and UPDATE on the furniture table and EXECUTE on
+the placement routine. Configure `FurnishingRooms` by property ID with surveyed
+`min`/`max` vector3 bounds, routing bucket and a capacity no greater than 100. Populate the
+server-only `FurnitureCatalog` with reviewed model names, prices in cents and clearance
+radii. Configure `FurnitureRecoveryAgent` as a public vector3. No rooms are enabled by default.
+Use `/grundmoebel kaufen ID MODELL CENT` inside a supported room to place furniture at
+your position and heading. Renters need a live lease permitting furnishing. Expiry removes
+the placed furniture from clients and preserves it in persistent recovery; use
+`/grundmoebel lager` at the recovery agent and `/grundmoebel auslagern ID MODELL NUMMER`
+to place it elsewhere without a second charge. Confirm model size, doors, collision and
+synchronization in RedM. Furniture bought here is a persistent property asset.
