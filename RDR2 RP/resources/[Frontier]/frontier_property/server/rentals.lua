@@ -23,6 +23,20 @@ RegisterCommand('grundmiete', function(source, args)
     if source <= 0 then return end
     local character = core:GetPlayerCharacterId(source)
     if not character then return tell(source, 'Wähle zuerst einen Charakter.') end
+    if args[1] == 'status' then
+        local row = MySQL.single.await([[
+            SELECT property_id, CASE WHEN state='active' AND ends_at<=UTC_TIMESTAMP()
+                THEN 'expired' ELSE state END AS state,
+                DATE_FORMAT(ends_at, '%Y-%m-%d %H:%i') AS ends
+            FROM frontier_property_rentals WHERE tenant_id=? ORDER BY id DESC LIMIT 1
+        ]], { character })
+        if core:GetPlayerCharacterId(source) ~= character then return end
+        if not row then return tell(source, 'Kein Mietantrag gefunden.') end
+        local states = { reserved = 'in Bearbeitung', active = 'aktiv',
+            expired = 'abgelaufen', declined = 'abgelehnt' }
+        local expiry = row.state == 'active' and (' bis ' .. row.ends .. ' UTC') or ''
+        return tell(source, ('Mietobjekt #%s: %s%s.'):format(row.property_id, states[row.state], expiry))
+    end
     local id = tonumber(args[2])
     local offer = id and locateOffer(source, id)
     if not offer then return tell(source, 'Gib ein Mietangebot am zuständigen Makler an.') end
@@ -43,7 +57,7 @@ RegisterCommand('grundmiete', function(source, args)
     if core:GetPlayerCharacterId(source) ~= character then return end
     local receipt = result and result[1] and result[1][1]
     if receipt and receipt.id then
-        return tell(source, 'Mietantrag vorgemerkt. Die Zahlung wird verarbeitet.')
+        return tell(source, 'Mietantrag vorgemerkt. Prüfe ihn mit /grundmiete status.')
     end
     return tell(source, 'Dieses Mietobjekt ist nicht verfügbar.')
 end, false)
