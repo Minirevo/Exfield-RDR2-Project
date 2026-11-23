@@ -15,7 +15,8 @@ local function boundaries()
 end
 
 function QuotePropertyLand(zoneKey, points)
-    local zone = PropertyConfig.SurveyZones[zoneKey]
+    local zone = ResolvePropertySurveyZone and ResolvePropertySurveyZone(zoneKey, points)
+    if not ResolvePropertySurveyZone then zone = PropertyConfig.SurveyZones[zoneKey] end
     if not zone or zone.enablePurchase ~= true or #zoneKey > 64
         or not zoneKey:match('^[a-z0-9_-]+$') then return nil, 'disabled' end
     local rate = zone.priceCentsPerSquareMeter
