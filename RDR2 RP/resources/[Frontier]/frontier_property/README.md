@@ -122,3 +122,13 @@ the displayed booking command. A reserved contract serializes bookings and the w
 debits the bank once before activating the time-limited lease. The access API recognizes
 active tenants. Keep one worker per database. Grant runtime SELECT and UPDATE on
 `frontier_property_rentals` and EXECUTE on `frontier_property_rent_reserve_v1`.
+
+### Private fixed-term rentals
+Apply `004_private_rentals.sql` after 003. Configure `PrivateRentalAgent` and grant the runtime
+principal SELECT on `frontier_property_private_offers` and EXECUTE on the two new procedures.
+A sole character owner can publish terms at the agent with `/privatmiete anbieten ID CENT STUNDEN ja|nein`.
+Tenants inspect with `/privatmiete angebot ID` and use the displayed booking command. Updating
+the offer invalidates old quotes. A booking reserves the property under the same row lock as
+government rentals and transfers the fixed-term price to the landlord's bank with a durable
+Economy idempotency key. Check the latest request with `/grundmiete status`. This flow does
+not yet handle deposits, lease transfers, co-owner rental approvals or furniture recovery.
