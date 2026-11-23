@@ -73,3 +73,16 @@ Reference: [RDR3 Discoveries object list](https://github.com/femga/rdr3_discover
 and [entity audio emitters](https://github.com/femga/rdr3_discoveries/blob/master/objects/entity_extensions/entity_extensions___audioEmitter.lua).
 
 Run `lua54 tests/policy.lua` from the resource directory to check calculation and eligibility rules.
+
+## Survey validation
+
+`ValidatePropertySurvey(points, allowedZone, blockedZones)` returns the accepted area in square
+metres or `nil, errorCode`. Coordinates are planar world metres rounded to a centimetre grid.
+It rejects invalid or crossing boundaries, claims outside the permitted polygon, and claims
+touching or overlapping any exclusion or registered plot supplied by the server. It accepts
+clockwise and counterclockwise rings. Configure the permitted area range in `config.lua`.
+Run `lua54 tests/survey.lua` from the resource directory.
+
+The calling workflow must supply authoritative map/exclusion and existing plot data and revalidate
+under a database lock before payment or registration. This export makes no terrain, ownership,
+pricing or database changes. Plot purchase and expansion still require those workflows.
