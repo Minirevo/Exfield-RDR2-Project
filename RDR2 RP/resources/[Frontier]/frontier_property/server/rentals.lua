@@ -14,16 +14,6 @@ local function tell(source, message)
     TriggerClientEvent('chat:addMessage', source, { args = { 'Frontier Vermietung', message } })
 end
 
-local function locateOffer(source, id)
-    local offer = GetPropertyRentalOffer(id)
-    if not offer or not validInteger(offer.price, 9000000000000)
-        or depositFor(offer.price, offer.deposit) == nil
-        or not validInteger(offer.seconds, 31536000)
-        or GetPlayerRoutingBucket(source) ~= 0 then return nil end
-    if not NearbyPropertyAgent(source) then return nil end
-    return offer
-end
-
 RegisterCommand('grundmiete', function(source, args)
     if source <= 0 then return end
     local character = core:GetPlayerCharacterId(source)
@@ -42,30 +32,7 @@ RegisterCommand('grundmiete', function(source, args)
         local expiry = row.state == 'active' and (' bis ' .. row.ends .. ' UTC') or ''
         return tell(source, ('Mietobjekt #%s: %s%s.'):format(row.property_id, states[row.state], expiry))
     end
-    local id = tonumber(args[2])
-    local offer = id and locateOffer(source, id)
-    if not offer then return tell(source, 'Gib ein Mietangebot am zuständigen Makler an.') end
-    local deposit = depositFor(offer.price, offer.deposit)
-    if args[1] == 'angebot' then
-        return tell(source, ('#%d: $%.2f für %.2f Stunden, Kaution $%.2f. Möblieren: %s. Bestätigen: /grundmiete buchen %d %d %d'):format(
-            id, offer.price / 100, offer.seconds / 3600, deposit / 100, offer.furnish and 'ja' or 'nein', id, offer.price, deposit
-        ))
-    end
-    if args[1] ~= 'buchen' or tonumber(args[3]) ~= offer.price or tonumber(args[4]) ~= deposit then
-        return tell(source, 'Rufe zuerst das aktuelle Angebot auf: /grundmiete angebot NUMMER.')
-    end
-    local ok, accounts = economy:GetCharacterAccounts(source)
-    if not ok or accounts.characterId ~= character or core:GetPlayerCharacterId(source) ~= character
-        or locateOffer(source, id) ~= offer then return end
-    local result = MySQL.query.await('CALL frontier_property_rent_reserve_v2(?,?,?,?,?,?,?)', {
-        id, character, accounts.bank.id, offer.price, offer.seconds, offer.furnish and 1 or 0, deposit,
-    })
-    if core:GetPlayerCharacterId(source) ~= character then return end
-    local receipt = result and result[1] and result[1][1]
-    if receipt and receipt.id then
-        return tell(source, 'Mietantrag vorgemerkt. Prüfe ihn mit /grundmiete status.')
-    end
-    return tell(source, 'Dieses Mietobjekt ist nicht verfügbar.')
+    tell(source, 'Private Mietangebote findest du beim Makler.')
 end, false)
 
 local function atPrivateAgent(source)
