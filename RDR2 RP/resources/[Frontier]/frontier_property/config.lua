@@ -6,6 +6,9 @@ PropertyConfig = {
     SurveyZones = {},
     SurveyMinArea = 25,
     SurveyMaxArea = 2500,
+    FurnishingRooms = {}, -- By property ID: min, max, bucket and capacity.
+    FurnitureCatalog = {}, -- By key: model, positive price in cents and collision radius.
+    FurnitureRecoveryAgent = nil,
     ForeclosureDeductionBps = 3000,
     ForeclosureStatePenaltyBps = 5000,
 
