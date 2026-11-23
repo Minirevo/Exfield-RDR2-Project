@@ -1,5 +1,7 @@
 (()=>{
 const planner=document.querySelector('#planner');
+const walkReadout=document.querySelector('#walk-readout');
+let walkingMode=false;
 const map=document.querySelector('#planner-map');
 const pen=map.getContext('2d');
 const zone=document.querySelector('#planner-zone');
@@ -40,7 +42,7 @@ function draw(){
 function controls(){
     quote.disabled=pending||points.length<3||!zone.value;
     buy.disabled=pending||!checked;
-    undo.disabled=pending||!history.length;
+    undo.disabled=walkingMode||pending||!history.length;
     zone.disabled=pending;
 }
 function change(){
@@ -63,7 +65,7 @@ function vertex(point){
     return points.findIndex(p=>Math.hypot(p.x-point.x,p.y-point.y)<range);
 }
 map.addEventListener('pointerdown',event=>{
-    if(pending||event.button!==0)return;
+    if(walkingMode||pending||event.button!==0)return;
     const p=location(event),i=vertex(p);
     if(i<0&&points.length>=64)return;
     snapshot();drag=i;
@@ -78,7 +80,7 @@ map.addEventListener('pointermove',event=>{
 for(const name of ['pointerup','pointercancel'])map.addEventListener(name,()=>{drag=-1;});
 map.addEventListener('contextmenu',event=>{
     event.preventDefault();
-    if(pending)return;
+    if(walkingMode||pending)return;
     const i=vertex(location(event));
     if(i>=0){snapshot();points.splice(i,1);change();}
 });
@@ -100,8 +102,24 @@ async function closePlanner(){
 document.querySelector('#planner-close').onclick=closePlanner;
 document.addEventListener('keydown',event=>{if(event.key==='Escape')closePlanner();});
 window.addEventListener('message',event=>{
+    if(event.data.action==='walkSurvey'){
+        const d=event.data.data;
+        walkReadout.hidden=false;
+        const ctx=walkReadout.querySelector('canvas').getContext('2d');
+        ctx.clearRect(0,0,160,160);ctx.beginPath();
+        d.points.forEach((p,i)=>{
+            const x=80+p.x*80/d.radius,y=80-p.y*80/d.radius;
+            if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+        });
+        if(d.points.length>=3){ctx.closePath();ctx.fillStyle=d.valid?'#67b76e55':'#df494955';ctx.fill();}
+        ctx.strokeStyle=d.valid?'#70dd7b':'#ec6666';ctx.stroke();
+        for(const p of d.points){ctx.beginPath();ctx.arc(80+p.x*80/d.radius,80-p.y*80/d.radius,3,0,Math.PI*2);ctx.fillStyle='#efd395';ctx.fill();}
+        walkReadout.querySelector('p').textContent=d.points.length+' Punkte'
+            +(d.valid?' · '+d.area.toFixed(1)+' m² · USD '+(d.price/100).toFixed(2):d.points.length>=3?' · Ungültige Fläche':'');
+    }
+    if(event.data.action==='walkSurveyEnd')walkReadout.hidden=true;
     if(event.data.action==='plannerOpen'){
-        planner.hidden=false;points=[];history=[];pending=false;radius=event.data.data.radius;drag=-1;
+        planner.hidden=false;walkingMode=event.data.data.walk===true;points=event.data.data.points||[];history=[];pending=false;radius=event.data.data.radius;drag=-1;
         zone.replaceChildren(...event.data.data.zones.map(name=>new Option(name==='world'?'Spielwelt':name,name)));
         change();
         if(!zone.value)status.textContent='Auf diesem Server ist keine Kaufzone freigegeben.';
