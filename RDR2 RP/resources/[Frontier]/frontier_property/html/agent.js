@@ -30,9 +30,13 @@ function confirm(row,text,command){
 function render(){
     if(!snapshot)return;
     document.querySelector('#town').textContent=snapshot.town;
-    for(const b of document.querySelectorAll('nav button'))b.setAttribute('aria-pressed',b.dataset.section===section);
+    for(const b of document.querySelectorAll('nav button')){
+        b.hidden=snapshot.catalogue&&b.dataset.section!=='plans';
+        b.setAttribute('aria-pressed',b.dataset.section===section);
+    }
     content.replaceChildren();
     const rows=snapshot[section]||[];
+    if(!snapshot.catalogue&&section==='plans')content.append(button('Bauplan abholen',()=>send('command',{command:'bauplan'})));
     if(!rows.length)content.append(paragraph('Keine Einträge verfügbar.'));
     for(const entry of rows){
         const row=document.createElement('article'),title=document.createElement('h2');
@@ -56,7 +60,11 @@ function render(){
             row.append(paragraph('Radius '+entry.radius+' m · Schätzwert '+number(entry.value||0)));
             const select=document.createElement('select');
             for(const property of snapshot.owns||[])select.add(new Option(property.label,property.id));
-            if(select.options.length){
+            if(entry.stages)row.append(paragraph(entry.stages.map(stage=>
+                stage.count+' × '+({wood:'Holz',wooden_planks:'Holzbretter',iron_ingot:'Eisenbarren'}[stage.item]||stage.item)
+                    +' / '+stage.workSeconds+' s').join(' · ')));
+            if(entry.available===false)row.append(paragraph('Gesperrt: '+entry.interior));
+            else if(select.options.length){
                 row.append(select);
                 row.append(button('Vorschau am Bauplatz',async()=>{
                     try{await send('command',{command:'grundbau vorschau '+select.value+' '+entry.key});}
@@ -76,6 +84,6 @@ document.querySelector('#refresh').addEventListener('click',()=>send('refresh'))
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!main.hidden)send('close');});
 window.addEventListener('message',event=>{
     if(event.data.action==='hint')document.querySelector('#hint').hidden=!event.data.show;
-    if(event.data.action==='open'){snapshot=event.data.data;main.hidden=false;render();}
+    if(event.data.action==='open'){snapshot=event.data.data;if(snapshot.catalogue)section='plans';main.hidden=false;render();}
     if(event.data.action==='close')main.hidden=true;
 });
