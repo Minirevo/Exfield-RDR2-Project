@@ -14,10 +14,8 @@ local function activePropertyRows()
     return MySQL.query.await([[SELECT p.id,p.label,p.property_type,p.interior_key,
         po.price_cents,po.deposit_cents,po.duration_seconds,po.allow_furnish,po.offer_version,
         EXISTS(SELECT 1 FROM frontier_property_rentals r WHERE r.property_id=p.id
-            AND (r.state='reserved' OR (r.state='active' AND r.ends_at>UTC_TIMESTAMP()))) AS occupied,
-        EXISTS(SELECT 1 FROM frontier_property_ownership o WHERE o.property_id=p.id
-            AND o.party_type='government' AND o.share_bps=10000) AS government
-        FROM frontier_properties p LEFT JOIN frontier_property_private_offers po
+            AND (r.state='reserved' OR (r.state='active' AND r.ends_at>UTC_TIMESTAMP()))) AS occupied
+        FROM frontier_properties p JOIN frontier_property_private_offers po
         ON po.property_id=p.id AND EXISTS (SELECT 1 FROM frontier_property_ownership o
              WHERE o.property_id=p.id AND o.party_type='character' AND o.party_id=po.landlord_id AND o.share_bps=10000)
         WHERE p.status='active' AND p.property_type='building' AND p.interior_key IS NOT NULL
@@ -31,23 +29,16 @@ RegisterNetEvent('frontier_property:agentRequest', function()
     last[source] = GetGameTimer()+2000
     local listings = {}
     for _, row in ipairs(activePropertyRows()) do
-        local government = tonumber(row.government) == 1
-        local config = government and GetPropertyRentalOffer(row.id)
-        if config or row.offer_version then
-            listings[#listings+1] = {
-                id=row.id,label=row.label,kind=government and 'Staatlich' or 'Privat',
-                price=config and config.price or row.price_cents,
-                deposit=config and (config.deposit or 0) or row.deposit_cents,
-                duration=config and config.seconds or row.duration_seconds,
-                furnish=config and config.furnish==true or tonumber(row.allow_furnish)==1,
-                version=row.offer_version, available=tonumber(row.occupied)~=1,
-            }
-        end
+        listings[#listings+1]={
+            id=row.id,label=row.label,kind='Privat',price=row.price_cents,deposit=row.deposit_cents,
+            duration=row.duration_seconds,furnish=tonumber(row.allow_furnish)==1,
+            version=row.offer_version,available=tonumber(row.occupied)~=1,
+        }
     end
     local rooms=GetPropertyFurnishingRooms()
     local plans={}
     for key, plan in pairs(PropertyConfig.ConstructionPlans) do
-        plans[#plans+1]={key=key,label=plan.label or key,radius=plan.radius,value=plan.value}
+        plans[#plans+1]={key=key,label=plan.label or key,radius=plan.radius,value=plan.value,available=plan.verifiedInterior==true,interior=plan.interiorName or 'Innenraum nicht verifiziert',stages=plan.stages}
     end
     table.sort(plans,function(a,b) return a.key<b.key end)
     local leases=MySQL.query.await([[SELECT p.id,p.label FROM frontier_property_rentals r
