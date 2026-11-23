@@ -41,4 +41,35 @@ applicable tenancy and per-action checks before mutation.
 5. Add lease expiration and tenant recovery using protected Inventory custody, then recurring upkeep and
    restart-safe foreclosure accounting.
 6. Add sale approvals, debt and lease rules, buyback and business/Production integration. Keep negotiated price
-   separate from valuation. Confirm open policy choices before enabling irreversible gameplay transitions.
+   separate from valuation. Use the approved rules below before enabling irreversible gameplay transitions.
+
+## Approved gameplay policy
+
+The server-only `CalculateForeclosure(assetValueCents, debtCents)` export applies the configurable
+deduction (30% by default), pays debt from the remainder, then takes the configurable state penalty
+(50% of any surplus by default). The balance is paid to former owners by share. Any unpaid debt
+is forgiven. No reputation effects apply. Amounts are integer cents and deductions round down.
+The future settlement flow must assemble its asset total from verified server valuations, persist the
+breakdown and reconcile ledger receipts before seizing anything. This calculation does not move money.
+
+The policy helpers deny construction or voluntary sale while property debt is outstanding, require
+unanimous ownership approval for a voluntary sale, and require explicit buyer consent to transfer an
+active lease. An active lease blocks structural construction in this policy. For tenant furnishing,
+deny by default and require both an active lease and explicit permission. Calling workflows must
+still enforce ownership, actor identity, tenancy, proximity, and operation locking. These rules are
+available as server exports. The gameplay flows, payout allocation and durable settlement remain to be built.
+Exclude furniture from voluntary market valuation, and keep recovered tenant items without automatic
+deletion initially.
+
+### Base-game prop candidates
+
+`p_bed01x`, `p_chest01x`, `p_armoir04x`, `p_mp_furnace01x`, and `p_sawbucktable01x`.
+The last model is a carpentry table candidate. A working saw or distinct blast furnace still
+needs an in-game candidate. These entries only identify assets for testing. No storage,
+station capability or prop placement is enabled. Verify streaming, bounds, collision and
+synchronization with two clients before enabling any candidate.
+
+Reference: [RDR3 Discoveries object list](https://github.com/femga/rdr3_discoveries/blob/master/objects/object_list.lua)
+and [entity audio emitters](https://github.com/femga/rdr3_discoveries/blob/master/objects/entity_extensions/entity_extensions___audioEmitter.lua).
+
+Run `lua54 tests/policy.lua` from the resource directory to check calculation and eligibility rules.
