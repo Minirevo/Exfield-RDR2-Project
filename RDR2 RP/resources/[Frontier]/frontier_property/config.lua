@@ -1,4 +1,6 @@
 PropertyConfig = {
+    -- Keyed by name. Set boundary, exclusions, and priceCentsPerSquareMeter per staging zone.
+    SurveyZones = {},
     SurveyMinArea = 25,
     SurveyMaxArea = 2500,
     ForeclosureDeductionBps = 3000,
