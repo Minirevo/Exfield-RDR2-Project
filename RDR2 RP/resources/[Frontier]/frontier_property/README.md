@@ -112,3 +112,13 @@ registered or declined. The ordered revision prevents overlapping claims from wi
 race. A persisted reservation blocks overlap even during retries. The worker reuses the debit key
 after interruptions. Insufficient funds releases the reservation. See the SQL fixture for
 reservation conflicts, successful registration, replay and refusal.
+
+### Government rentals
+Apply `003_rentals.sql` before starting the updated resource. Configure active buildings owned
+100% by the government with tested interior keys, and set an offer by property ID in
+`GovernmentRentals` (`agent = vector3(...), price = 1000, seconds = 86400, furnish = false`).
+No offers are seeded. At the configured agent position use `/grundmiete angebot ID` and
+the displayed booking command. A reserved contract serializes bookings and the worker
+debits the bank once before activating the time-limited lease. The access API recognizes
+active tenants. Keep one worker per database. Grant runtime SELECT and UPDATE on
+`frontier_property_rentals` and EXECUTE on `frontier_property_rent_reserve_v1`.
