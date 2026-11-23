@@ -32,7 +32,7 @@ RegisterNetEvent('frontier_property:agentRequest', function()
     local listings = {}
     for _, row in ipairs(activePropertyRows()) do
         local government = tonumber(row.government) == 1
-        local config = government and PropertyConfig.GovernmentRentals[row.id]
+        local config = government and GetPropertyRentalOffer(row.id)
         if config or row.offer_version then
             listings[#listings+1] = {
                 id=row.id,label=row.label,kind=government and 'Staatlich' or 'Privat',
@@ -44,6 +44,16 @@ RegisterNetEvent('frontier_property:agentRequest', function()
             }
         end
     end
+    local rooms=GetPropertyFurnishingRooms()
+    local plans={}
+    for key, plan in pairs(PropertyConfig.ConstructionPlans) do
+        plans[#plans+1]={key=key,label=plan.label or key,radius=plan.radius,value=plan.value}
+    end
+    table.sort(plans,function(a,b) return a.key<b.key end)
+    local leases=MySQL.query.await([[SELECT p.id,p.label FROM frontier_property_rentals r
+        JOIN frontier_properties p ON p.id=r.property_id WHERE r.tenant_id=? AND r.state='active'
+        AND r.ends_at>UTC_TIMESTAMP() AND p.status='active' ORDER BY r.id DESC LIMIT 40]],{actor})
+    for _, row in ipairs(leases) do row.enter=rooms[row.id] and rooms[row.id].entry~=nil or false end
     local owns = MySQL.query.await([[SELECT p.id,p.label,o.share_bps AS share
         FROM frontier_property_ownership o JOIN frontier_properties p ON p.id=o.property_id
         WHERE o.party_type='character' AND o.party_id=? AND p.status='active'
@@ -58,7 +68,7 @@ RegisterNetEvent('frontier_property:agentRequest', function()
         ORDER BY s.id DESC LIMIT 40]],{actor,actor,actor})
     if core:GetPlayerCharacterId(source)~=actor or NearbyPropertyAgent(source)~=agent then return end
     TriggerClientEvent('frontier_property:agentOpen',source,
-        {town=agent.town,listings=listings,owns=owns,recovery=recovery,sales=sales})
+        {town=agent.town,listings=listings,owns=owns,recovery=recovery,sales=sales,leases=leases,plans=plans})
 end)
 
 AddEventHandler('playerDropped',function() last[source]=nil end)
