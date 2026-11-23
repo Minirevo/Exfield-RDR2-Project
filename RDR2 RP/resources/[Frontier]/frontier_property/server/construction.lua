@@ -18,6 +18,26 @@ local function distance(a,x,y,z)
 end
 
 local activeWork = {}
+local previewSessions = {}
+
+RegisterNetEvent('frontier_property:buildPreviewCheck',function()
+    local player=source
+    local session=previewSessions[player]
+    if not session or (session.nextCheck or 0)>GetGameTimer() then return end
+    session.nextCheck=GetGameTimer()+1100
+    local point=pos(player)
+    if not point or core:GetPlayerCharacterId(player)~=session.actor then return end
+    local clear=ConstructionFitsProperty(session.boundary,point,session.radius)
+    if clear then
+        local blockers=MySQL.scalar.await([[SELECT COUNT(*) FROM frontier_property_construction
+            WHERE property_id=? AND state<>'seized' AND POW(x-?,2)+POW(y-?,2)<POW(radius+?,2)]],
+            {session.id,point.x,point.y,session.radius})
+        clear=tonumber(blockers)==0
+    end
+    if previewSessions[player]==session and core:GetPlayerCharacterId(player)==session.actor then
+        TriggerClientEvent('frontier_property:buildPreviewResult',player,clear)
+    end
+end)
 
 local function runBuild(player,args)
     if player<=0 then return end
@@ -27,16 +47,18 @@ local function runBuild(player,args)
     local id=tonumber(args[2])
     if not valid(id,9007199254740991) then return tell(player,'Gib die Grundstücks- oder Baustellennummer an.') end
     local params
-    if args[1]=='start' then
+    if args[1]=='start' or args[1]=='vorschau' then
         local key=args[3]
         local plan=key and PropertyConfig.ConstructionPlans[key]
         if not plan or type(plan.stages)~='table' or not valid(#plan.stages,64) or type(plan.radius)~='number'
             or not (plan.radius>0 and plan.radius<=50) or type(plan.model)~='string' or #plan.model>64 then return tell(player,'Ungültiger Bauplan.') end
-        if type(plan.item)~='string' or #plan.item>48 then
+        if not plan.public and (type(plan.item)~='string' or #plan.item>48) then
             return tell(player,'Für diesen Entwurf fehlt der Bauplan-Gegenstand in der Konfiguration.')
         end
-        local ok, held=inventory:HasItem(player,plan.item,1)
-        if not ok or not held then return tell(player,'Du brauchst den passenden Bauplan im Inventar.') end
+        if not plan.public then
+            local ok, held=inventory:HasItem(player,plan.item,1)
+            if not ok or not held then return tell(player,'Du brauchst den passenden Bauplan im Inventar.') end
+        end
         if core:GetPlayerCharacterId(player)~=actor then return end
         local land=MySQL.single.await([[SELECT polygon_json FROM frontier_land_claims
             WHERE property_id=? AND state='owned']],{id})
@@ -44,11 +66,21 @@ local function runBuild(player,args)
         if core:GetPlayerCharacterId(player)~=actor then return end
         point,ped=pos(player)
         if not point then return end
+        if args[1]=='vorschau' then
+            if not exports.frontier_property:CanAccessProperty(actor,id,'construct') then return tell(player,'Bau nicht erlaubt.') end
+            if core:GetPlayerCharacterId(player)~=actor then return end
+            previewSessions[player]={actor=actor,id=id,boundary=json.decode(land.polygon_json),radius=plan.radius}
+            return TriggerClientEvent('frontier_property:buildPreview',player,{id=id,key=key,model=plan.model,radius=plan.radius})
+        end
+        local heading=GetEntityHeading(ped)
+        local steps=tonumber(args[4] or '0')
+        if not steps or math.type(steps)~='integer' or steps<0 or steps>23 then return end
+        if steps~=0 then heading=(heading+15*steps)%360 end
         if not ConstructionFitsProperty(json.decode(land.polygon_json),point,plan.radius) then
             return tell(player,'Der Bauplan passt an dieser Stelle nicht auf das Grundstück.')
         end
         params={id,actor,0,key,plan.model,#plan.stages,point.x,point.y,point.z,
-            GetEntityHeading(ped),plan.radius,0,'',0,plan.value or 0}
+            heading,plan.radius,0,'',0,plan.value or 0}
     elseif args[1]=='arbeiten' then
         local site=MySQL.single.await([[SELECT property_id,blueprint,stage,state,x,y,z
             FROM frontier_property_construction WHERE id=?]],{id})
@@ -106,7 +138,7 @@ RegisterCommand('grundbau',function(player,args)
     if not ok and player>0 then tell(player,'Bauvorgang gerade nicht verfügbar.') end
 end,false)
 
-AddEventHandler('playerDropped',function() activeWork[source]=nil end)
+AddEventHandler('playerDropped',function() activeWork[source],previewSessions[source]=nil,nil end)
 
 MySQL.ready(function()
     CreateThread(function()

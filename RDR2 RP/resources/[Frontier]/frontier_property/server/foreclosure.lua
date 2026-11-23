@@ -36,12 +36,7 @@ local function options(kind,id,suffix,reason)
 end
 
 local function settlePayout(row)
-    if tonumber(row.treasury_paid)~=1 then
-        local paid=row.state_penalty_cents==0 or economy:CreditAccount(row.treasury_bank_id,row.state_penalty_cents,
-            options('foreclosure',row.id,':treasury','Anteil Staat aus Zwangsverwertung'))
-        if not paid then return end
-        MySQL.update.await('UPDATE frontier_property_foreclosures SET treasury_paid=1 WHERE id=?',{row.id})
-    end
+    -- The deduction, debt share and state penalty are ledger allocations, not bank credits.
     local owners=MySQL.query.await([[SELECT p.owner_id,p.share_bps,p.paid,p.bank_id,a.id AS current_bank_id
         FROM frontier_property_foreclosure_payees p LEFT JOIN frontier_economy_accounts a
           ON a.owner_type='character' AND a.owner_id=p.owner_id AND a.account_type='bank'
@@ -65,7 +60,7 @@ local function settlePayout(row)
                 {row.id,owner.owner_id})
         end
     end
-    MySQL.query.await('CALL frontier_foreclosure_finish_v1(?)',{row.id})
+    MySQL.query.await('CALL frontier_foreclosure_finish_v2(?)',{row.id})
 end
 
 local function inRange(value, minimum, maximum)
@@ -84,8 +79,7 @@ local function doUpkeep()
     for _, row in ipairs(rows) do
         MySQL.query.await('CALL frontier_upkeep_accrue_v1(?,?,?)',{row.id,conf.rateBps,conf.intervalSeconds})
     end
-    if not inRange(conf.treasuryBank,1,9007199254740991)
-        or not inRange(conf.forecloseDebtCents,1,9000000000000)
+    if not inRange(conf.forecloseDebtCents,1,9000000000000)
         or not inRange(conf.graceSeconds,0,31536000)
         or not inRange(PropertyConfig.ForeclosureDeductionBps,0,10000)
         or not inRange(PropertyConfig.ForeclosureStatePenaltyBps,0,10000) then return end
@@ -94,9 +88,9 @@ local function doUpkeep()
         AND TIMESTAMPDIFF(SECOND,f.debt_since,UTC_TIMESTAMP())>=? ORDER BY f.property_id LIMIT 50]],
         {conf.forecloseDebtCents,conf.graceSeconds})
     for _, row in ipairs(eligible) do
-        MySQL.query.await('CALL frontier_foreclosure_open_v1(?,?,?,?,?,?)',{row.property_id,
+        MySQL.query.await('CALL frontier_foreclosure_open_v2(?,?,?,?,?)',{row.property_id,
             conf.forecloseDebtCents,conf.graceSeconds,PropertyConfig.ForeclosureDeductionBps,
-            PropertyConfig.ForeclosureStatePenaltyBps,conf.treasuryBank})
+            PropertyConfig.ForeclosureStatePenaltyBps})
     end
 end
 

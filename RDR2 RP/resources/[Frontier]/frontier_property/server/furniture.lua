@@ -28,9 +28,7 @@ RegisterCommand('grundmoebel', function(source, args)
     local actor = core:GetPlayerCharacterId(source)
     if not actor then return message(source,'Wähle zuerst einen Charakter.') end
     if args[1] == 'lager' then
-        local agent = PropertyConfig.FurnitureRecoveryAgent
-        local position = currentPosition(source)
-        if not agent or not position or GetPlayerRoutingBucket(source) ~= 0 or #(position-agent) > 4 then
+        if not NearbyPropertyAgent(source) then
             return message(source,'Gehe zum Makler für das Rückgabelager.')
         end
         local rows = MySQL.query.await([[SELECT id,model_key FROM frontier_property_furniture
@@ -42,7 +40,7 @@ RegisterCommand('grundmoebel', function(source, args)
     end
 
     local target = propertyId(args[2])
-    local room = target and PropertyConfig.FurnishingRooms[target]
+    local room = target and GetPropertyFurnishingRooms()[target]
     if not room or GetPlayerRoutingBucket(source) ~= room.bucket then
         return message(source,'Wähle einen eingerichteten Innenraum.')
     end
@@ -95,7 +93,7 @@ RegisterNetEvent('frontier_property:furnitureRefresh', function()
         return TriggerClientEvent('frontier_property:furnitureSnapshot',player,{})
     end
     local bucket, visible = GetPlayerRoutingBucket(player), {}
-    for id, room in pairs(PropertyConfig.FurnishingRooms) do
+    for id, room in pairs(GetPropertyFurnishingRooms()) do
         if bucket == room.bucket and within(position,room,0) then
             local rows = MySQL.query.await([[SELECT id,model_key,x,y,z,heading
                 FROM frontier_property_furniture WHERE property_id=? AND state='placed' LIMIT 100]],{id})

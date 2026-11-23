@@ -2,37 +2,35 @@ PropertyConfig = {
     -- Keyed by name. Set boundary, exclusions, and priceCentsPerSquareMeter per staging zone.
     -- Configure government rentals by property ID with agent vector3, price, seconds and furnish.
     GovernmentRentals = {},
-    SaleAgent = {-393.19,739.39,115.01}, -- Public vector3 for property sales.
-    PrivateRentalAgent = nil, -- Set a reviewed vector3 to enable private rental commands.
-    SurveyZones = {
-		test_zone = {
-			boundary = {
-				{ x = -439.75, y = 836.94 },
-				{ x = -449.95, y = 627.79 },
-				{ x = -558.61, y = 606.37 },
-				{ x = -582.64, y = 695.18 },
-			},
-
-			exclusions = {},
-
-			priceCentsPerSquareMeter = 1,
-
-			enablePurchase = true,
-		}
-	},
+    SurveyZones = {},
+    WorldSurvey = { enabled=true, priceCentsPerSquareMeter=35, interiorBuffer=34, extraExclusions={} },
+    DefaultGovernmentRentals = true,
+    DisabledGovernmentBuildings = {},
     SurveyMinArea = 25,
     SurveyMaxArea = 2500,
     FurnishingRooms = {}, -- By property ID: min, max, bucket and capacity.
-    FurnitureCatalog = {}, -- By key: model, positive price in cents and collision radius.
-    FurnitureRecoveryAgent = nil,
-    ConstructionPlans = {}, -- Model, radius, value in cents, and stages with item/count/tool.
+    FurnitureCatalog = {
+        bett = { model = 'p_bed01x', price = 1200, radius = 1.15 },
+        truhe = { model = 'p_chest01x', price = 650, radius = 0.55 },
+        schrank = { model = 'p_armoir04x', price = 1500, radius = 0.75 },
+        tisch = { model = 'p_table01x', price = 800, radius = 0.95 },
+        werkbank = { model = 'p_sawbucktable01x', price = 1750, radius = 1.10 },
+    },
+    ConstructionPlans = {
+        huette = {label='Einfache Hütte',model='sba_shack_b_a',radius=4.5,value=9600,public=true,
+            stages={{item='wood',count=5,workSeconds=10},{item='wooden_planks',count=6,workSeconds=16}}},
+        blockhaus = {label='Blockhaus',model='wat_main_cabin',radius=7,value=19500,public=true,
+            stages={{item='wood',count=9,workSeconds=15},{item='wooden_planks',count=12,workSeconds=22},
+                {item='iron_ingot',count=2,workSeconds=10}}},
+        unterstand = {label='Kleiner Unterstand',model='mp001_p_mp_tent_leento03x',radius=3,value=4600,public=true,
+            stages={{item='wood',count=3,workSeconds=8},{item='wooden_planks',count=3,workSeconds=10}}},
+    },
     Upkeep = {
         enabled = false,
         rateBps = 100,
         intervalSeconds = 86400,
         forecloseDebtCents = 10000,
         graceSeconds = 604800,
-        treasuryBank = nil,
     },
     ForeclosureDeductionBps = 3000,
     ForeclosureStatePenaltyBps = 5000,

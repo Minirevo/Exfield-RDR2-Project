@@ -10,9 +10,7 @@ local function integer(value, ceiling)
 end
 
 local function nearAgent(player)
-    local ped=GetPlayerPed(player)
-    return PropertyConfig.SaleAgent and ped~=0 and GetPlayerRoutingBucket(player)==0
-        and #(GetEntityCoords(ped)-PropertyConfig.SaleAgent)<=4
+    return NearbyPropertyAgent(player) ~= nil
 end
 
 RegisterCommand('grundverkauf',function(player,args)
