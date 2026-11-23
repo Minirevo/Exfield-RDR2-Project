@@ -5,6 +5,6 @@ lua54 'yes'
 
 name 'frontier_property'
 version '0.1.0'
-dependencies { 'oxmysql', 'frontier_core' }
+dependencies { '/onesync', 'oxmysql', 'frontier_core' }
 
-server_scripts { '@oxmysql/lib/MySQL.lua', 'config.lua', 'server/registry.lua', 'server/policy.lua', 'server/survey.lua', 'server/overview.lua' }
+server_scripts { '@oxmysql/lib/MySQL.lua', 'config.lua', 'server/registry.lua', 'server/policy.lua', 'server/survey.lua', 'server/overview.lua', 'server/survey_command.lua' }
