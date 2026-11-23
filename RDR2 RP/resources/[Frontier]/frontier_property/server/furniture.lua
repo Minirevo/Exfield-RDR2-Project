@@ -105,6 +105,15 @@ RegisterNetEvent('frontier_property:furnitureRefresh', function()
             end
         end
     end
+    if bucket == 0 then
+        local buildings = MySQL.query.await([[SELECT CONCAT('building:',s.id) AS id,s.model_name AS model,
+            s.x,s.y,s.z,s.heading FROM frontier_property_construction s
+            JOIN frontier_properties p ON p.id=s.property_id
+            WHERE s.state='complete' AND p.status='active'
+              AND s.x BETWEEN ? AND ? AND s.y BETWEEN ? AND ? LIMIT 100]],
+            {position.x-75,position.x+75,position.y-75,position.y+75})
+        for _, row in ipairs(buildings) do visible[#visible+1]=row end
+    end
     if core:GetPlayerCharacterId(player) ~= character or GetPlayerRoutingBucket(player) ~= bucket then return end
     TriggerClientEvent('frontier_property:furnitureSnapshot',player,visible)
 end)
