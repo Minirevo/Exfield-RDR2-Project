@@ -1,10 +1,6 @@
-local rooms, rentals = {}, {}
+local rooms = {}
 local core = exports.frontier_core
 local visits = {}
-
-function GetPropertyRentalOffer(id)
-    return PropertyConfig.GovernmentRentals[id] or rentals[id]
-end
 
 function GetPropertyFurnishingRooms()
     local all={}
@@ -13,35 +9,24 @@ function GetPropertyFurnishingRooms()
     return all
 end
 
-local function seed()
-    if not PropertyConfig.DefaultGovernmentRentals then return end
-    local keys={}
-    for key in pairs(PropertyGovernmentCatalogue) do keys[#keys+1]=key end
-    table.sort(keys)
-    for _, key in ipairs(keys) do
-        local home=PropertyGovernmentCatalogue[key]
-        if not PropertyConfig.DisabledGovernmentBuildings[key] then
-            local result=MySQL.query.await('CALL frontier_property_seed_v1(?,?,?,?,?,?,?)',
-                {key,home.label,home.interior,home.x,home.y,home.z,home.price*45})
-            local row=result and result[1] and result[1][1]
-            local id=row and tonumber(row.id)
-            if id and id<1900000000 then
-                local r=home.radius
-                rentals[id]={price=home.price,deposit=home.deposit,seconds=home.seconds,furnish=true}
-                rooms[id]={capacity=home.capacity,bucket=100000000+id,
-                    min={x=home.x-r,y=home.y-r,z=home.z-0.75},
-                    max={x=home.x+r,y=home.y+r,z=home.z+2.0},entry=home}
-            else
-                print(('[frontier_property] Standardobjekt %s übersprungen: vorhandener Standort oder keine gültige ID.'):format(key))
-            end
+local function loadLegacyRooms()
+    local entries=MySQL.query.await([[SELECT catalogue_key,property_id FROM frontier_property_catalogue
+        WHERE property_id IS NOT NULL]])
+    for _, row in ipairs(entries) do
+        local home,id=PropertyGovernmentCatalogue[row.catalogue_key],tonumber(row.property_id)
+        if home and id and id<1900000000 then
+            local r=home.radius
+            rooms[id]={capacity=home.capacity,bucket=100000000+id,
+                min={x=home.x-r,y=home.y-r,z=home.z-.75},
+                max={x=home.x+r,y=home.y+r,z=home.z+2},entry=home}
         end
     end
 end
 
 MySQL.ready(function()
     CreateThread(function()
-        while not pcall(seed) do
-            print('[frontier_property] Standardobjekte nicht geladen. Migration 011 prüfen.')
+        while not pcall(loadLegacyRooms) do
+            print('[frontier_property] Vorhandene Mieträume nicht geladen. Migration 011 prüfen.')
             Wait(30000)
         end
     end)
