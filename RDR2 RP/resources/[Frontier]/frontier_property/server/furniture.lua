@@ -46,6 +46,33 @@ RegisterCommand('grundmoebel', function(source, args)
     end
     local position, ped = currentPosition(source)
     if not position or not within(position, room, 0) then return message(source,'Gehe in den Innenraum.') end
+    if args[1]=='einlagern' or args[1]=='verschieben' then
+        local piece=propertyId(args[3])
+        if not piece then return message(source,'Gib die Möbelnummer an.') end
+        local action=args[1]=='einlagern' and 'store' or 'move'
+        local asset=MySQL.single.await([[SELECT radius FROM frontier_property_furniture
+            WHERE id=? AND property_id=? AND owner_id=? AND state='placed']],{piece,target,actor})
+        if not asset or core:GetPlayerCharacterId(source)~=actor or GetPlayerRoutingBucket(source)~=room.bucket then return end
+        position,ped=currentPosition(source)
+        if not position or not within(position,room,action=='move' and asset.radius or 0) then
+            return message(source,'Das Möbelstück passt nicht an diese Position.')
+        end
+        local angle=tonumber(args[4]) or GetEntityHeading(ped)
+        if not (math.abs(angle)<100000) then return end
+        local rows=MySQL.query.await('CALL frontier_property_furniture_manage_v1(?,?,?,?,?,?,?,?)',
+            {target,piece,actor,action,position.x,position.y,position.z,angle%360})
+        if core:GetPlayerCharacterId(source)~=actor then return end
+        local result=rows and rows[1] and rows[1][1]
+        return message(source,result and tonumber(result.accepted)==1
+            and 'Möbel gespeichert.' or 'Möbel blockiert oder Bearbeitung nicht erlaubt.')
+    end
+    if args[1]=='liste' then
+        local rows=MySQL.query.await([[SELECT id,model_key FROM frontier_property_furniture
+            WHERE property_id=? AND owner_id=? AND state='placed' ORDER BY id LIMIT 30]],{target,actor})
+        if core:GetPlayerCharacterId(source)~=actor then return end
+        for _, row in ipairs(rows) do message(source,('#%s %s'):format(row.id,row.model_key)) end
+        return
+    end
     local recovering = args[1] == 'auslagern'
     if not recovering and args[1] ~= 'kaufen' then
         return message(source,'Befehle: kaufen OBJEKT MODELL CENT, auslagern OBJEKT MODELL LAGERNUMMER, lager.')
@@ -104,10 +131,13 @@ RegisterNetEvent('frontier_property:furnitureRefresh', function()
         end
     end
     if bucket == 0 then
-        local buildings = MySQL.query.await([[SELECT CONCAT('building:',s.id) AS id,s.model_name AS model,
+        local buildings = MySQL.query.await([[SELECT CONCAT('building:',s.id,':',s.stage) AS id,
+            CASE WHEN s.state='complete' THEN s.model_name
+                WHEN s.stage=1 THEN 'p_woodpile01x' WHEN s.stage=2 THEN 'p_woodpile03x'
+                ELSE 'p_woodpile05x' END AS model,
             s.x,s.y,s.z,s.heading FROM frontier_property_construction s
             JOIN frontier_properties p ON p.id=s.property_id
-            WHERE s.state='complete' AND p.status='active'
+            WHERE s.state IN ('building','complete') AND p.status='active'
               AND s.x BETWEEN ? AND ? AND s.y BETWEEN ? AND ? LIMIT 100]],
             {position.x-75,position.x+75,position.y-75,position.y+75})
         for _, row in ipairs(buildings) do visible[#visible+1]=row end
