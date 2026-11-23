@@ -159,10 +159,13 @@ local function grant(source, propertyId, targetId, role)
     if not allowed or ownRole ~= 'owner' then return false, 'Nur der Eigentümer kann Mitarbeiterrechte vergeben.' end
     local ok, count = db('scalar', 'SELECT COUNT(*) FROM frontier_property_members WHERE property_id=?', { propertyId })
     if not ok then return false, 'Die Rechte konnten nicht geprüft werden.' end
-    local exists = db('scalar', 'SELECT COUNT(*) FROM frontier_property_members WHERE property_id=? AND character_id=?',
+    local existsOk, exists = db('scalar',
+        'SELECT COUNT(*) FROM frontier_property_members WHERE property_id=? AND character_id=?',
         { propertyId, targetId })
-    if not exists then return false, 'Die Rechte konnten nicht geprüft werden.' end
-    if tonumber(count) >= cfg.MaxMembers and tonumber(exists) == 0 then return false, 'Die Mitarbeiterliste ist voll.' end
+    if not existsOk then return false, 'Die Rechte konnten nicht geprüft werden.' end
+    if tonumber(count) >= cfg.MaxMembers and tonumber(exists) == 0 then
+        return false, 'Die Mitarbeiterliste ist voll.'
+    end
     local saved = db('update', [[
         INSERT INTO frontier_property_members(property_id,character_id,role,granted_by)
         VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE role=VALUES(role),granted_by=VALUES(granted_by)
