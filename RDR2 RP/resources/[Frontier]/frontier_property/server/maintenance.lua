@@ -3,7 +3,7 @@ function tick()
     local now=os.time(); local changed=false; local worked={}
     for src,w in pairs(workers) do
         local s=settlement(w.sid); local b=s and s.buildings[w.bid]
-        local valid=b and not b.complete and allowed(s,cid(src),'work') and cid(src)==w.actor and close(src,b)
+        local valid=b and not b.complete and not (s.listing and s.listing.active) and allowed(s,cid(src),'work') and cid(src)==w.actor and close(src,b)
         if valid then
             local stage=b.stages[b.stage]
             for k,n in pairs(stage.materials) do if (b.delivered[k] or 0)<n then valid=false end end
@@ -24,6 +24,7 @@ function tick()
             if s.debt==0 then s.overdue=s.nextTax end
             s.debt=s.debt+periods*R.tax(s,C); s.nextTax=s.nextTax+periods*C.TaxPeriod; changed=true
         end
+        if s.debt>0 and s.listing then s.listing=nil;changed=true end
         if s.debt>0 and s.overdue and now-s.overdue>=C.TaxGrace and not occupied(s.id) then
             local value=0
             for _,b in pairs(s.buildings) do if b.complete then

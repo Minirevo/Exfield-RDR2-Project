@@ -1,5 +1,5 @@
 -- Frontier Property relational storage. Fresh installation; old prototype is not read automatically.
-CREATE TABLE IF NOT EXISTS fp_meta (id TINYINT PRIMARY KEY, revision BIGINT UNSIGNED NOT NULL DEFAULT 0, next_bucket INT UNSIGNED NOT NULL);
+CREATE TABLE IF NOT EXISTS fp_meta (id TINYINT PRIMARY KEY, revision BIGINT UNSIGNED NOT NULL DEFAULT 0, next_bucket INT UNSIGNED NOT NULL) ENGINE=InnoDB;
 INSERT IGNORE INTO fp_meta VALUES (1,0,1500000000);
 CREATE TABLE IF NOT EXISTS fp_settlements (
  id CHAR(32) PRIMARY KEY, name VARCHAR(60) NOT NULL, x DOUBLE NOT NULL,y DOUBLE NOT NULL,z DOUBLE NOT NULL,
@@ -69,3 +69,13 @@ CREATE TABLE IF NOT EXISTS fp_history (
  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,operation_id CHAR(32) NOT NULL UNIQUE,settlement_id CHAR(32) NULL,kind VARCHAR(32) NOT NULL,
  details LONGTEXT NOT NULL CHECK(JSON_VALID(details)),created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,INDEX(settlement_id,kind)
 ) ENGINE=InnoDB;
+
+-- The procedure is called inside oxmysql's transaction; a stale cache must never write.
+DROP PROCEDURE IF EXISTS fp_assert_revision;
+DELIMITER $$
+CREATE PROCEDURE fp_assert_revision(IN expected BIGINT UNSIGNED)
+BEGIN
+ UPDATE fp_meta SET revision=revision+1 WHERE id=1 AND revision=expected;
+ IF ROW_COUNT()<>1 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Stale property revision'; END IF;
+END$$
+DELIMITER ;

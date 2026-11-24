@@ -141,6 +141,9 @@ local function latest(source, id, guard)
 end
 
 local function commit(ctx, ...)
+    if ctx.source and type(ctx.storage)=='string' and ctx.storage:match('^property_') then
+        if GetResourceState('frontier_property')~='started' or not exports.frontier_property:CanAccessCampStorage(ctx.source,ctx.storage) then return false,'forbidden' end
+    end
     if ctx.source and (Inventory.Generation(ctx.source) ~= ctx.generation or not latest(ctx.source, ctx.id, ctx.guard)) then
         return false, 'character'
     end

@@ -10,8 +10,12 @@ AddEventHandler('frontier:playerLoaded',function(player) CreateThread(function()
     if ready then run(player.source,function() restore(player.source,player.frontierCharacterId) end,true) end
 end) end)
 AddEventHandler('frontier:playerUnloaded',function(player)
-    workers[player.source]=nil; previews[player.source]=nil; visits[player.source]=nil
-    if GetPlayerRoutingBucket(player.source)>=C.InteriorBucketBase then SetPlayerRoutingBucket(player.source,0) end
+    workers[player.source]=nil; previews[player.source]=nil
+    local v=visits[player.source]; visits[player.source]=nil
+    if v and v.actor==player.frontierCharacterId then
+        local ped=GetPlayerPed(player.source)
+        if ped~=0 and DoesEntityExist(ped) then SetPlayerRoutingBucket(player.source,0);SetEntityCoords(ped,v.x,v.y,v.z,false,false,false,false) end
+    end
 end)
 AddEventHandler('playerDropped',function() local src=tonumber(source); workers[src]=nil; previews[src]=nil; visits[src]=nil; rate[src]=nil end)
 AddEventHandler('onResourceStop',function(name)
@@ -37,6 +41,7 @@ MySQL.ready(function()
         Wait(C.TickMs)
         if ready then
             run(nil,function()
+                for src,p in pairs(previews) do if p.untilTime<os.time() then previews[src]=nil end end
                 local _,j=next(S.jobs)
                 if j then process(j) else tick() end
                 for _,p in pairs(core:GetPlayers()) do
@@ -45,7 +50,7 @@ MySQL.ready(function()
                 end
             end,true)
         else
-            if pcall(load) then ready=true end
+            local loaded=pcall(load); if loaded then ready=true end
         end
     end
 end)

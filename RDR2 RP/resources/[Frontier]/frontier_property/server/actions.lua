@@ -10,7 +10,7 @@ function request(src,action,d)
     if action=='interior' then local x,y=findVisit(src); if x then view(src,'interior',x,y) end; return end
     if action=='camp' then if nearCamp(src,s) and (owner(s,id) or s.members[id]) then view(src,'camp',s) end; return end
     if action=='chest' then
-        if allowed(s,id,'storage') and close(src,{x=s.x+2,y=s.y,z=s.z},C.InteractionDistance) then inv:OpenStorage(src,chestId(s.id)) end; return
+        if s and not (s.listing and s.listing.active) and allowed(s,id,'storage') and close(src,{x=s.x+2,y=s.y,z=s.z},C.InteractionDistance) then inv:OpenStorage(src,chestId(s.id)) end; return
     end
     if action=='site' then
         if b and s.status=='active' and close(src,b,C.InteractionDistance) and (allowed(s,id,'work') or allowed(s,id,'deliver')) then view(src,'site',s,b) end; return
@@ -33,7 +33,7 @@ function request(src,action,d)
         local p=previews[src]; previews[src]=nil
         if not p or p.actor~=id or p.untilTime<os.time() or not R.point(d) or not R.finite(d.heading) then return end
         s=settlement(p.sid); b=s and p.bid and s.buildings[p.bid] or nil
-        if not s or s.status~='active' then return end
+        if not s or s.status~='active' or (s.listing and s.listing.active) then return notice(src,'Settlement is unavailable or listed for sale.') end
         local pos=position(src)
         if not pos or not R.near(pos,d,C.PlacementDistance) or math.abs(pos.z-d.z)>C.MaxHeightOffset then return notice(src,'Invalid placement range.') end
         if p.mode=='furniture' or p.mode=='moveFurniture' then
@@ -56,19 +56,22 @@ function request(src,action,d)
         local e=C.Exteriors[p.exterior]; local i=p.interior and C.Interiors[p.interior]
         if pos.bucket~=0 or not allowed(s,id,p.mode=='move' and 'move' or 'build') or not e or not R.fits(s,d,e.radius,p.mode=='move' and p.bid or nil) then return notice(src,'Building must fit inside the claim and avoid other structures.') end
         if p.mode=='move' then
-            if not b or not b.complete or occupied(s.id) then return end
+            if not b or not b.complete or occupied(s.id) or b.exterior~=p.exterior then return end
             b.x,b.y,b.z,b.heading=d.x,d.y,d.z,d.heading%360
         else
-            local bid=uuid(); S.nextBucket=S.nextBucket+1
-            if S.nextBucket>C.InteriorBucketLimit then error('bucket range exhausted') end
+            local bid=uuid(); if i then
+                S.nextBucket=S.nextBucket+1
+                if S.nextBucket>C.InteriorBucketLimit then error('bucket range exhausted') end
+            end
             s.buildings[bid]={id=bid,exterior=p.exterior,interior=p.interior,x=d.x,y=d.y,z=d.z,heading=d.heading%360,radius=e.radius,
                 stages=buildingStages(e,i),stage=1,delivered={},progress=0,complete=false,capacity=R.capacity(e,i),
                 furniture={},bucket=S.nextBucket,locked=true,value=e.value+(i and i.value or 0)}
         end
         save(); notice(src,'Placement saved.'); return
     end
-    if not s or s.status~='active' then return end
     if action=='stopWork' then workers[src]=nil; return end
+    if not s or s.status~='active' then return end
+    if s.listing and s.listing.active and action~='unlist' and action~='approve' and action~='tax' then return notice(src,'Cancel the market listing before changing this settlement.') end
     if action=='deliver' or action=='work' then
         if not b or b.complete or not close(src,b) then return end
         local stage=b.stages[b.stage]; if not stage then return end
@@ -102,19 +105,26 @@ function request(src,action,d)
         local target=tonumber(d.target); local other=target and target%1==0 and target>0 and cid(target)
         if type(d.character)=='string' and s.members[d.character] then other=d.character end
         if not other or other==id or s.owners[other] then return end
+        if not owner(s,id) and s.members[other] then for _,k in ipairs(C.Permissions) do if s.members[other][k] and not allowed(s,id,k) then return notice(src,'Cannot manage a member with higher permissions.') end end end
         local rights={}; if type(d.rights)=='table' then for _,k in ipairs(C.Permissions) do if d.rights[k]==true and allowed(s,id,k) then rights[k]=true end end end
         if d.remove==true then s.members[other]=nil else s.members[other]=rights end
         save()
     elseif action=='coowner' and owner(s,id) and s.primary==id and not s.listing then
         local target=tonumber(d.target); local other=target and target%1==0 and target>0 and cid(target)
         if other and other~=id and bank(other) then s.owners[other]=true; s.members[other]=nil; save() end
+    elseif action=='removeCoowner' and owner(s,id) and s.primary==id and not s.listing then
+        -- Ownership is an economic right; removal is voluntary, never unilateral.
+        notice(src,'Co-owners must relinquish their own share.')
+    elseif action=='relinquish' and owner(s,id) and s.primary~=id and not s.listing then
+        if d.confirm~='RELINQUISH' then return end
+        s.owners[id]=nil; s.members[id]=nil; save()
     elseif action=='expand' and allowed(s,id,'expand') then
         local radius=s.radius+C.ExpansionStep
         local ok,err=R.claim(s,radius,S.settlements,s.id,C); if not ok then return notice(src,err) end
         local a=account(src,id); if a then queue({kind='expand',actor=id,src=src,sid=s.id,radius=radius,account=a,amount=R.expansion(s,C)}) end
     elseif action=='tax' and allowed(s,id,'finance') and s.debt>0 then
         local a=account(src,id); if a then queue({kind='tax',actor=id,src=src,sid=s.id,account=a,amount=s.debt}) end
-    elseif action=='list' and owner(s,id) and s.debt==0 then
+    elseif action=='list' and owner(s,id) and s.debt==0 and not occupied(s.id) then
         local price=tonumber(d.price)
         if not price or price%1~=0 or price<1 or price>100000000 then return end
         s.listing={price=price,approvals={[id]=true},active=false}
@@ -140,10 +150,10 @@ function request(src,action,d)
         s.buildings[b.id]=nil; save()
     elseif action=='lock' and b and allowed(s,id,'members') then b.locked=not b.locked; save()
     end
-    if action~='plan' and action~='move' and s.status=='active' then view(src,'camp',s) elseif s.status~='active' then TriggerClientEvent(E..'close',src) end
+    if action~='plan' and action~='move' and s.status=='active' and (owner(s,id) or s.members[id]) then view(src,'camp',s) elseif s.status~='active' then TriggerClientEvent(E..'close',src) end
 end
 RegisterNetEvent(E..'action',function(action,d)
-    local src=tonumber(source); if type(action)~='string' then return end
+    local src=tonumber(source); if not src or src<=0 or type(action)~='string' or #action>32 then return end
     local now=GetGameTimer(); if rate[src] and now-rate[src]<200 then return end; rate[src]=now
     run(src,function() request(src,action,d) end,action=='exit')
 end)
@@ -152,7 +162,7 @@ AddEventHandler('frontier:inventoryItemUsed',function(src,id,itemId)
     CreateThread(function()
         run(src,function()
             if cid(src)~=id then return end
-            local p=position(src); if not p then return end
+            local p=position(src); if not p or not R.point(p) then return end
             if itemId==C.Kit.id then
                 if p.bucket~=0 then return end
                 local ok,err=R.claim(p,C.InitialRadius,S.settlements,nil,C); if not ok then return notice(src,err) end
@@ -162,7 +172,7 @@ AddEventHandler('frontier:inventoryItemUsed',function(src,id,itemId)
                 queue({kind='claim',actor=id,src=src,sid=sid,item=itemId,claim=claim})
             else
                 local s,b=findVisit(src)
-                if not s or not allowed(s,id,'furnish') then return notice(src,'Enter an authorized interior first.') end
+                if not s or (s.listing and s.listing.active) or not allowed(s,id,'furnish') then return notice(src,'Enter an authorized interior first.') end
                 TriggerClientEvent('frontier_inventory:close',src)
                 beginPreview(src,s,b,nil,nil,'furniture',nil,itemId)
             end
@@ -172,7 +182,7 @@ end)
 exports('CanAccessCampStorage',function(src,storage)
     if not ready or next(S.jobs) or type(storage)~='string' then return false end
     local s=settlement(storage:match('^property_([a-f0-9]+)$'))
-    return allowed(s,cid(src),'storage') and close(src,{x=s.x+2,y=s.y,z=s.z},C.InteractionDistance) or false
+    return s and not (s.listing and s.listing.active) and allowed(s,cid(src),'storage') and close(src,{x=s.x+2,y=s.y,z=s.z},C.InteractionDistance) or false
 end)
 exports('GetProperty',function(id) local s=ready and settlement(id); if s and s.status=='active' then return public(s) end end)
 exports('CanAccessProperty',function(id,sid,permission) return ready and allowed(settlement(sid),id,permission)==true end)
