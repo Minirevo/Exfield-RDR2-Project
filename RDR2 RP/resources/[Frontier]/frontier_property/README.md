@@ -256,6 +256,56 @@ Data references: [RDR3 interior anchors](https://github.com/femga/rdr3_discoveri
 [object models](https://github.com/femga/rdr3_discoveries/blob/master/objects/object_list.lua) and
 [marker types](https://github.com/femga/rdr3_discoveries/blob/master/graphics/markers/marker_types.lua).
 
+## Existing houses
+
+Watson's Cabin uses the native map interior `wat_cabin_int` (53250), at the original
+world site. The registered front door is 1195519038 at `-1815.15, 654.96, 130.88`.
+The room uses the auto-streamed map `wat_01__interior_wat_cabin_int_milo_`.
+There is no additional IMAP request, custom map or exterior object. The client
+checks the loaded interior and collision, and requests an exit after a timeout.
+See [the extracted map data](https://redm.fivemad.com/tools/door-finder?door=1195519038)
+and [the interior index](https://github.com/femga/rdr3_discoveries/blob/master/interiors/interiors_coords_and_hashes.lua).
+
+Apply property migration 014 after 013. OneSync must be enabled. Reserve bucket IDs
+1500000001–1999999999 for this resource. An administrator assigns the template to
+each property chosen for the feature. Use an active, player-owned property ID
+without furniture from another room and replace 42 with the selected ID:
+
+```sql
+INSERT INTO frontier_property_houses (property_id, house_key)
+VALUES (42, 'watson');
+```
+
+The same door can lead to multiple independent properties. A property keeps its own
+database row, furniture and deterministic routing bucket. Existing leases follow
+their property and normal rental rules. Legacy rooms remain available. Changed room
+assignments are read on entry. Leave all visitors before altering assignments or
+moving furniture between layouts.
+
+### Spielen
+
+- Vor der Tür von Watson’s Cabin auf den Eingang schauen und E drücken. Bei
+  mehreren verfügbaren Grundstücken `/grundhaus ID` nutzen.
+- Am Ankunftspunkt E drücken, um nach draußen zurückzukehren.
+  `/grundhaus verlassen` funktioniert auch als Ausweichbefehl.
+- `/grundhauszugang ID öffentlich` beziehungsweise `privat` ändert den Zugang
+  für Eigentümer. Ein ausdrücklich verweigerter Zutritt bleibt gesperrt.
+- `/grundmoebel kaufen ID truhe 650` öffnet die Möbelvorschau. Pfeiltasten
+  verschieben, Leertaste/Strg ändern die Höhe, R dreht, E speichert, Esc bricht ab.
+- `/grundmoebel liste ID` zeigt eigene Möbel.
+  `/grundmoebel verschieben ID MÖBEL` öffnet die Vorschau für ein vorhandenes Stück.
+  `/grundmoebel einlagern ID MÖBEL` lagert es ein.
+- Beim Makler zeigt `/grundmoebel lager` die rückholbaren Möbel.
+  `/grundmoebel auslagern ID MODELL MÖBEL` öffnet im Haus die Vorschau.
+
+`lua tests/existing_houses.lua` checks mocked access, separate buckets, exit,
+disconnect and restart recovery. Real collision, main-room furnishing bounds and
+the spawn point need RedM acceptance on the server build. With three characters,
+test two visitors in one property, a third in a different property, each furniture
+operation, expired rental and recovery, reconnect and resource restart. The
+isolated bucket deliberately hides exterior network entities while inside.
+Verify voice isolation separately if the server uses a third-party voice resource.
+
 ## Property overhaul
 
 Apply `012_property_management.sql` after 011. The runtime needs EXECUTE on

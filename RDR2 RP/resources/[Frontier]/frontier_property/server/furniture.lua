@@ -1,6 +1,7 @@
 local core = exports.frontier_core
 local economy = exports.frontier_economy
 local refreshAt = {}
+local previews, previewSequence = {}, 0
 
 local function message(source, value)
     TriggerClientEvent('chat:addMessage', source, {args={'Frontier Einrichtung',value}})
@@ -23,8 +24,11 @@ local function currentPosition(source)
     return GetEntityCoords(ped), ped
 end
 
-RegisterCommand('grundmoebel', function(source, args)
+local function furnitureCommand(source,args,confirmed,visit)
     if source <= 0 then return end
+    if not args[1] then
+        return message(source,'kaufen ID MODELL CENT | liste ID | verschieben ID MÖBEL | einlagern ID MÖBEL | lager | auslagern ID MODELL MÖBEL')
+    end
     local actor = core:GetPlayerCharacterId(source)
     if not actor then return message(source,'Wähle zuerst einen Charakter.') end
     if args[1] == 'lager' then
@@ -41,6 +45,16 @@ RegisterCommand('grundmoebel', function(source, args)
 
     local target = propertyId(args[2])
     local room = target and GetPropertyFurnishingRooms()[target]
+    if room and PropertyExistingRooms[target]==room then
+        local current=GetPropertyHouseVisit(source,target)
+        if not current or (visit and current~=visit) then return end
+        visit=current
+    end
+    local function startPreview(model,radius,transform)
+        previewSequence=previewSequence+1
+        previews[source]={token=previewSequence,args=args,visit=visit,expires=GetGameTimer()+120000}
+        TriggerClientEvent('frontier_property:furniturePreview',source,previewSequence,model,radius,transform)
+    end
     if not room or GetPlayerRoutingBucket(source) ~= room.bucket then
         return message(source,'Wähle einen eingerichteten Innenraum.')
     end
@@ -50,14 +64,21 @@ RegisterCommand('grundmoebel', function(source, args)
         local piece=propertyId(args[3])
         if not piece then return message(source,'Gib die Möbelnummer an.') end
         local action=args[1]=='einlagern' and 'store' or 'move'
-        local asset=MySQL.single.await([[SELECT radius FROM frontier_property_furniture
+        local asset=MySQL.single.await([[SELECT radius,model_key,x,y,z,heading FROM frontier_property_furniture
             WHERE id=? AND property_id=? AND owner_id=? AND state='placed']],{piece,target,actor})
         if not asset or core:GetPlayerCharacterId(source)~=actor or GetPlayerRoutingBucket(source)~=room.bucket then return end
+        if visit and GetPropertyHouseVisit(source,target)~=visit then return end
+        if visit and action=='move' and not confirmed then
+            local item=PropertyConfig.FurnitureCatalog[asset.model_key]
+            if item then startPreview(item.model,asset.radius,asset) end
+            return
+        end
         position,ped=currentPosition(source)
+        position=confirmed or position
         if not position or not within(position,room,action=='move' and asset.radius or 0) then
             return message(source,'Das Möbelstück passt nicht an diese Position.')
         end
-        local angle=tonumber(args[4]) or GetEntityHeading(ped)
+        local angle=confirmed and confirmed.heading or tonumber(args[4]) or GetEntityHeading(ped)
         if not (math.abs(angle)<100000) then return end
         local rows=MySQL.query.await('CALL frontier_property_furniture_manage_v1(?,?,?,?,?,?,?,?)',
             {target,piece,actor,action,position.x,position.y,position.z,angle%360})
@@ -80,7 +101,7 @@ RegisterCommand('grundmoebel', function(source, args)
     local model = args[3] and PropertyConfig.FurnitureCatalog[args[3]]
     if not model or type(model.radius) ~= 'number' or not (model.radius > 0 and model.radius <= 10)
         or math.type(model.price) ~= 'integer' or model.price < 1 or model.price > 9000000000000
-        or not within(position, room, model.radius) then
+        or (not visit and not within(position, room, model.radius)) then
         return message(source,'Dieses Modell passt hier nicht.')
     end
     local price, bank, recovered = 0, 0, 0
@@ -92,22 +113,44 @@ RegisterCommand('grundmoebel', function(source, args)
             return message(source, ('%s kostet $%.2f. Bestätige mit /grundmoebel kaufen %d %s %d.'):format(
                 args[3],model.price / 100,target,args[3],model.price))
         end
+        if visit and not confirmed then return startPreview(model.model,model.radius) end
         local ok, accounts = economy:GetCharacterAccounts(source)
         if not ok or accounts.characterId ~= actor or core:GetPlayerCharacterId(source) ~= actor then return end
         price, bank = model.price, accounts.bank.id
         position, ped = currentPosition(source)
-        if not position or GetPlayerRoutingBucket(source) ~= room.bucket or not within(position,room,model.radius) then
+        if not position or GetPlayerRoutingBucket(source) ~= room.bucket then
             return
         end
     end
 
+    if visit and not confirmed then return startPreview(model.model,model.radius) end
+    if visit and GetPropertyHouseVisit(source,target)~=visit then return end
+    position=confirmed or position
+    if not within(position,room,model.radius) then return message(source,'Position außerhalb des Einrichtungsbereichs.') end
     local response = MySQL.query.await('CALL frontier_property_furniture_place_v1(?,?,?,?,?,?,?,?,?,?,?,?)', {
-        target,actor,args[3],position.x,position.y,position.z,GetEntityHeading(ped),room.capacity,recovered,bank,price,model.radius,
+        target,actor,args[3],position.x,position.y,position.z,confirmed and confirmed.heading or GetEntityHeading(ped),room.capacity,recovered,bank,price,model.radius,
     })
     if core:GetPlayerCharacterId(source) ~= actor then return end
     local result = response and response[1] and response[1][1]
     message(source, result and result.id and 'Möbelvorgang gespeichert.' or 'Platz belegt oder Einrichtung nicht erlaubt.')
+end
+
+RegisterCommand('grundmoebel',function(player,args)
+    furnitureCommand(player,args)
 end,false)
+
+RegisterNetEvent('frontier_property:furnitureConfirm',function(token,x,y,z,heading)
+    local player=source
+    local edit=previews[player]
+    if not edit or edit.token~=token then return end
+    previews[player]=nil
+    if GetGameTimer()>edit.expires or GetPropertyHouseVisit(player,edit.visit.id)~=edit.visit then return end
+    local function finite(value)
+        return type(value)=='number' and math.abs(value)<100000
+    end
+    if not (finite(x) and finite(y) and finite(z) and finite(heading)) then return end
+    furnitureCommand(player,edit.args,{x=x,y=y,z=z,heading=heading%360},edit.visit)
+end)
 
 RegisterNetEvent('frontier_property:furnitureRefresh', function()
     local player = source
@@ -121,7 +164,8 @@ RegisterNetEvent('frontier_property:furnitureRefresh', function()
     end
     local bucket, visible = GetPlayerRoutingBucket(player), {}
     for id, room in pairs(GetPropertyFurnishingRooms()) do
-        if bucket == room.bucket and within(position,room,0) then
+        if bucket == room.bucket and within(position,room,0)
+            and (PropertyExistingRooms[id]~=room or GetPropertyHouseVisit(player,id)) then
             local rows = MySQL.query.await([[SELECT id,model_key,x,y,z,heading
                 FROM frontier_property_furniture WHERE property_id=? AND state='placed' LIMIT 100]],{id})
             for _, row in ipairs(rows) do
@@ -146,7 +190,7 @@ RegisterNetEvent('frontier_property:furnitureRefresh', function()
     TriggerClientEvent('frontier_property:furnitureSnapshot',player,visible)
 end)
 
-AddEventHandler('playerDropped',function() refreshAt[source]=nil end)
+AddEventHandler('playerDropped',function() refreshAt[source],previews[source]=nil,nil end)
 
 MySQL.ready(function()
     CreateThread(function()

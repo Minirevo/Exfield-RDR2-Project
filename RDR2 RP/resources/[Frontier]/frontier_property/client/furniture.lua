@@ -5,6 +5,11 @@ local function key(row)
     return ('%s:%s:%s:%s:%s:%s'):format(row.id,row.model,row.x,row.y,row.z,row.heading)
 end
 
+function ClearPropertyFurniture()
+    epoch=epoch+1
+    for id,entity in pairs(visible) do DeleteEntity(entity); visible[id]=nil end
+end
+
 RegisterNetEvent('frontier_property:furnitureSnapshot', function(rows)
     if source ~= 65535 then return end
     epoch = epoch + 1
