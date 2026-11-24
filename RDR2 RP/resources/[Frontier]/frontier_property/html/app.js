@@ -3,7 +3,7 @@ const $=id=>document.getElementById(id);
 let state=null;
 const entries=x=>Object.entries(x||{}), vals=x=>Object.values(x||{});
 const money=n=>'$'+(Number(n||0)/100).toFixed(2);
-const materials=x=>entries(x).map(([k,n])=>n+' '+k.replaceAll('_',' ')).join(' · ');
+const materials=x=>entries(x).map(([k,n])=>n+' '+k.replace(/_/g,' ')).join(' · ');
 function node(tag,text,parent){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(parent)parent.append(el);return el}
 function button(parent,label,fn){const el=node('button',label,parent);el.type='button';el.onclick=fn;return el}
 function input(parent,type,value,placeholder){const el=node('input',undefined,parent);el.type=type;el.value=value??'';el.placeholder=placeholder||'';return el}
@@ -61,5 +61,26 @@ function render(){
  }
  if(s.owner){const sec=section(root,'Global market');const price=input(sec,'number',s.listing?.price||50000);node('span',' price in cents',sec);button(sec,'List settlement',()=>act('list',args({price:Number(price.value)})));if(s.listing){button(sec,'Approve sale',()=>act('approve',args()));button(sec,'Cancel listing',()=>act('unlist',args()))}confirmInline(sec,'Abandon settlement',()=>act('abandon',args({confirm:'ABANDON'})))}
 }
-window.addEventListener('message',({data:d})=>{if(d.type==='menu'){state=d.data;document.body.hidden=false;render()}else if(d.type==='close'){document.body.hidden=true;state=null}else if(d.type==='notice'){$('status').textContent=d.message}else if(d.type==='refresh')refresh()});
-$('close').onclick=()=>post('close');document.addEventListener('keydown',e=>{if(e.key==='Escape')post('close')});
+let menuToken=null;
+function hide(){document.body.hidden=true;state=null;menuToken=null}
+function closeMenu(){hide();post('close').catch(console.error)}
+window.addEventListener('message',function(event){
+ const d=event.data;if(!d||typeof d!=='object')return;
+ if(d.type==='menu'){
+  menuToken=d.token;
+  try{
+   state=d.data;
+   if(!state||typeof state.kind!=='string')throw new Error('Invalid menu data');
+   render();
+   document.body.hidden=false;
+   post('menuReady',{token:d.token}).then(function(result){if(!result.ok&&menuToken===d.token)hide()}).catch(function(error){console.error(error);if(menuToken===d.token)hide()});
+  }catch(error){
+   console.error('Property menu render failed',error);
+   hide();post('menuError',{token:d.token,message:String(error)}).catch(console.error);
+  }
+ }else if(d.type==='close'){hide()}
+ else if(d.type==='notice'){$('status').textContent=d.message}
+ else if(d.type==='refresh'){refresh()}
+});
+$('close').onclick=closeMenu;
+document.addEventListener('keydown',function(e){if(e.key==='Escape'){e.preventDefault();closeMenu()}});

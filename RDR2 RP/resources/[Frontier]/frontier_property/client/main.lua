@@ -3,8 +3,10 @@ local E='frontier_property:'
 local objects,markers={},{}
 local world={claims={},objects={},markers={}}
 local interior,preview,inside,focused=nil,nil,nil,false
+local pendingMenu,menuSequence=nil,0
 local function notice(msg) TriggerEvent('chat:addMessage',{args={'Frontier Property',msg}}) end
 local function close()
+    pendingMenu=nil
     if focused then SetNuiFocus(false,false); focused=false end
     SendNUIMessage({type='close'})
 end
@@ -38,7 +40,16 @@ RegisterNetEvent(E..'close',function() if source==65535 then close() end end)
 RegisterNetEvent(E..'refresh',function() if source==65535 and focused then SendNUIMessage({type='refresh'}) end end)
 RegisterNetEvent(E..'menu',function(data)
     if source~=65535 then return end
-    SetNuiFocus(true,true); focused=true; SendNUIMessage({type='menu',data=data})
+    menuSequence=menuSequence+1
+    local token=menuSequence
+    pendingMenu=token
+    SendNUIMessage({type='menu',data=data,token=token})
+    SetTimeout(3000,function()
+        if pendingMenu==token then
+            close()
+            notice('Property interface did not acknowledge loading. Try again or check the F8 console.')
+        end
+    end)
 end)
 RegisterNetEvent(E..'world',function(data) if source==65535 then world=data end end)
 RegisterNetEvent(E..'interior',function(data)
@@ -69,6 +80,21 @@ RegisterNetEvent(E..'preview',function(d)
     preview={handle=handle,x=o.x,y=o.y,z=o.z,heading=o.heading or 0,mode=d.mode,claim=d.claim,blockers=d.blockers,radius=d.radius,room=d.room}
     notice('Placement: arrows move, PageUp/Down height, Q/R rotate, Enter confirm, Esc cancel.')
 end)
+RegisterNUICallback('menuReady',function(d,cb)
+    if type(d)=='table' and pendingMenu and d.token==pendingMenu then
+        pendingMenu=nil
+        SetNuiFocus(true,true); focused=true
+        cb({ok=true})
+    else cb({ok=false}) end
+end)
+RegisterNUICallback('menuError',function(d,cb)
+    if type(d)=='table' and d.token==pendingMenu then
+        close()
+        notice('Property UI error: '..tostring(d.message or 'unknown'):sub(1,200))
+    end
+    cb({ok=true})
+end)
+RegisterCommand('propertyclose',function() close(); SetNuiFocus(false,false) end,false)
 RegisterNUICallback('close',function(_,cb) close(); cb({ok=true}) end)
 RegisterNUICallback('action',function(d,cb)
     if focused and type(d)=='table' and type(d.action)=='string' then
