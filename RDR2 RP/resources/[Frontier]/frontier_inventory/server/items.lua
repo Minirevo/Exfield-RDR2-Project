@@ -1,12 +1,20 @@
 local defaults = {
+    settlement_kit = { name = 'Settlement kit', description = 'Settlement kit', grams = 15000, maxStack = 1, category = 'Settlement', usable = true },
+    property_hammer = { name = 'Hammer', description = 'Hammer', grams = 1000, maxStack = 1, category = 'Settlement', usable = false },
+    property_saw = { name = 'Saw', description = 'Saw', grams = 1800, maxStack = 1, category = 'Settlement', usable = false },
+    property_bed = { name = 'Bed', description = 'Bed', grams = 10000, maxStack = 1, category = 'Large furniture', usable = true },
+    property_chest = { name = 'Decorative chest', description = 'Decorative chest', grams = 6000, maxStack = 1, category = 'Medium furniture', usable = true },
+    property_wardrobe = { name = 'Wardrobe', description = 'Wardrobe', grams = 12000, maxStack = 1, category = 'Large furniture', usable = true },
+    property_table = { name = 'Workbench', description = 'Workbench', grams = 10000, maxStack = 1, category = 'Large furniture', usable = true },
+    property_chair = { name = 'Chair', description = 'Chair', grams = 3000, maxStack = 1, category = 'Small furniture', usable = true },
     bread = { name = 'Brot', description = 'Ein Laib Brot.', grams = 350, maxStack = 10, category = 'Nahrung' },
     water = { name = 'Wasserflasche', description = 'Eine Flasche Trinkwasser.', grams = 550, maxStack = 10, category = 'Getränke' },
     apple = { name = 'Apfel', description = 'Ein frischer Apfel.', grams = 150, maxStack = 20, category = 'Nahrung' },
     bandage = { name = 'Verband', description = 'Ein sauberer Stoffverband.', grams = 80, maxStack = 15, category = 'Medizin', usable = true },
     tonic = { name = 'Heiltonikum', description = 'Eine Flasche mit etikettiertem Inhalt.', grams = 280,
         maxStack = 5, category = 'Medizin', usable = true, metadata = '{"charge":"standard"}' },
-    lantern = { name = 'Laterne', description = 'Eine tragbare Laterne.', grams = 2200,
-	    -- Production materials
+    lantern = { name = 'Laterne', description = 'Eine tragbare Laterne.', grams = 2200, maxStack = 1, category = 'Werkzeug', condition = true, classification = 'tool', metadata = '{"condition":100}' },
+    -- Production materials
     flour = {
         name = 'Mehl',
         description = 'Fein gemahlenes Getreidemehl.',
@@ -70,7 +78,6 @@ local defaults = {
         maxStack = 10,
         category = 'Materialien'
     },
-        maxStack = 1, category = 'Werkzeug', condition = true, classification = 'tool', metadata = '{"condition":100}' },
 }
 
 function Inventory.Text(value, max)
@@ -123,6 +130,16 @@ function Inventory.Register(owner, id, input)
         SELECT owner_resource, definition FROM frontier_inventory_items WHERE id = ?
     ]], { id })
     if not loaded then return false, row end
+    if row and owner==Inventory.resource and row.owner_resource=='frontier_property' and
+        (id=='settlement_kit' or id:match('^property_')) then
+        -- Previous prototype registered these same definitions dynamically. Adopt only exact matches.
+        local old=json.decode(row.definition)
+        for key,value in pairs(def) do if old[key]~=value then return false,'definition_conflict' end end
+        for key in pairs(old) do if def[key]==nil then return false,'definition_conflict' end end
+        local moved=Inventory.Db('update','UPDATE frontier_inventory_items SET owner_resource=? WHERE id=? AND owner_resource=?',{owner,id,'frontier_property'})
+        if not moved then return false,'database_error' end
+        row.owner_resource=owner
+    end
     if not row or row.owner_resource ~= owner then return false, 'forbidden' end
     local saved = json.decode(row.definition)
     for key, value in pairs(def) do
