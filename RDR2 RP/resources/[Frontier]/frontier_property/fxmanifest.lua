@@ -7,10 +7,10 @@ name 'frontier_property'
 version '0.1.0'
 dependencies { '/onesync', 'oxmysql', 'frontier_core', 'frontier_economy', 'frontier_inventory' }
 
-shared_script 'shared/agents.lua'
-server_scripts { '@oxmysql/lib/MySQL.lua', 'config.lua', 'server/world_data.lua', 'server/world_policy.lua', 'server/defaults.lua', 'server/registry.lua', 'server/management.lua', 'server/blueprint.lua', 'server/agents.lua', 'server/policy.lua', 'server/survey.lua', 'server/overview.lua', 'server/land.lua', 'server/rentals.lua', 'server/survey_command.lua', 'server/planner.lua', 'server/furniture.lua', 'server/sales.lua', 'server/construction.lua', 'server/foreclosure.lua' }
+shared_scripts { 'shared/agents.lua', 'shared/houses.lua' }
+server_scripts { '@oxmysql/lib/MySQL.lua', 'config.lua', 'server/world_data.lua', 'server/world_policy.lua', 'server/defaults.lua', 'server/houses.lua', 'server/registry.lua', 'server/management.lua', 'server/blueprint.lua', 'server/agents.lua', 'server/policy.lua', 'server/survey.lua', 'server/overview.lua', 'server/land.lua', 'server/rentals.lua', 'server/survey_command.lua', 'server/planner.lua', 'server/furniture.lua', 'server/sales.lua', 'server/construction.lua', 'server/foreclosure.lua' }
 
-client_script 'client/furniture.lua'
+client_scripts { 'client/furniture.lua', 'client/houses.lua', 'client/furniture_preview.lua' }
 
 client_script 'client/agents.lua'
 ui_page 'html/agent.html'

@@ -4,8 +4,9 @@ local visits = {}
 
 function GetPropertyFurnishingRooms()
     local all={}
-    for id, room in pairs(rooms) do all[id]=room end
-    for id, room in pairs(PropertyConfig.FurnishingRooms) do all[id]=room end
+    for id, room in pairs(PropertyExistingRooms or {}) do all[id]=room end
+    for id, room in pairs(rooms) do if not all[id] then all[id]=room end end
+    for id, room in pairs(PropertyConfig.FurnishingRooms) do if not all[id] then all[id]=room end end
     return all
 end
 
