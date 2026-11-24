@@ -180,7 +180,7 @@ CreateThread(function()
             DisableControlAction(0,keys.confirm,true); DisableControlAction(0,keys.cancel,true)
             if IsDisabledControlJustPressed(0,keys.confirm) then confirm()
             elseif IsDisabledControlJustPressed(0,keys.cancel) then cancel(true) end
-            hint((validPreview(preview) and 'VALID' or 'INVALID')..' | Arrows move | Enter confirm | Esc cancel')
+            if preview then hint((validPreview(preview) and 'VALID' or 'INVALID')..' | Arrows move | Enter confirm | Esc cancel') end
         elseif not focused and not IsNuiFocused() then
             local d=nearest(); local shop=false;local p=GetEntityCoords(PlayerPedId())
             if not d and not interior then for _,s in ipairs(C.Shops) do if #(p-vector3(s.x,s.y,s.z))<=5 then shop=true;break end end end

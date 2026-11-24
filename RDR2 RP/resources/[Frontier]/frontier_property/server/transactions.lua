@@ -10,13 +10,13 @@ function opts(job,suffix) return {key='property:'..job.id..':'..suffix,reason='F
 function queue(j)
     j.id=uuid(); S.jobs[j.id]=j; save()
 end
-function endJob(j) S.jobs[j.id]=nil; save() end
+function endJob(j,outcome) j.outcome=outcome; S.history=S.history or {}; S.history[j.id]=j; S.jobs[j.id]=nil; save(); S.history[j.id]=nil end
 function failJob(j,msg)
     if j.src and cid(j.src)==j.actor then notice(j.src,msg) end
-    endJob(j)
+    endJob(j,'failed')
 end
 function finishJob(j,msg)
-    endJob(j)
+    endJob(j,'complete')
     if j.src and cid(j.src)==j.actor then notice(j.src,msg or 'Done.'); TriggerClientEvent(E..'refresh',j.src) end
 end
 function definite(code) return code=='insufficient_funds' or code=='quantity' or code=='slots' or code=='weight' or code=='capacity' or code=='insufficient_stock' end
@@ -59,9 +59,9 @@ end
 function process(j)
     local s=settlement(j.sid)
     if j.kind=='claim' then
-        if not take(j) then return end
         local ok=inv:CreateStorage({id=chestId(j.sid),name='Settlement chest',slots=C.StorageSlots,grams=C.StorageGrams,ace=''})
         if not ok then return end
+        if not take(j) then return end
         S.settlements[j.sid]=j.claim
         finishJob(j,'Settlement established!')
     elseif j.kind=='shop' then

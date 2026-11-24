@@ -2,7 +2,7 @@
 PropertyDB={}
 local D=PropertyDB
 local previous={}
-local function rows(t) return MySQL.query.await('SELECT * FROM '..t) or {} end
+local function rows(t) return assert(MySQL.query.await('SELECT * FROM '..t),'Unable to load '..t) end
 local function num(v) return tonumber(v) end
 local function flag(v) return v==true or tonumber(v)==1 end
 local function decode(v) return json.decode(v) end
@@ -109,12 +109,12 @@ local function statement(spec,record,delete)
     return {query='INSERT INTO '..name..' ('..table.concat(cols,',')..') VALUES ('..table.concat(params,',')..') ON DUPLICATE KEY UPDATE '..table.concat(updates,','),values=record.values}
 end
 function D.save(S,revision)
-    local current=project(S);local queries={}
+    local current=project(S);local queries={{query='CALL fp_assert_revision(?)',values={revision}}}
     -- Child deletes first; parent inserts first. Only changed rows are written.
     for i=#specs,1,-1 do local spec=specs[i];local t=spec[1]
         for key,record in pairs(previous[t] or {}) do if not current[t][key] then
             if t=='fp_operations' then
-                queries[#queries+1]={query="INSERT IGNORE INTO fp_history(operation_id,settlement_id,kind,details) VALUES (?,NULLIF(?,''),?,?)",values={record.values[1],record.values[3],record.values[2],record.values[4]}}
+                queries[#queries+1]={query="INSERT IGNORE INTO fp_history(operation_id,settlement_id,kind,details) VALUES (?,NULLIF(?,''),?,?)",values={record.values[1],record.values[3],record.values[2],encode((S.history or {})[record.values[1]] or decode(record.values[4]))}}
             end
             queries[#queries+1]=statement(spec,record,true)
         end end
@@ -124,7 +124,7 @@ function D.save(S,revision)
             if not old or old.signature~=record.signature then queries[#queries+1]=statement(spec,record,false) end
         end
     end
-    queries[#queries+1]={query='UPDATE fp_meta SET revision=revision+1,next_bucket=? WHERE id=1',values={S.nextBucket}}
+    queries[#queries+1]={query='UPDATE fp_meta SET next_bucket=? WHERE id=1',values={S.nextBucket}}
     assert(MySQL.transaction.await(queries),'Property relational transaction failed')
     previous=current
     return revision+1

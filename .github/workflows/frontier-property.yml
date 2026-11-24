@@ -1,0 +1,35 @@
+name: Frontier property checks
+on:
+  pull_request:
+    paths:
+      - 'RDR2 RP/resources/[Frontier]/**'
+      - '.github/workflows/frontier-property.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  property:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install test dependencies
+        run: sudo apt-get update && sudo apt-get install -y lua5.4 mariadb-server
+      - name: Parse Lua and JavaScript
+        working-directory: RDR2 RP/resources/[Frontier]
+        run: |
+          find frontier_property frontier_inventory frontier_trade -name '*.lua' -print0 | xargs -0 -n1 luac5.4 -p
+          node --check frontier_property/html/app.js
+          node --check frontier_trade/html/app.js
+      - name: Rules and mocked runtime
+        working-directory: RDR2 RP/resources/[Frontier]/frontier_property
+        run: |
+          lua5.4 tests/rules.lua
+          lua5.4 tests/runtime.lua
+      - name: Fresh SQL and transaction guard
+        working-directory: RDR2 RP/resources/[Frontier]/frontier_property
+        run: |
+          sudo service mariadb start
+          sudo mariadb -e 'CREATE DATABASE frontier_property_ci'
+          sudo mariadb frontier_property_ci < sql/migrations/001_settlements.sql
+          sudo mariadb frontier_property_ci < sql/migrations/001_settlements.sql
+          sudo mariadb frontier_property_ci < tests/schema.sql
