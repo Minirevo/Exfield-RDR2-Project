@@ -1,5 +1,11 @@
 local defaults = {
-    settlement_kit = { name = 'Settlement kit', description = 'Settlement kit', grams = 15000, maxStack = 1, category = 'Settlement', usable = true },
+    settlement_kit = { 
+		name = 'Settlement kit',
+		description = 'Settlement kit',
+		grams = 15000, maxStack = 1,
+		category = 'Settlement',
+		usable = true
+	},
     property_hammer = { name = 'Hammer', description = 'Hammer', grams = 1000, maxStack = 1, category = 'Settlement', usable = false },
     property_saw = { name = 'Saw', description = 'Saw', grams = 1800, maxStack = 1, category = 'Settlement', usable = false },
     property_bed = { name = 'Bed', description = 'Bed', grams = 10000, maxStack = 1, category = 'Large furniture', usable = true },
@@ -14,7 +20,6 @@ local defaults = {
     tonic = { name = 'Heiltonikum', description = 'Eine Flasche mit etikettiertem Inhalt.', grams = 280,
         maxStack = 5, category = 'Medizin', usable = true, metadata = '{"charge":"standard"}' },
     lantern = { name = 'Laterne', description = 'Eine tragbare Laterne.', grams = 2200, maxStack = 1, category = 'Werkzeug', condition = true, classification = 'tool', metadata = '{"condition":100}' },
-    -- Production materials
     flour = {
         name = 'Mehl',
         description = 'Fein gemahlenes Getreidemehl.',
