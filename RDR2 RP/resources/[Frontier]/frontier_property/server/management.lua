@@ -32,7 +32,7 @@ local function show(player,actor)
     end
     for _, property in ipairs(properties) do
         if tonumber(property.owner)==1 then
-            property.grants=MySQL.query.await([[SELECT character_id AS character,permission_key AS permission
+            property.grants=MySQL.query.await([[SELECT character_id AS `character`,permission_key AS permission
                 FROM frontier_property_permissions WHERE property_id=? AND allow_access=1
                 ORDER BY character_id,permission_key]],{property.id})
         end
