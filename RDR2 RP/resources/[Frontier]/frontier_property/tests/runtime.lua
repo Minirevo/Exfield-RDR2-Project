@@ -17,7 +17,7 @@ local e=PropertyConfig.Exteriors.cabin;local i=PropertyConfig.Interiors.watson
 local stages=P.buildingStages(e,i)
 assert(#stages==3)
 for item,n in pairs(e.materials) do assert((stages[1].materials[item] or 0)+(stages[2].materials[item] or 0)==n) end
-assert(stages[3].materials.planks==i.materials.planks)
+assert(stages[3].materials.wooden_planks==i.materials.wooden_planks)
 assert(PropertyRules.capacity(e,i)==45)
 assert(P.close(1,{x=0,y=0,z=0},5,0))
 assert(not P.close(1,{x=0,y=0,z=0},5,1500000001))

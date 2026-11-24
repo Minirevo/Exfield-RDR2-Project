@@ -1,11 +1,5 @@
 local defaults = {
-    settlement_kit = { 
-		name = 'Settlement kit',
-		description = 'Settlement kit',
-		grams = 15000, maxStack = 1,
-		category = 'Settlement',
-		usable = true
-	},
+    settlement_kit = { name = 'Settlement kit', description = 'Settlement kit', grams = 15000, maxStack = 1, category = 'Settlement', usable = true },
     property_hammer = { name = 'Hammer', description = 'Hammer', grams = 1000, maxStack = 1, category = 'Settlement', usable = false },
     property_saw = { name = 'Saw', description = 'Saw', grams = 1800, maxStack = 1, category = 'Settlement', usable = false },
     property_bed = { name = 'Bed', description = 'Bed', grams = 10000, maxStack = 1, category = 'Large furniture', usable = true },
@@ -20,6 +14,13 @@ local defaults = {
     tonic = { name = 'Heiltonikum', description = 'Eine Flasche mit etikettiertem Inhalt.', grams = 280,
         maxStack = 5, category = 'Medizin', usable = true, metadata = '{"charge":"standard"}' },
     lantern = { name = 'Laterne', description = 'Eine tragbare Laterne.', grams = 2200, maxStack = 1, category = 'Werkzeug', condition = true, classification = 'tool', metadata = '{"condition":100}' },
+    -- Production owns its material definitions; do not seed competing defaults.
+
+}
+
+-- Exact definitions accidentally seeded by the previous Property revision.
+local legacyProductionDefaults = {
+    -- Production materials
     flour = {
         name = 'Mehl',
         description = 'Fein gemahlenes Getreidemehl.',
@@ -120,6 +121,13 @@ local function normalize(id, input)
     if Inventory.Metadata(def.metadata, def.condition) then return def end
 end
 
+local function sameDefinition(a,b)
+    if type(a)~='table' or type(b)~='table' then return false end
+    for k,v in pairs(a) do if b[k]~=v then return false end end
+    for k in pairs(b) do if a[k]==nil then return false end end
+    return true
+end
+
 function Inventory.Register(owner, id, input)
     local def = normalize(id, input)
     if not def or not Inventory.Text(owner, 96) then
@@ -145,6 +153,24 @@ function Inventory.Register(owner, id, input)
         if not moved then return false,'database_error' end
         row.owner_resource=owner
     end
+    -- Repair only known accidental definitions, when the actual Production resource requests them.
+    -- Never delete inventory slots or transfer unrelated item ownership.
+    if row and owner=='frontier_production' and row.owner_resource==Inventory.resource
+        and id~='planks' and legacyProductionDefaults[id] then
+        local legacy=normalize(id,legacyProductionDefaults[id])
+        local prior=json.decode(row.definition)
+        if sameDefinition(prior,legacy) then
+            -- The canonical Production values are lighter and allow at least the old stack size.
+            if def.grams>legacy.grams or def.maxStack<legacy.maxStack then return false,'definition_conflict' end
+            local migrated,count=Inventory.Db('update', [[
+                UPDATE frontier_inventory_items SET owner_resource=?,definition=?,grams=?,max_stack=?
+                WHERE id=? AND owner_resource=? AND definition=?
+            ]], {owner,json.encode(def),def.grams,def.maxStack,id,Inventory.resource,row.definition})
+            if not migrated or count~=1 then return false,'definition_conflict' end
+            row.owner_resource=owner;row.definition=json.encode(def)
+            Inventory.Log('INFO','Repaired legacy production item definition',{item=id})
+        end
+    end
     if not row or row.owner_resource ~= owner then return false, 'forbidden' end
     local saved = json.decode(row.definition)
     for key, value in pairs(def) do
@@ -168,7 +194,11 @@ function Inventory.BootItems()
         Inventory.items[row.id] = def
     end
     for id, def in pairs(defaults) do
-        if not Inventory.Register(Inventory.resource, id, def) then return false end
+        local registered,reason=Inventory.Register(Inventory.resource,id,def)
+        if not registered then
+            Inventory.Log('ERROR','Default item registration failed',{item=id,reason=reason})
+            return false
+        end
     end
     Inventory.handlers.bandage = { owner = Inventory.resource, consume = true, callback = function() return true end }
     Inventory.handlers.tonic = { owner = Inventory.resource, consume = true, callback = function() return true end }
