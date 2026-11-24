@@ -43,7 +43,7 @@ function render(){
   button(sec,'Set member permissions',()=>act('member',args({target:Number(target.value),rights:Object.fromEntries(entries(rights).map(([k,v])=>[k,v.checked]))})));
   button(sec,'Remove member',()=>act('member',args({target:Number(target.value),remove:true})));
   if(s.owner){confirmInline(sec,'Add co-owner',()=>act('coowner',args({target:Number(target.value)})));confirmInline(sec,'Relinquish own co-ownership',()=>act('relinquish',args({confirm:'RELINQUISH'})))}
-  for(const [id,r] of entries(s.members)){const row=node('article',id+' · '+entries(r).filter(([,v])=>v).map(([k])=>k).join(', '),sec);button(row,'Edit permissions',()=>{for(const [k,v] of entries(rights))v.checked=r[k]===true;button(row,'Save selected permissions',()=>act('member',args({character:id,rights:Object.fromEntries(entries(rights).map(([k,v])=>[k,v.checked]))}))});button(row,'Remove',()=>act('member',args({character:id,remove:true})))};
+  for(const [id,r] of entries(s.members)){const row=node('article',id+' · '+entries(r).filter(([,v])=>v).map(([k])=>k).join(', '),sec);button(row,'Edit permissions',()=>{for(const [k,v] of entries(rights))v.checked=r[k]===true;button(row,'Save selected permissions',()=>act('member',args({character:id,rights:Object.fromEntries(entries(rights).map(([k,v])=>[k,v.checked]))})));});button(row,'Remove',()=>act('member',args({character:id,remove:true})))};
  }
  if(s.rights.build){const sec=section(root,'Construction catalogue');
   const cats=[...new Set(vals(state.catalogue).map(e=>e.category))].sort();const cat=select(sec,cats.map(c=>[c,c]));const ext=select(sec,[]);const int=select(sec,[]);const detail=node('p','',sec);
