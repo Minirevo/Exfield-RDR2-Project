@@ -706,3 +706,24 @@ trusted('ApplyProductionInventory',function(resource,action,owner,key,options)
     end
     return Inventory.Commit(key,actor,fingerprint,from,to)
 end)
+
+-- Persistent character identity for idempotent property jobs.
+trusted('PropertyChangeCharacter', function(owner, id, item, quantity, add, key)
+    if owner ~= 'frontier_property' or not Inventory.Id(id,64) or not id:match('^f_[a-f0-9]+$')
+        or type(add) ~= 'boolean' or not Inventory.Id(item,48) or not Inventory.Int(quantity,10000)
+        or not requestKey(key) or key==nil then return false,'invalid_request' end
+    if not Inventory.items[item] then return false,'invalid_item' end
+    local ctx={id=id,key=key,actor='resource:'..owner,fingerprint=json.encode({'property_change',id,item,quantity,add})}
+    local ok,replay=Inventory.Replay(key,ctx.actor,ctx.fingerprint)
+    if not ok then return false,replay end
+    if replay then return true,key end
+    local loaded,box=Inventory.Load('p_'..id)
+    if not loaded then
+        if box~='not_found' then return false,box end
+        local made,err=Inventory.Ensure('p_'..id,'player',Config.Slots,Config.WeightGrams)
+        if not made then return false,err end
+        loaded,box=Inventory.Load('p_'..id)
+        if not loaded then return false,box end
+    end
+    return Inventory.Change(ctx,box,add,item,quantity)
+end)

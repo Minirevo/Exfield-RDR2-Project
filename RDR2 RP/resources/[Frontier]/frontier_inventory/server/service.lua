@@ -65,6 +65,9 @@ end
 
 function Inventory.Storage(source, id)
     if not Inventory.Id(id, 48) then return false, 'invalid_request' end
+    if id:match('^property_') then
+        if GetResourceState('frontier_property')~='started' or not exports.frontier_property:CanAccessCampStorage(source,id) then return false,'forbidden' end
+    end
     local owner, position = Inventory.Session(source)
     if not owner then return false, position end
     local ok, storage = Inventory.Load('s_' .. id)

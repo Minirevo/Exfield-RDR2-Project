@@ -127,3 +127,5 @@ byId('sell').addEventListener('click',() => {
     submit('sell',[byId('market').value,byId('product').value,byId('quantity').value,byId('price').value]);
 });
 nui('ready').catch(() => {});
+
+byId('propertyMarket').addEventListener('click',()=>nui('propertyMarket').catch(()=>status('Grundstücksmarkt nicht erreichbar.')));

@@ -65,3 +65,8 @@ end)
 AddEventHandler('onClientResourceStop', function(resource)
     if resource == GetCurrentResourceName() and focused then SetNuiFocus(false, false) end
 end)
+
+RegisterNUICallback('propertyMarket',function(_,cb)
+    if not focused or GetResourceState('frontier_property')~='started' then cb({ok=false});return end
+    close(); ExecuteCommand('propertymarket'); cb({ok=true})
+end)
