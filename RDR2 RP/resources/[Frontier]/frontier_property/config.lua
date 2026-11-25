@@ -42,8 +42,8 @@ PropertyConfig = {
             {model='bee_stableint',x=0,y=0,z=0,heading=0}}},
         bee_mainhouse={distance=20,parts={
             {model='bee_mainhouse_foundext',x=0,y=0,z=0,heading=0},
-            {model='bee_mainhouse_wallext',x=0,y=0,z=0,heading=0},
-            {model='bee_mainhouse_int',x=0,y=0,z=0,heading=0}}},
+            {model='bee_mainhouse_wallext',x=-0.350,y=5.200,z=3.750,heading=0.000},
+            {model='bee_mainhouse_int',x=-1.500,y=6.300,z=2.000,heading=0.000}}},
         bee_workerhouse={distance=16,parts={
             {model='bee_workerexterior',x=0,y=0,z=0,heading=0},
             {model='bee_workerinterior',x=0,y=0,z=0,heading=0}}},
