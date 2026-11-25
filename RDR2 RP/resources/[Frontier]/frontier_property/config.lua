@@ -104,7 +104,6 @@ PropertyConfig = {
         bee_addhouse={min={x=-4,y=-4,z=0},max={x=4,y=4,z=4}},
         bla_house2={min={x=-5,y=-5,z=0},max={x=5,y=5,z=5}},
     },
-    OutdoorFurnitureSlots=0, -- 0 = unlimited; indoor association is informational.
     Interiors={
         watson={label='Small cabin',id=53250,x=-1817.708,y=658.421,z=131.0,slots=15,bounds=3,materials={wooden_planks=8,iron_ingot=2},seconds=90,value=8000},
         mountain={label='Mountain cabin',id=28162,x=-556.359,y=2702.787,z=317.932,slots=25,bounds=3,materials={wooden_planks=12,iron_ingot=3},seconds=120,value=12000},

@@ -31,7 +31,7 @@ function render(){
  }
  if(state.kind==='furnitureMenu'){
   node('p','Use furniture from inventory anywhere on your settlement. Move or pick up nearby objects below.',root);
-  for(const [id,f] of entries(state.furniture)){const building=vals(state.buildings).find(b=>b.id===f.building);const r=node('article',f.item+' · '+(building?'Indoor: '+state.catalogue[building.exterior].label:'Outdoor'),root);button(r,'Move',()=>act('moveFurniture',args({fid:id})));button(r,'Pick up',()=>act('removeFurniture',args({fid:id})))}
+  for(const [id,f] of entries(state.furniture)){const r=node('article',f.item,root);button(r,'Move',()=>act('moveFurniture',args({fid:id})));button(r,'Pick up',()=>act('removeFurniture',args({fid:id})))}
   return
  }
  if(state.kind==='interior'&&b){

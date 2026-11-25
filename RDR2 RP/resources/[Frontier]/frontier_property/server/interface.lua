@@ -20,7 +20,7 @@ function view(src,kind,s,b)
         data.settlement.listing=s.listing
         data.furniture={};data.legacyFurniture={}
         if allowed(s,id,'furnish') then
-            for fid,f in pairs(s.furniture or {}) do data.furniture[fid]={item=f.item,building=R.buildingAt(s,f,C)} end
+            for fid,f in pairs(s.furniture or {}) do data.furniture[fid]={item=f.item} end
             for bid,x in pairs(s.buildings) do for fid,f in pairs(x.furniture) do data.legacyFurniture[fid]={item=f.item,bid=bid} end end
         end
         data.buildings={}; for _,x in pairs(s.buildings) do

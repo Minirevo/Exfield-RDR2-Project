@@ -90,7 +90,7 @@ function process(j)
         if not take(j) then return end
         if j.physical then s.furniture=s.furniture or {};s.furniture[j.fid]=j.furniture
         else s.buildings[j.bid].furniture[j.fid]=j.furniture end
-        finishJob(j,j.physical and (R.buildingAt(s,j.furniture,C) and 'Furniture placed indoors.' or 'Furniture placed outdoors.') or 'Furniture placed.')
+        finishJob(j,'Furniture placed.')
     elseif j.kind=='removeFurniture' then
         local ok,err=item(j,true,'return',j.item,1)
         if ok then if j.physical then s.furniture[j.fid]=nil else s.buildings[j.bid].furniture[j.fid]=nil end; finishJob(j,'Furniture returned to inventory.')

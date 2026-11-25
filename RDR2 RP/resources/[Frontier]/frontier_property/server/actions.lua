@@ -41,19 +41,15 @@ function request(src,action,d)
             if pos.bucket~=0 or not allowed(s,id,'furnish') or R.distance(s,d)>s.radius or R.distance(s,pos)>s.radius then return notice(src,'Furniture must remain on your plot.') end
             local f=C.Furniture[p.item];if not f then return end
             s.furniture=s.furniture or {}
-            local inside=R.buildingAt(s,d,C)
-            local outdoorUsed=0
             for k,v in pairs(s.furniture) do
                 if k~=p.fid then
                     if R.near(v,d,0.5) then return notice(src,'Furniture overlaps.') end
-                    if not R.buildingAt(s,v,C) then outdoorUsed=outdoorUsed+C.Furniture[v.item].slots end
                 end
             end
-            if not inside and C.OutdoorFurnitureSlots>0 and outdoorUsed+f.slots>C.OutdoorFurnitureSlots then return notice(src,'Outdoor furniture capacity reached.') end
             local furniture={item=p.item,x=d.x,y=d.y,z=d.z,heading=d.heading%360}
             if p.mode=='moveFurniture' then
                 if not s.furniture[p.fid] then return end
-                s.furniture[p.fid]=furniture;save();notice(src,inside and 'Furniture moved indoors.' or 'Furniture moved outdoors.')
+                s.furniture[p.fid]=furniture;save();notice(src,'Furniture moved.')
             else queue({kind='furniture',actor=id,src=src,sid=s.id,fid=uuid(),item=p.item,furniture=furniture,physical=true}) end
             return
         end
@@ -61,20 +57,7 @@ function request(src,action,d)
         if pos.bucket~=0 or not allowed(s,id,p.mode=='move' and 'move' or 'build') or not e or not R.fits(s,d,e.radius,p.mode=='move' and p.bid or nil) then return notice(src,'Building must fit inside the claim and avoid other structures.') end
         if p.mode=='move' then
             if not b or not b.complete or occupied(s.id) or b.exterior~=p.exterior then return end
-            local moved={}
-            for fid,f in pairs(s.furniture or {}) do
-                if R.buildingAt(s,f,C)==b.id then
-                    local q=R.transform(d,R.localPoint(b,f))
-                    if R.distance(s,q)>s.radius then return notice(src,'Associated furniture would leave the plot.') end
-                    q.item=f.item;moved[fid]=q
-                end
-            end
-            for fid,q in pairs(moved) do
-                for other,f in pairs(s.furniture or {}) do
-                    if not moved[other] and R.near(q,f,0.5) then return notice(src,'Relocation would overlap furniture.') end
-                end
-            end
-            for fid,q in pairs(moved) do s.furniture[fid]=q end
+            -- Furniture is plot-owned and stays at its world position on relocation.
             b.x,b.y,b.z,b.heading=d.x,d.y,d.z,d.heading%360
         else
             local bid=uuid(); if i then
