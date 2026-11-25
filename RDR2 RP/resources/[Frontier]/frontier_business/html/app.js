@@ -1,6 +1,6 @@
 'use strict';
 const $=id=>document.getElementById(id),vals=o=>Object.values(o||{}),money=n=>'$'+(Number(n||0)/100).toFixed(2);
-let state=null,companyId='',tab='overview',tradeTab='market',fixtureTab='shop',pending=null,sequence=0,timeout=null,mode='management',propertySelection={};
+let state=null,companyId=null,tab='overview',tradeTab='market',fixtureTab='shop',pending=null,sequence=0,timeout=null,mode='management',propertySelection={};
 const decode=v=>{if(typeof v!=='string')return v||{};try{return JSON.parse(v)||{}}catch{return {}}};
 const names={stock:'Storage access',deposit:'Deposit stock',retrieve:'Withdraw stock',retail:'Retail sales',farm:'Farming',production:'Production',trade:'Trade contracts',hire:'Hire & dismiss',ranks:'Manage ranks',finance:'View finances',withdraw:'Withdraw funds',licenses:'Manage licenses',locations:'Manage locations',logs:'View logs'};
 const label=k=>names[k]||String(k).replace(/_/g,' ');
@@ -40,7 +40,7 @@ function render(){
  if(!state)return;const root=$('content'),nav=$('nav'),ctx=$('context');root.replaceChildren();nav.replaceChildren();ctx.replaceChildren();
  if(state.fixture){mode='fixture';renderFixture(root,state.fixture,nav,ctx);lock();return}
  mode='management';const companies=vals(state.companies);
- if(!companies.some(b=>b.id===companyId))companyId=companies[0]?.id||'';
+ if(companyId===null||(companyId!==''&&!companies.some(b=>b.id===companyId)))companyId=companies[0]?.id||'';
  const b=company();const options=[['','Personal'],...companies.map(c=>[c.id,c.name+(c.status==='active'?'':' · '+c.status)])];
  const picker=select(ctx,'Working as',options,companyId);picker.onchange=()=>{companyId=picker.value;tab='overview';render()};
  let pages=b?[['overview','Overview'],['finance','Finances'],['employees','Employees & ranks'],['ownership','Ownership & votes'],['property','Properties'],['stock','Storage'],['trade','Trade'],['licenses','Licenses'],['receipts','Receipts'],['history','Activity log']]:[['overview','Personal overview'],['licenses','Personal licenses'],['receipts','Personal receipts'],['orders','Purchases']];
