@@ -38,8 +38,8 @@ PropertyConfig = {
     -- origin plus local-space offsets. Zero offsets are initial test assumptions.
     TestAssemblies={
         bee_stable={distance=18,parts={
-            {model='bee_stableext',x=0,y=0,z=0,heading=0},
-            {model='bee_stableint',x=0,y=0,z=0,heading=0}}},
+            {model='bee_stableext',x=-0.100,y=0.100,z=0.000,heading=2.000},
+            {model='bee_stableint',x=-0.660,y=-1.000,z=-0.270,heading=336.000}}},
         bee_mainhouse={distance=20,parts={
             {model='bee_mainhouse_foundext',x=0,y=0,z=0,heading=0},
             {model='bee_mainhouse_wallext',x=0,y=0,z=0,heading=0},
