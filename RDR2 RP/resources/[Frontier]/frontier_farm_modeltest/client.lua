@@ -76,6 +76,7 @@ local function spawn(name,typ)
 end
 RegisterNetEvent(E..'open',function()
     if source~=65535 then return end
+    TriggerEvent('frontier_farm_modeltest:editorHide')
     active=true;SetNuiFocus(true,true);send({type='open'})
 end)
 RegisterNUICallback('close',function(_,cb) close();cb({ok=true}) end)
@@ -233,3 +234,5 @@ end)
 AddEventHandler('onClientResourceStop',function(r)
     if r==GetCurrentResourceName() then clearPen() end
 end)
+
+AddEventHandler('frontier_farm_modeltest:editorOpen',function() if active then close() end;clearPen() end)

@@ -15,3 +15,8 @@ RegisterCommand('farmpen',function(src,args)
     end
     TriggerClientEvent('frontier_farm_modeltest:pen',src,action)
 end,false)
+
+RegisterCommand('farmbuild',function(src)
+    if src<=0 or not IsPlayerAceAllowed(src,'frontier.farmmodels') then return end
+    TriggerClientEvent('frontier_farm_modeltest:build',src)
+end,false)
