@@ -7,7 +7,7 @@ PropertyConfig = {
     -- Completed structures and furniture use exact saved entity origins.
     GroundSearchTolerance=12, GroundModelOffsets={},
     -- Server-side ACE required. Disable these tools on public servers.
-    AdminTesting={Enabled=true,Ace='frontier.property.test',FinishDistance=20},
+    AdminTesting={Enabled=true,Ace='frontier.property.test',FinishDistance=20,AssetModels={free_house01=15,free_house02=12,free_house03=15}},
     Kit={id='settlement_kit',name='Settlement kit',grams=15000,price=25000},
     Camp={fire='p_campfiredirt01x',tent='mp001_p_mp_tent_leento03x',chest='p_chest01x',site='p_cs_woodpile01x'},
     Towns={
@@ -25,15 +25,16 @@ PropertyConfig = {
         {name='Rhodes General Store',x=1328.7,y=-1293.4,z=77.0},
         {name='Blackwater General Store',x=-785.1,y=-1322.4,z=43.9}},
     Tools={property_hammer={name='Hammer',grams=1000,price=1500},property_saw={name='Saw',grams=1800,price=2200}},
-    -- Models and interior anchors are native asset candidates, not live-certified.
+    -- Crow Maps streamed house models; footprint and collision require live validation.
+    -- Existing exterior keys remain stable for saved construction records.
     Exteriors={
-        shack={label='Small shack',category='Residential',model='sba_shack_b_a',radius=5,slots=10,materials={wood=12,wooden_planks=12,iron_ingot=2},seconds=120,value=12000,interior=true},
-        cabin={label="Watson-style cabin",category='Residential',model='wat_main_cabin',radius=9,slots=30,materials={wood=25,wooden_planks=30,iron_ingot=5},seconds=300,value=35000,interior=true},
+        shack={label='Wooden cabin',category='Residential',model='free_house02',radius=10,slots=10,materials={wood=12,wooden_planks=12,iron_ingot=2},seconds=120,value=12000,interior=true},
+        cabin={label='Large ranch house',category='Residential',model='free_house01',radius=14,slots=30,materials={wood=25,wooden_planks=30,iron_ingot=5},seconds=300,value=35000,interior=true},
         shelter={label='Field shelter',category='Agriculture',model='mp001_p_mp_tent_leento03x',radius=4,slots=0,materials={wood=8,wooden_planks=4},seconds=90,value=5000,interior=false},
         field={label='Field plot marker',category='Agriculture',model='p_haypile_wag01x',radius=8,slots=0,materials={wood=6},seconds=60,value=3000,interior=false},
         pen={label='Livestock pen marker',category='Livestock',model='p_haypile_wag01x',radius=6,slots=0,materials={wood=16,wooden_planks=8},seconds=120,value=8000,interior=false},
-        workshop={label='Workshop shack',category='Industrial',model='sba_shack_b_a',radius=5,slots=20,materials={wood=20,wooden_planks=18,iron_ingot=6},seconds=240,value=22000,interior=true},
-        store={label='Trading cabin',category='Commercial',model='wat_main_cabin',radius=9,slots=30,materials={wood=25,wooden_planks=30,iron_ingot=8},seconds=300,value=35000,interior=true},
+        workshop={label='Workshop shack',category='Industrial',model='free_house02',radius=10,slots=20,materials={wood=20,wooden_planks=18,iron_ingot=6},seconds=240,value=22000,interior=true},
+        store={label='Trading cabin',category='Commercial',model='free_house01',radius=14,slots=30,materials={wood=25,wooden_planks=30,iron_ingot=8},seconds=300,value=35000,interior=true},
         warehouse={label='Storage cabin',category='Storage',model='wat_main_cabin',radius=9,slots=40,materials={wood=30,wooden_planks=35,iron_ingot=6},seconds=360,value=40000,interior=true},
     },
     Interiors={

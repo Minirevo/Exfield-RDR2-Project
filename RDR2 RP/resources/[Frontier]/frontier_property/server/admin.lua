@@ -45,6 +45,7 @@ adminCommand('propertymodels',function(src)
     for key in pairs(C.Exteriors) do keys[#keys+1]=key end
     table.sort(keys)
     for _,key in ipairs(keys) do notice(src,key..' = '..C.Exteriors[key].model) end
+    for key in pairs(C.AdminTesting.AssetModels or {}) do notice(src,key..' (direct asset test)') end
     notice(src,'Camp models: camp_fire, camp_tent, camp_chest, camp_site')
 end)
 adminCommand('propertyspawn',function(src,args)
@@ -52,13 +53,14 @@ adminCommand('propertyspawn',function(src,args)
     if not pos or pos.bucket~=0 or not cid(src) then return notice(src,'Be outside on a loaded character.') end
     local key=args[1]
     local def=key and C.Exteriors[key]
-    local model=def and def.model
+    local direct=key and (C.AdminTesting.AssetModels or {})[key]
+    local model=def and def.model or (direct and key)
     if key and not model then
         local camp=key:match('^camp_(%a+)$')
         if camp then model=C.Camp[camp] end
     end
     if not model then return notice(src,'Usage: /propertyspawn <catalogue key>. See /propertymodels.') end
-    local distance=tonumber(args[2]) or (def and def.radius+3 or 5)
+    local distance=tonumber(args[2]) or (def and def.radius+3 or direct or 5)
     if not R.finite(distance) or distance<3 or distance>25 then return notice(src,'Distance must be between 3 and 25 metres.') end
     log(src,'temporary model test '..model)
     TriggerClientEvent(E..'adminSpawn',src,{model=model,distance=distance})
