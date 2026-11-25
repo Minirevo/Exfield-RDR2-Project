@@ -563,6 +563,7 @@ liquidate=function(b,t)
  local expired=tonumber(b.liquidate_until)<=t
  local drained=exports.frontier_trade:DrainBusiness(b.id,expired)
  if not expired or not drained then return false end
+ if GetResourceState('frontier_farming')=='started' and exports.frontier_farming:CompanyOrdersPending(b.id) then return false end
  if GetResourceState('frontier_farming')=='started' and not exports.frontier_farming:DrainCompany(b.id) then return false end
  if S("SELECT id FROM fb_retail WHERE seller_type='company' AND seller_id=? AND state IN ('reserve','payment','return') LIMIT 1",{b.id}) then return false end
  for _,f in ipairs(Q("SELECT * FROM fb_fixtures WHERE owner_type='company' AND owner_id=? ORDER BY id",{b.id})) do
@@ -636,4 +637,13 @@ exports('FarmStockValid',function(sid,typ,id,storage)
  if GetInvokingResource()~='frontier_farming' or not ready or type(storage)~='string' then return false end
  local f=fixture(storage:match('^business_([a-f0-9]+)$'))
  return f and f.kind=='stock' and f.property_id==sid and f.owner_type==typ and f.owner_id==id and validFixture(f)~=nil or false
+end)
+
+-- Only a persisted farming order may debit a company account. Replay is independent of employee changes.
+exports('PayFarmOrder',function(id)
+ if GetInvokingResource()~='frontier_farming' or not ready then return false,'forbidden' end
+ local j=S("SELECT * FROM ff_orders WHERE id=? AND owner_type='company' AND phase='payment'",{id})
+ if not j then return false,'invalid_order' end
+ local b=company(j.owner_id);if not b then return false,'invalid_company' end
+ return eco:DebitAccount(account(b),tonumber(j.amount),{key='farm_order_'..id,reason='Agricultural supplies',reference=id})
 end)

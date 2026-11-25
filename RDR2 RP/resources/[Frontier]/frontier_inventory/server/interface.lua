@@ -819,3 +819,19 @@ trusted('ApplyFarmBatch',function(resource,storage,key,changes)
     for _,v in ipairs(changes) do if v.count>0 then local put,err=Inventory.Place(box,{item=v.item,quantity=v.count,metadata=Inventory.items[v.item].metadata});if not put then return false,err end end end
     return Inventory.Commit(key,actor,fingerprint,box)
 end)
+
+trusted('FarmSupplyDelivery',function(resource,character,item,count,key)
+ if resource~='frontier_farming' or not Inventory.Id(character,64) or not Inventory.items[item] or not Inventory.Int(count,1000) or type(key)~='string' or not requestKey(key) then return false,'invalid_request' end
+ local actor='resource:'..resource;local fingerprint=table.concat({'supply',character,item,count},':')
+ local ok,replay=Inventory.Replay(key,actor,fingerprint);if not ok then return false,replay end;if replay then return true,key end
+ local ok,box=Inventory.Load('p_'..character);if not ok then return false,box end
+ local def=Inventory.items[item]
+ if def.stackable then
+  local put,err=Inventory.Place(box,{item=item,quantity=count,metadata=def.metadata});if not put then return false,err end
+ else
+  for i=1,count do local instance=Inventory.Uuid();if not instance then return false,'database_error' end
+   local put,err=Inventory.Place(box,{item=item,quantity=1,metadata=def.metadata,instance=instance});if not put then return false,err end
+  end
+ end
+ return Inventory.Commit(key,actor,fingerprint,box)
+end)

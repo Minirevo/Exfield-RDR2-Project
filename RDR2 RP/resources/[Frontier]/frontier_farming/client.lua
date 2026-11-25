@@ -67,3 +67,6 @@ CreateThread(function()
  end
 end)
 AddEventHandler('onClientResourceStop',function(r) if r==GetCurrentResourceName() then for _,e in pairs(entities) do DeleteEntity(e.handle) end;if focused then SetNuiFocus(false,false) end end end)
+
+RegisterCommand('farmshop',function() TriggerServerEvent(E..'action','shop',{}) end,false)
+RegisterNetEvent(E..'shop',function(d) if source~=65535 then return end;focused=true;SetNuiFocus(true,true);SendNUIMessage({type='shop',data=d}) end)

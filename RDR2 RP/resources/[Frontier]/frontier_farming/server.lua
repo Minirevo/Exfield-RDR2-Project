@@ -64,9 +64,65 @@ local function view(src)
  end end
  TriggerClientEvent(E..'menu',src,{facilities=result,crops=C.crops,species=C.species,capacity=C.fieldCapacity})
 end
+
+local eco=exports.frontier_economy
+local function supplier(src)
+ local p=GetPlayerPed(src);if p==0 or GetPlayerRoutingBucket(src)~=0 then return false end
+ local v=GetEntityCoords(p)
+ for _,q in ipairs(C.suppliers) do if (v.x-q.x)^2+(v.y-q.y)^2+(v.z-q.z)^2<144 then return true end end
+ return false
+end
+local function orderStep(j)
+ if j.phase=='payment' then
+  local ok,e
+  if j.owner_type=='company' then ok,e=biz:PayFarmOrder(j.id)
+  else ok,e=eco:DebitAccount(tonumber(j.bank),tonumber(j.amount),{key='farm_order_'..j.id,reason='Agricultural supplies',reference=j.id}) end
+  if not ok then
+   if e=='insufficient_funds' or e=='insufficient_balance' then MySQL.update.await("UPDATE ff_orders SET phase='rejected' WHERE id=?",{j.id}) end
+   return false,e
+  end
+  MySQL.update.await("UPDATE ff_orders SET phase='paid' WHERE id=?",{j.id});j.phase='paid'
+ end
+ if j.phase=='paid' then
+  local ok,e
+  if j.owner_type=='company' then ok,e=inv:ApplyFarmBatch(j.storage,'farm_supply_'..j.id,{{item=j.item,count=tonumber(j.quantity)}})
+  else ok,e=inv:FarmSupplyDelivery(j.actor,j.item,tonumber(j.quantity),'farm_supply_'..j.id) end
+  if not ok then return false,e end
+  MySQL.update.await("UPDATE ff_orders SET phase='complete' WHERE id=?",{j.id})
+ end
+ return true
+end
+local function shopView(src)
+ local who=cid(src);check(who and supplier(src),'Approach an agricultural supplier')
+ local list={}
+ for k,v in pairs(C.supplyPrices) do list[#list+1]={id=k,name=C.items[k].name,price=v} end
+ table.sort(list,function(a,b)return a.name<b.name end)
+ local orders=MySQL.query.await("SELECT id,item,quantity,amount,phase FROM ff_orders WHERE actor=? AND phase IN ('payment','paid') ORDER BY created DESC",{who})
+ TriggerClientEvent(E..'shop',src,{items=list,orders=orders})
+end
+local function buySupply(src,d)
+ local who=cid(src);check(who and supplier(src),'Approach an agricultural supplier')
+ local price=C.supplyPrices[d.item];local qty=tonumber(d.quantity)
+ check(price and qty and qty%1==0 and qty>=1 and qty<=1000,'Invalid purchase')
+ check(not MySQL.single.await("SELECT id FROM ff_orders WHERE actor=? AND phase IN ('payment','paid')",{who}),'Resolve your pending order first')
+ local typ,owner,storage,bank='character',who,'',0
+ if type(d.facility)=='string' and d.facility~='' then
+  local f=row(d.facility);check(f and f.owner_type=='company' and biz:CanUseProperty(f.owner_id,who,f.plot,'farm') and stockValid(f),'Authorized company facility and linked chest required')
+  check(C.items[d.item].maxStack~=1,'Purchase personal tools separately')
+  typ,owner,storage='company',f.owner_id,f.storage
+ else
+  local ok,accounts=eco:GetCharacterAccounts(src);check(ok and accounts.characterId==who,'Bank unavailable');bank=accounts.bank.id
+ end
+ local j={id=uuid(),actor=who,owner_type=typ,owner_id=owner,storage=storage,bank=bank,item=d.item,quantity=qty,amount=price*qty,phase='payment'}
+ MySQL.insert.await('INSERT INTO ff_orders(id,actor,owner_type,owner_id,storage,bank,item,quantity,amount,phase,created) VALUES(?,?,?,?,?,?,?,?,?,?,?)',{j.id,who,typ,owner,storage,bank,j.item,qty,j.amount,j.phase,os.time()})
+ local ok,e=orderStep(j);notice(src,ok and 'Supplies purchased' or ('Order pending or rejected: '..tostring(e)));shopView(src)
+end
+
 local function action(src,a,d,score)
  local who=cid(src);check(who,'Select a character first')
  if a=='open' then return view(src) end
+ if a=='shop' then return shopView(src) end
+ if a=='buySupply' then return buySupply(src,d) end
  if a=='cancelWork' then unlock(src);return end
  if a=='workHit' then
   local w=sessions[src];check(w and w.actor==who and w.token==d.token,'Work session expired')
@@ -196,6 +252,7 @@ exports('DrainCompany',function(id)
  busy=false;return ok and result==true
 end)
 MySQL.ready(function()
+ MySQL.query.await([[CREATE TABLE IF NOT EXISTS ff_orders(id CHAR(32) PRIMARY KEY,actor VARCHAR(64) NOT NULL,owner_type VARCHAR(16) NOT NULL,owner_id VARCHAR(64) NOT NULL,storage VARCHAR(80) NOT NULL,bank BIGINT NOT NULL,item VARCHAR(48) NOT NULL,quantity INT NOT NULL,amount INT NOT NULL,phase VARCHAR(16) NOT NULL,created BIGINT NOT NULL,INDEX(actor,phase),INDEX(owner_id,phase))]])
  MySQL.query.await([[CREATE TABLE IF NOT EXISTS ff_facilities(id CHAR(32) PRIMARY KEY,plot CHAR(32) NOT NULL,owner_type VARCHAR(16) NOT NULL,owner_id VARCHAR(64) NOT NULL,kind VARCHAR(16) NOT NULL,size VARCHAR(16) NOT NULL,storage VARCHAR(80),state LONGTEXT NOT NULL,INDEX(owner_type,owner_id))]])
  MySQL.query.await([[CREATE TABLE IF NOT EXISTS ff_operations(id CHAR(32) PRIMARY KEY,facility CHAR(32) NOT NULL UNIQUE,storage VARCHAR(80) NOT NULL,changes LONGTEXT NOT NULL,after_state LONGTEXT NOT NULL)]])
  for key,d in pairs(C.items) do
@@ -205,6 +262,7 @@ MySQL.ready(function()
  ready=true
  while true do
   run(nil,function()
+   for _,j in ipairs(MySQL.query.await("SELECT * FROM ff_orders WHERE phase IN ('payment','paid') ORDER BY created LIMIT 50")) do local ok,e=orderStep(j);if not ok then print('[frontier_farming] supply order '..j.id..': '..tostring(e)) end end
    for _,j in ipairs(MySQL.query.await('SELECT * FROM ff_operations')) do
     local ok,err=finish(j)
     if not ok and ({insufficient_stock=true,weight=true,slots=true,stack_conflict=true,conflict=true,invalid_item=true})[err] then MySQL.update.await('DELETE FROM ff_operations WHERE id=?',{j.id}) end
@@ -234,4 +292,9 @@ CreateThread(function()
    end
   end
  end
+end)
+
+exports('CompanyOrdersPending',function(id)
+ if GetInvokingResource()~='frontier_business' or not ready then return true end
+ return MySQL.single.await("SELECT id FROM ff_orders WHERE owner_type='company' AND owner_id=? AND phase IN ('payment','paid') LIMIT 1",{id})~=nil
 end)

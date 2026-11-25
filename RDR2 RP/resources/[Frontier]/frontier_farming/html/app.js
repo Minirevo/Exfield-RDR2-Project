@@ -45,3 +45,14 @@ function workRound(d){
  button(root,'Cancel work','cancelWork');root.lastChild.onclick=()=>{send('cancelWork');cancelAnimationFrame(workFrame);workToken=null;send('open')};
 }
 window.addEventListener('message',e=>{const d=e.data;if(d.type==='workRound')workRound(d.data);else if(d.type==='workEnd'){cancelAnimationFrame(workFrame);workToken=null;send('open')}});
+
+window.addEventListener('message',e=>{
+ if(e.data.type!=='shop')return;
+ document.body.hidden=false;$('tabs').replaceChildren();const root=$('content');root.replaceChildren();
+ el('h2','Agricultural supplier',root);const d=e.data.data;
+ const item=select(root,d.items.map(v=>[v.id,v.name+' · $'+(v.price/100).toFixed(2)]));
+ const qty=el('input',null,root);qty.type='number';qty.min=1;qty.max=1000;qty.value=1;
+ el('label','Optional company facility ID (deliver to linked stock)',root);const facility=el('input',null,root);
+ button(root,'Purchase','buySupply',()=>({item:item.value,quantity:Number(qty.value),facility:facility.value.trim()}));
+ for(const j of d.orders||[])el('p',j.item+' × '+j.quantity+' · '+j.phase+' (automatically retried)',root);
+});
