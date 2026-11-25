@@ -5,7 +5,15 @@ local ready,busy=false,false
 local sessions={}
 local fixtureAction,fixtureView,retailStep,fixtureInfo,receipt,tradeReceipts,tradeAction,tradeView,liquidate,stockView
 local function now() return os.time() end
-local function uuid() return MySQL.scalar.await('SELECT REPLACE(UUID(),CHAR(45),SPACE(0))') end
+local function uuid()
+ -- Keep UUID() as text across oxmysql's MySQL driver; CHAR()/SPACE() in
+ -- the previous SQL expression produced a binary Buffer instead of a string.
+ local raw=MySQL.scalar.await('SELECT UUID()')
+ if type(raw)~='string' then error('Business UUID unavailable: expected SQL text',0) end
+ local id=raw:gsub('-',''):lower()
+ if #id~=32 or not id:match('^[a-f0-9]+$') then error('Invalid business UUID',0) end
+ return id
+end
 local function encode(v) return json.encode(v) end
 local function decode(v) return json.decode(v) end
 local function cid(src) return core:GetPlayerCharacterId(src) end
