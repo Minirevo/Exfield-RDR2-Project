@@ -185,9 +185,19 @@ local function handle(src,a,d)
   job('license',{company=b and b.id,actor=who,ownerType=typ,owner=id,category=d.category,from=from,amount=l.fee});return
  elseif a=='hideReceipt' then if b then requireThat(allowed(b,who,'logs'),'Denied');U("UPDATE fb_receipts SET hidden=1 WHERE id=? AND owner_type='company' AND owner_id=?",{d.id,b.id}) else U("UPDATE fb_receipts SET hidden=1 WHERE id=? AND owner_type='character' AND owner_id=?",{d.id,who}) end;return
  elseif a=='grant' then
-  requireThat(b and b.status=='active' and propertyOwner(who,d.property),'Property owner required')
-  Q('INSERT INTO fb_locations VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE grantor=VALUES(grantor),rights=VALUES(rights)',{b.id,d.property,who,encode(rights(d.rights))});return
- elseif a=='revoke' then requireThat(propertyOwner(who,d.property),'Property owner required');U('DELETE FROM fb_locations WHERE company_id=? AND property_id=?',{d.company,d.property});return
+  requireThat(b and b.status=='active','Select an active company')
+  requireThat(type(d.property)=='string' and #d.property==32,'Select a settlement')
+  requireThat(propertyOwner(who,d.property),'You must personally own this settlement')
+  local grant={};for _,k in ipairs({'stock','retail','farm','production'}) do if type(d.rights)=='table' and d.rights[k]==true then grant[k]=true end end
+  requireThat(next(grant),'Select at least one usage right')
+  tx({sql('INSERT INTO fb_locations(company_id,property_id,grantor,rights) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE grantor=VALUES(grantor),rights=VALUES(rights)',{b.id,d.property,who,encode(grant)}),sql('INSERT INTO fb_logs(company_id,actor,action,detail,created) VALUES(?,?,?,?,?)',{b.id,who,'plot_granted',encode({property=d.property,rights=grant}),now()})})
+  return 'Property usage rights saved.'
+ elseif a=='revoke' then
+  requireThat(b and type(d.property)=='string' and #d.property==32,'Select a settlement and company')
+  requireThat(propertyOwner(who,d.property),'You must personally own this settlement')
+  local count=U('DELETE FROM fb_locations WHERE company_id=? AND property_id=?',{b.id,d.property})
+  requireThat(count==1,'No existing grant for this settlement')
+  log(b.id,who,'plot_revoked',{property=d.property});return 'Property usage rights revoked.'
  end
  requireThat(b and b.status=='active','Company unavailable')
  if a=='vote' then vote(b,who,d.id);return end
@@ -215,7 +225,9 @@ local function handle(src,a,d)
   Q('INSERT INTO fb_ranks VALUES(?,?,?,?,?,?)',{uuid(),b.id,d.name,d.level,d.wage,encode(r)})
  elseif a=='hire' then
   requireThat(allowed(b,who,'hire'),'Denied');local target=cid(tonumber(d.target) or 0)
-  local r=S('SELECT * FROM fb_ranks WHERE id=? AND company_id=?',{d.rank,b.id});requireThat(target and r and not employee(target),'Unavailable')
+  requireThat(target,'Player ID not online or no character loaded')
+  requireThat(type(d.rank)=='string' and #d.rank==32,'Create and select an employee rank first')
+  local r=S('SELECT * FROM fb_ranks WHERE id=? AND company_id=?',{d.rank,b.id});requireThat(r,'Selected rank does not exist in this company');requireThat(not employee(target),'Target already has an active employment')
   if not isOwner(b.id,who) then local e=employee(who);requireThat(tonumber(e.level_no)>tonumber(r.level_no),'Rank too high') end
   Q('INSERT INTO fb_invites VALUES(?,?,?,?,?,?)',{uuid(),b.id,target,r.id,r.wage,now()+86400})
  elseif a=='fire' then
@@ -248,7 +260,29 @@ local function run(fn,src)
  busy=true;local ok,e=pcall(fn);busy=false;if not ok then print('[frontier_business] '..tostring(e));if src then tell(src,tostring(e)) end end
 end
 RegisterNetEvent('frontier_business:open',function() local src=source;sessions[src]=nil;run(function() view(src) end,src) end)
-RegisterNetEvent('frontier_business:action',function(a,d) local src=source;if type(a)~='string' or type(d)~='table' then return end;run(function() requireThat(not S('SELECT id FROM fb_jobs LIMIT 1'),'A transaction is pending');handle(src,a,d);tell(src,'Request accepted.');if a~='fixtureStock' and a~='recoverFixture' then view(src) end end,src) end)
+local function actionResult(src,request,action,ok,message)
+ TriggerClientEvent('frontier_business:result',src,{request=request,action=action,ok=ok,message=message})
+end
+RegisterNetEvent('frontier_business:refresh',function()
+ local src=source;run(function() view(src) end,src)
+end)
+RegisterNetEvent('frontier_business:action',function(a,d,request)
+ local src=source
+ if type(a)~='string' or #a>40 or type(d)~='table' or type(request)~='number' or request%1~=0 or request<1 or request>2147483647 then return end
+ if not ready or busy then actionResult(src,request,a,false,'Business is busy. Please try again.');return end
+ busy=true
+ local ok,message=pcall(function()
+  requireThat(not S('SELECT id FROM fb_jobs LIMIT 1'),'A financial transaction is pending. Try again shortly.')
+  return handle(src,a,d)
+ end)
+ if not ok then print('[frontier_business] action='..a..' '..tostring(message)) end
+ local queued=ok and ({register=true,license=true,deposit=true,withdraw=true,vote=true,payTax=true,fixtureBuy=true,trade=true})[a]
+ actionResult(src,request,a,ok,ok and (type(message)=='string' and message or queued and 'Request accepted. Refresh to check the final result.' or 'Changes saved.') or tostring(message))
+ if ok and a~='fixtureStock' and a~='recoverFixture' then
+  local loaded,issue=pcall(view,src);if not loaded then print('[frontier_business] snapshot: '..tostring(issue));tell(src,'Action accepted, but refresh failed.') end
+ end
+ busy=false
+end)
 local function tick()
  local t=now();tradeReceipts()
  U("UPDATE fb_proposals SET status='expired' WHERE status='open' AND expires<=?",{t})
