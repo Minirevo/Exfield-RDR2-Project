@@ -12,11 +12,14 @@
 <script>
 'use strict';
 const $=id=>document.getElementById(id);
-const groups={
-'Animals':['ped','a_c_chicken_01','a_c_rooster_01','a_c_cow','a_c_bull_01','a_c_pig_01','a_c_sheep_01','a_c_goat_01','a_c_horse_turkoman_darkbay','a_c_horse_americanstandardbred_black','a_c_horse_shire_darkbay'],
-'Crops — candidate names':['prop','crp_cornstalks_aa_sim','crp_wheat_stk_ab_sim','crp_cotton_plant_af_p','p_corn01x','p_carrot01x','p_potato01x','p_haybale01x'],
-'Farm structures — candidate names':['prop','p_fence01x','p_fence02x','p_chickencoop01x','p_well01x','p_watertrough01x','p_trough01x','p_haybale02x','p_haystack01x','p_cs_woodpile01x'],
-'Tools and containers — candidate names':['prop','p_bucket01x','p_wateringcan01x','p_pitchfork01x','p_shovel01x','p_hoe01x','p_sack01x','p_chest01x','p_sawbucktable01x']
+const groups = {
+	'Wheat extended test': [
+    'prop',
+    'crp_wheat_sap_aa_p',
+    'crp_wheat_stk_aa_p',
+    'crp_wheat_stk_ab_p',
+    'crp_wheat_dry_aa_sim'
+]
 };
 let last=null;
 const post=(route,data={})=>fetch('https://'+GetParentResourceName()+'/'+route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).then(r=>r.json()).catch(()=>{$('status').textContent='Request failed.'});
