@@ -44,6 +44,12 @@ function Economy.Apply(actor, kind, debitId, creditId, amount, options)
     end
 
     if actor ~= 'trade:escrow' then
+        -- Company accounts are not generic resource wallets. Business and the verified Trade escrow adapter are the only writers.
+        if actor ~= 'resource:frontier_business' then
+            local checked,company=Economy.Db('scalar',"SELECT COUNT(*) FROM frontier_economy_accounts WHERE id IN (?,?) AND owner_type='business'",{debitId,creditId})
+            if not checked then return false,company end
+            if tonumber(company)~=0 then return false,'forbidden' end
+        end
         local checked, reserved = Economy.Db('scalar', [[
             SELECT COUNT(*) FROM frontier_economy_accounts
             WHERE id IN (?, ?) AND owner_type IN ('trade_hold','trade_npc')
@@ -190,4 +196,28 @@ end
 
 Economy.Export('GetCharacterTransactions', function(_, playerSource, accountType, limit)
     return Economy.GetCharacterTransactions(playerSource, accountType, limit)
+end)
+
+-- Multi-shareholder payouts and terminal wage decisions share a single atomic ledger operation.
+Economy.Export('TransferBusinessBatch',function(resource,job,from,payments,reserve,skip)
+    if resource~='frontier_business' then return false,'forbidden' end
+    if type(job)~='string' or #job~=32 or not job:match('^[a-f0-9]+$')
+        or not Economy.PositiveInteger(from,Economy.MaxId) or type(payments)~='table'
+        or type(reserve)~='number' or reserve%1~=0 or reserve<0 or reserve>Economy.MaxMinor
+        or type(skip)~='boolean' then return false,'invalid_request' end
+    local list,seen,total={},{},0
+    for _,p in ipairs(payments) do
+        if type(p)~='table' or not Economy.PositiveInteger(p.to,Economy.MaxId) or p.to==from or seen[p.to]
+            or not Economy.PositiveInteger(p.amount,Economy.MaxMinor) or total>Economy.MaxMinor-p.amount then return false,'invalid_request' end
+        seen[p.to]=true;total=total+p.amount;list[#list+1]={p.to,p.amount}
+    end
+    if #list<1 or #list>10000 then return false,'invalid_request' end
+    table.sort(list,function(a,b) return a[1]<b[1] end)
+    local ok,result=Economy.Db('query','CALL frontier_economy_business_batch_v1(?,?,?,?,?)',
+        {'business:'..job..':batch',from,reserve,json.encode(list),skip and 1 or 0})
+    if not ok then return false,result end
+    local row=result and type(result[1])=='table' and result[1][1]
+    if not row or type(row.code)~='string' then return false,'database_error' end
+    if row.code~='ok' then return false,row.code end
+    return true,{operationId=row.operation_id,replayed=tonumber(row.replayed)==1}
 end)
