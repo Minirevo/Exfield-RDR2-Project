@@ -68,6 +68,7 @@ function Inventory.Storage(source, id)
     if id:match('^property_') then
         if GetResourceState('frontier_property')~='started' or not exports.frontier_property:CanAccessCampStorage(source,id) then return false,'forbidden' end
     end
+    if id:match('^business_') and (GetResourceState('frontier_business')~='started' or not exports.frontier_business:CanAccessStorage(source,id,'view')) then return false,'forbidden' end
     local owner, position = Inventory.Session(source)
     if not owner then return false, position end
     local ok, storage = Inventory.Load('s_' .. id)
@@ -144,10 +145,17 @@ local function commit(ctx, ...)
     if ctx.source and type(ctx.storage)=='string' and ctx.storage:match('^property_') then
         if GetResourceState('frontier_property')~='started' or not exports.frontier_property:CanAccessCampStorage(ctx.source,ctx.storage) then return false,'forbidden' end
     end
+    if ctx.source and type(ctx.storage)=='string' and ctx.storage:match('^business_') then
+        if GetResourceState('frontier_business')~='started' or not exports.frontier_business:CanAccessStorage(ctx.source,ctx.storage,ctx.businessAction or 'view') then return false,'forbidden' end
+    end
     if ctx.source and (Inventory.Generation(ctx.source) ~= ctx.generation or not latest(ctx.source, ctx.id, ctx.guard)) then
         return false, 'character'
     end
-    return Inventory.Commit(ctx.key, ctx.actor, ctx.fingerprint, ...)
+    local ok,result=Inventory.Commit(ctx.key, ctx.actor, ctx.fingerprint, ...)
+    if ok and ctx.source and ctx.storage and ctx.storage:match('^business_') then
+        TriggerEvent('frontier_business:storageLog',ctx.id,ctx.storage,ctx.businessAction,ctx.key,ctx.businessDetail or {})
+    end
+    return ok,result
 end
 
 local function moveBetween(from, to, slot, quantity, target, permission)
@@ -188,6 +196,7 @@ local function use(ctx, container, slot)
 end
 
 function Inventory.Act(ctx, action, data)
+    ctx.businessAction=action;ctx.businessDetail=data
     local id, position = Inventory.Session(ctx.source)
     if not id or id ~= ctx.id then return false, id and 'character' or position end
     ctx.generation = Inventory.Generation(ctx.source)

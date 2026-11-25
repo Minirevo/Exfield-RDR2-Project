@@ -84,6 +84,8 @@ PropertyConfig = {
         mansion={label='Mansion',id=25858,x=2823.755,y=274.417,z=46.380,slots=100,bounds=5,materials={wooden_planks=50,iron_ingot=12},seconds=480,value=50000},
     },
     Furniture={
+        property_storage={name='Storage chest',category='Functional furniture',model='p_chest01x',grams=8000,slots=0,price=3500,value=3500},
+        property_counter={name='Sales counter',category='Functional furniture',model='p_sawbucktable01x',grams=12000,slots=0,price=5000,value=5000},
         property_bed={name='Bed',category='Large furniture',model='p_bed01x',grams=10000,slots=5,price=4500,value=4500},
         property_chest={name='Decorative chest',category='Medium furniture',model='p_chest01x',grams=6000,slots=3,price=2500,value=2500},
         property_wardrobe={name='Wardrobe',category='Large furniture',model='p_armoir04x',grams=12000,slots=5,price=5500,value=5500},

@@ -15,6 +15,13 @@ function request(src,action,d)
     if action=='site' then
         if b and s.status=='active' and close(src,b,C.InteractionDistance) and (allowed(s,id,'work') or allowed(s,id,'deliver')) then view(src,'site',s,b) end; return
     end
+    if action=='fixture' then
+        local f=s and s.furniture and s.furniture[d.bid]
+        if s and s.status=='active' and f and (f.item=='property_storage' or f.item=='property_counter') and close(src,f,C.InteractionDistance) and GetResourceState('frontier_business')=='started' then
+            TriggerEvent('frontier_business:fixture',src,s.id,d.bid)
+        end
+        return
+    end
     if action=='enter' then return end
     if action=='furnitureMenu' then local plot=plotAt(src,id);if plot then view(src,'furnitureMenu',plot) end;return end
     if action=='buyItem' then
@@ -89,6 +96,7 @@ function request(src,action,d)
         if not allowed(s,id,'furnish') or type(d.fid)~='string' then return end
         local f=(s.furniture or {})[d.fid]
         if f then
+            if (f.item=='property_storage' or f.item=='property_counter') and (GetResourceState('frontier_business')~='started' or exports.frontier_business:FixtureBound(d.fid)) then return notice(src,'Unregister and empty functional furniture before moving or picking it up.') end
             if plotAt(src,id)~=s or not close(src,f,C.PlacementDistance) then return notice(src,'Approach the furniture first.') end
             if action=='moveFurniture' then beginPreview(src,s,nil,nil,nil,action,d.fid,f.item)
             else queue({kind=action,actor=id,src=src,sid=s.id,fid=d.fid,item=f.item,physical=true}) end
@@ -192,3 +200,14 @@ exports('CanAccessCampStorage',function(src,storage)
 end)
 exports('GetProperty',function(id) local s=ready and settlement(id); if s and s.status=='active' then return public(s) end end)
 exports('CanAccessProperty',function(id,sid,permission) return ready and allowed(settlement(sid),id,permission)==true end)
+
+exports('GetBusinessFixture',function(sid,fid)
+    if GetInvokingResource()~='frontier_business' or not ready then return end
+    local s=settlement(sid);local f=s and s.furniture and s.furniture[fid]
+    if not s or s.status~='active' or (s.listing and s.listing.active) or not f or (f.item~='property_storage' and f.item~='property_counter') then return end
+    return {item=f.item,x=f.x,y=f.y,z=f.z,heading=f.heading}
+end)
+exports('GetOwnedPlots',function(who)
+    if GetInvokingResource()~='frontier_business' or not ready then return {} end
+    local out={};for id,s in pairs(S.settlements) do if owner(s,who) then out[#out+1]=public(s) end end;return out
+end)

@@ -2,6 +2,8 @@ local defaults = {
     settlement_kit = { name = 'Settlement kit', description = 'Settlement kit', grams = 15000, maxStack = 1, category = 'Settlement', usable = true },
     property_hammer = { name = 'Hammer', description = 'Hammer', grams = 1000, maxStack = 1, category = 'Settlement', usable = false },
     property_saw = { name = 'Saw', description = 'Saw', grams = 1800, maxStack = 1, category = 'Settlement', usable = false },
+    property_storage = { name = 'Storage chest', description = 'Functional storage', grams = 8000, maxStack = 1, category = 'Functional furniture', usable = true },
+    property_counter = { name = 'Sales counter', description = 'Retail counter', grams = 12000, maxStack = 1, category = 'Functional furniture', usable = true },
     property_bed = { name = 'Bed', description = 'Bed', grams = 10000, maxStack = 1, category = 'Large furniture', usable = true },
     property_chest = { name = 'Decorative chest', description = 'Decorative chest', grams = 6000, maxStack = 1, category = 'Medium furniture', usable = true },
     property_wardrobe = { name = 'Wardrobe', description = 'Wardrobe', grams = 12000, maxStack = 1, category = 'Large furniture', usable = true },

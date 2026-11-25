@@ -727,3 +727,24 @@ trusted('PropertyChangeCharacter', function(owner, id, item, quantity, add, key)
     end
     return Inventory.Change(ctx,box,add,item,quantity)
 end)
+
+trusted('BusinessMoveStock',function(owner,fixture,sale,character,item,quantity,mode)
+    if owner~='frontier_business' or not Inventory.Id(fixture,32) or not Inventory.Id(sale,32) or not Inventory.Id(character,64) or not Inventory.Id(item,48) or not Inventory.Int(quantity,1000) then return false,'invalid_request' end
+    if mode~='reserve' and mode~='claim' and mode~='return' then return false,'invalid_request' end
+    local key='business:'..sale..':'..mode;local actor='resource:'..owner
+    local fingerprint=json.encode({fixture,sale,character,item,quantity,mode})
+    local ok,replay=Inventory.Replay(key,actor,fingerprint);if not ok then return false,replay end;if replay then return true,key end
+    local escrow='besc_'..sale;local stock='s_business_'..fixture
+    if mode=='reserve' then ok,replay=Inventory.Ensure(escrow,'storage',200,100000000);if not ok then return false,replay end end
+    local fromId=mode=='reserve' and stock or escrow
+    local toId=mode=='reserve' and escrow or mode=='return' and stock or 'p_'..character
+    if mode=='claim' then ok,replay=Inventory.Ensure(toId,'player',InventoryConfig.Slots,InventoryConfig.WeightGrams);if not ok then return false,replay end end
+    local from,to;ok,from=Inventory.Load(fromId);if not ok then return false,from end;ok,to=Inventory.Load(toId);if not ok then return false,to end
+    local left=quantity
+    for slot=1,from.slot_limit do local stack=from.slots[slot];if stack and stack.item==item then
+        local n=math.min(left,stack.quantity);local taken,entry=Inventory.Take(from,slot,n);if not taken then return false,entry end
+        local placed,issue=Inventory.Place(to,entry);if not placed then return false,issue end;left=left-n;if left==0 then break end
+    end end
+    if left~=0 then return false,'insufficient_stock' end
+    return Inventory.Commit(key,actor,fingerprint,from,to)
+end)

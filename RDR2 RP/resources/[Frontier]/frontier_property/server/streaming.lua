@@ -24,7 +24,7 @@ function world(src)
                         end end
                     else obj(bid,C.Camp.site,b.x,b.y,b.z,b.heading,'site',sid,bid,true) end
                 end end
-                for fid,f in pairs(s.furniture or {}) do if R.distance(p,f)<=C.StreamDistance then obj(fid,C.Furniture[f.item].model,f.x,f.y,f.z,f.heading,nil,sid,nil,false) end end
+                for fid,f in pairs(s.furniture or {}) do if R.distance(p,f)<=C.StreamDistance then obj(fid,C.Furniture[f.item].model,f.x,f.y,f.z,f.heading,(f.item=='property_storage' or f.item=='property_counter') and 'fixture' or nil,sid,fid,false) end end
             end
         end end
     elseif v and v.actor==cid(src) then
