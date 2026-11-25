@@ -20,6 +20,7 @@ InventoryConfig = {
     TrustedResources = {
         frontier_production = true,
         frontier_property = true,
+        frontier_business = true,
 		frontier_trade = true,
 	},
     Debug = false,
