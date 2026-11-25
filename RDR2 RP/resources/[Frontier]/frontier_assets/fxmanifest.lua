@@ -13,6 +13,6 @@ lua54 'yes'
   } 
   
   
-  data_file 'DLC_ITYP_REQUEST' 'stream/*.ytyp'
+data_file 'DLC_ITYP_REQUEST' 'stream/*.ytyp'
 dependency '/assetpacks'
 dependency '/assetpacks-redm'
