@@ -24,3 +24,11 @@ Camp props and unfinished construction markers independently resolve local terra
 
 ## Collision diagnostics
 Completed objects explicitly request model collision and enable entity collision; nearby streamed objects re-request collision if needed. Ghosts remain non-solid. Use /propertycollision near a problematic object to print its model and collision readiness in F8. Some native map drawables may not include standalone collision geometry; if a model remains non-solid after loading, it needs a different asset or a custom collision mesh. No invisible generic wall is added. This revision also retains the ground placement fixes from PR #35.
+
+## Administrator testing commands
+These require the server-side ACE `frontier.property.test` and `AdminTesting.Enabled=true` in config.lua. Example server.cfg: `add_ace group.admin frontier.property.test allow` (only if group.admin contains your trusted admins). Disable AdminTesting on public servers. Use in game with a loaded character, outside interiors.
+- /propertymodels — list catalogue keys and camp prop keys.
+- /propertyspawn cabin — spawn one temporary local test model in front of you, without settlement/database changes. Optional second argument is distance in metres (3–25). The object is removed on replacement, /propertyclear, interior entry, resource stop or after five minutes. Only the testing client sees it.
+- /propertycollision — inspect the nearest test or property object in F8.
+- /propertyfinish — instantly finish the nearest eligible unfinished construction within 20m. Optional building ID restricts selection. This permanently completes the normal construction record without charging additional materials; previously delivered materials are not refunded. Listed settlements and pending jobs are excluded. Use only on the test server.
+- /propertyclear — remove the temporary test object.

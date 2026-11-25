@@ -6,6 +6,8 @@ PropertyConfig = {
     -- Ground probing is for camp props, construction markers and initial previews only.
     -- Completed structures and furniture use exact saved entity origins.
     GroundSearchTolerance=12, GroundModelOffsets={},
+    -- Server-side ACE required. Disable these tools on public servers.
+    AdminTesting={Enabled=true,Ace='frontier.property.test',FinishDistance=20},
     Kit={id='settlement_kit',name='Settlement kit',grams=15000,price=25000},
     Camp={fire='p_campfiredirt01x',tent='mp001_p_mp_tent_leento03x',chest='p_chest01x',site='p_cs_woodpile01x'},
     Towns={

@@ -1,6 +1,7 @@
 local C,R=PropertyConfig,PropertyRules
 local E='frontier_property:'
 local objects,markers={},{}
+local testObject,testGeneration=nil,0
 local world={claims={},objects={},markers={}}
 local interior,preview,inside,focused=nil,nil,nil,false
 local pendingMenu,menuSequence=nil,0
@@ -63,6 +64,29 @@ local function spawn(d,ghost)
     end
     return o
 end
+local function clearTest()
+    testGeneration=testGeneration+1
+    if testObject then remove(testObject.handle);testObject=nil end
+end
+RegisterNetEvent(E..'adminClear',function()
+    if source~=65535 then return end
+    clearTest();notice('Temporary property test object removed.')
+end)
+RegisterNetEvent(E..'adminSpawn',function(d)
+    if source~=65535 or type(d)~='table' or type(d.model)~='string' then return end
+    clearTest()
+    local generation=testGeneration
+    local ped=PlayerPedId()
+    local pos=GetOffsetFromEntityInWorldCoords(ped,0.0,d.distance+0.0,0.0)
+    local data={model=d.model,x=pos.x,y=pos.y,z=pos.z,heading=GetEntityHeading(ped),ground=true}
+    local h,reason=spawn(data,false)
+    if generation~=testGeneration then if h then remove(h) end;return end
+    if not h then return notice('Test spawn failed: '..tostring(reason or 'model unavailable')) end
+    testObject={handle=h,data=data}
+    local msg=('Test model %s | model collision loaded: %s | world collision loaded: %s'):format(d.model,tostring(HasCollisionForModelLoaded(GetHashKey(d.model))),tostring(HasCollisionLoadedAroundEntity(h)))
+    print('[frontier_property] '..msg);notice(msg)
+    SetTimeout(300000,function() if generation==testGeneration then clearTest() end end)
+end)
 local function clear()
     for _,o in pairs(objects) do remove(o.handle) end; objects={}
 end
@@ -88,7 +112,7 @@ end)
 RegisterNetEvent(E..'world',function(data) if source==65535 then world=data end end)
 RegisterNetEvent(E..'interior',function(data)
     if source~=65535 then return end
-    close(); clear(); cancel(false); world={claims={},objects={},markers={}}; interior=data or nil
+    close(); clear(); clearTest(); cancel(false); world={claims={},objects={},markers={}}; interior=data or nil
     if interior then
         local a=interior.anchor
         RequestCollisionAtCoord(a.x,a.y,a.z)
@@ -169,6 +193,10 @@ RegisterCommand('propertycollision',function()
             local n=#(pos-GetEntityCoords(o.handle))
             if not dist or n<dist then nearestObject,dist=o,n end
         end
+    end
+    if testObject and DoesEntityExist(testObject.handle) then
+        local n=#(pos-GetEntityCoords(testObject.handle))
+        if not dist or n<dist then nearestObject,dist=testObject,n end
     end
     if not nearestObject or dist>30 then return notice('No property object within 30m.') end
     local o=nearestObject; local hash=GetHashKey(o.data.model)
@@ -286,5 +314,5 @@ CreateThread(function()
     end
 end)
 AddEventHandler('onClientResourceStop',function(r)
-    if r==GetCurrentResourceName() then close();cancel(false);clear();for _,b in pairs(markers) do RemoveBlip(b) end end
+    if r==GetCurrentResourceName() then close();cancel(false);clear();clearTest();for _,b in pairs(markers) do RemoveBlip(b) end end
 end)
