@@ -3,6 +3,7 @@ local core,eco,inv=exports.frontier_core,exports.frontier_economy,exports.fronti
 local Q,U,S=MySQL.query.await,MySQL.update.await,MySQL.single.await
 local ready,busy=false,false
 local sessions={}
+local fixtureAction,fixtureView,retailStep,fixtureInfo,receipt,tradeReceipts
 local function now() return os.time() end
 local function uuid() return MySQL.scalar.await('SELECT REPLACE(UUID(),CHAR(45),SPACE(0))') end
 local function encode(v) return json.encode(v) end
@@ -120,9 +121,10 @@ end
 local function rights(input)
  local out={};for _,k in ipairs(C.permissions) do if type(input)=='table' and input[k]==true then out[k]=true end end;return out
 end
-local function propertyOwner(who,sid) return MySQL.scalar.await("SELECT COUNT(*) FROM fp_owners o JOIN fp_settlements s ON s.id=o.settlement_id WHERE o.character_id=? AND o.settlement_id=? AND s.status='active'",{who,sid})==1 end
+local function propertyOwner(who,sid) return tonumber(MySQL.scalar.await("SELECT COUNT(*) FROM fp_owners o JOIN fp_settlements s ON s.id=o.settlement_id WHERE o.character_id=? AND o.settlement_id=? AND s.status='active'",{who,sid}))==1 end
 local function handle(src,a,d)
  local who=cid(src);requireThat(who,'Load a character')
+ if fixtureAction and fixtureAction(src,who,a,d) then return end
  local b=company(d.company)
  if a=='register' then
   requireThat(office(src),'Visit a registry office');requireThat(str(d.name,80) and str(d.description,255),'Invalid name or description')
@@ -141,7 +143,7 @@ local function handle(src,a,d)
   local typ,id,from=b and 'company' or 'character',b and b.id or who,b and account(b) or bank(who)
   requireThat(from,'Bank unavailable');local old=S('SELECT * FROM fb_licenses WHERE owner_type=? AND owner_id=? AND category=?',{typ,id,d.category});requireThat(not old or (tonumber(old.active)==0 and tonumber(old.debt)==0),'Already licensed or outstanding tax')
   job('license',{company=b and b.id,actor=who,ownerType=typ,owner=id,category=d.category,from=from,amount=l.fee});return
- elseif a=='hideReceipt' then U("UPDATE fb_receipts SET hidden=1 WHERE id=? AND owner_type='character' AND owner_id=?",{d.id,who});return
+ elseif a=='hideReceipt' then if b then requireThat(allowed(b,who,'logs'),'Denied');U("UPDATE fb_receipts SET hidden=1 WHERE id=? AND owner_type='company' AND owner_id=?",{d.id,b.id}) else U("UPDATE fb_receipts SET hidden=1 WHERE id=? AND owner_type='character' AND owner_id=?",{d.id,who}) end;return
  elseif a=='grant' then
   requireThat(b and b.status=='active' and propertyOwner(who,d.property),'Property owner required')
   Q('INSERT INTO fb_locations VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE grantor=VALUES(grantor),rights=VALUES(rights)',{b.id,d.property,who,encode(rights(d.rights))});return
@@ -185,10 +187,11 @@ local function handle(src,a,d)
 end
 local function view(src)
  local who=cid(src);if not who then return end
+ if sessions[src] and sessions[src].fixture then return fixtureView(src,sessions[src].property,sessions[src].fixture) end
  local list=Q([[SELECT DISTINCT c.* FROM fb_companies c LEFT JOIN fb_shares s ON s.company_id=c.id LEFT JOIN fb_employees e ON e.company_id=c.id WHERE s.character_id=? OR e.character_id=?]],{who,who})
  for _,b in ipairs(list) do
   b.owner=isOwner(b.id,who)~=nil;b.ranks=Q('SELECT * FROM fb_ranks WHERE company_id=?',{b.id})
-  b.shares=shares(b.id);b.employees=Q('SELECT character_id,rank_id FROM fb_employees WHERE company_id=?',{b.id})
+  b.licenses=Q("SELECT * FROM fb_licenses WHERE owner_type='company' AND owner_id=?",{b.id});b.locations=Q('SELECT * FROM fb_locations WHERE company_id=?',{b.id});b.receipts=(b.owner or allowed(b,who,'logs')) and Q("SELECT * FROM fb_receipts WHERE owner_type='company' AND owner_id=? AND hidden=0 ORDER BY created DESC LIMIT 100",{b.id}) or {};b.shares=shares(b.id);b.employees=Q('SELECT character_id,rank_id FROM fb_employees WHERE company_id=?',{b.id})
   b.proposals=Q("SELECT * FROM fb_proposals WHERE company_id=? AND status='open'",{b.id})
   b.rights={};for _,k in ipairs(C.permissions) do b.rights[k]=allowed(b,who,k) end
   if b.owner or b.rights.finance then local ok,v=eco:GetAccountBalance(account(b));if ok then b.balance=v.balance_minor end end
@@ -196,13 +199,13 @@ local function view(src)
  end
  local invites=Q('SELECT * FROM fb_invites WHERE target_id=? AND expires>?',{who,now()})
  local offers={};for _,v in ipairs(Q("SELECT * FROM fb_proposals WHERE kind='share' AND status='open' AND expires>?",{now()})) do if decode(v.payload).target==who then offers[#offers+1]=v end end
- TriggerClientEvent('frontier_business:view',src,{companies=list,invites=invites,offers=offers,office=office(src)==true,licenses=C.licenses,permissions=C.permissions,personal=Q("SELECT * FROM fb_licenses WHERE owner_type='character' AND owner_id=?",{who}),receipts=Q("SELECT * FROM fb_receipts WHERE owner_type='character' AND owner_id=? AND hidden=0 ORDER BY created DESC LIMIT 100",{who})})
+ TriggerClientEvent('frontier_business:view',src,{plots=exports.frontier_property:GetOwnedPlots(who),companies=list,invites=invites,orders=Q("SELECT * FROM fb_retail WHERE buyer=? AND state='paid'",{who}),offers=offers,office=office(src)==true,licenses=C.licenses,permissions=C.permissions,personal=Q("SELECT * FROM fb_licenses WHERE owner_type='character' AND owner_id=?",{who}),receipts=Q("SELECT * FROM fb_receipts WHERE owner_type='character' AND owner_id=? AND hidden=0 ORDER BY created DESC LIMIT 100",{who})})
 end
 local function run(fn,src)
  if not ready or busy then if src then tell(src,'Business busy, retry shortly.') end;return end
  busy=true;local ok,e=pcall(fn);busy=false;if not ok then print('[frontier_business] '..tostring(e));if src then tell(src,tostring(e)) end end
 end
-RegisterNetEvent('frontier_business:open',function() local src=source;run(function() view(src) end,src) end)
+RegisterNetEvent('frontier_business:open',function() local src=source;sessions[src]=nil;run(function() view(src) end,src) end)
 RegisterNetEvent('frontier_business:action',function(a,d) local src=source;if type(a)~='string' or type(d)~='table' then return end;run(function() requireThat(not S('SELECT id FROM fb_jobs LIMIT 1'),'A transaction is pending');handle(src,a,d);tell(src,'Request accepted.');view(src) end,src) end)
 local function tick()
  local t=now()
@@ -246,7 +249,7 @@ local function payroll()
 end
 MySQL.ready(function()
  requireThat(S('SELECT COUNT(*) AS n FROM fb_companies'),'Apply business migration');ready=true
- CreateThread(function() while true do Wait(1000);run(function() local j=S('SELECT * FROM fb_jobs ORDER BY created,id LIMIT 1');if j then process(j) else tick() end end) end end)
+ CreateThread(function() while true do Wait(1000);run(function() local j=S('SELECT * FROM fb_jobs ORDER BY created,id LIMIT 1');if j then process(j) else local sale=S("SELECT * FROM fb_retail WHERE state IN ('reserve','payment','return') ORDER BY created,id LIMIT 1");if sale then retailStep(sale) else tick() end end end) end end)
  CreateThread(function() while true do Wait(10000);run(payroll) end end)
 end)
 exports('HasCompanyPermission',function(id,who,perm) return ready and allowed(company(id),who,perm) or false end)
@@ -256,3 +259,125 @@ exports('CanUseProperty',function(id,who,sid,perm)
 end)
 exports('GetCompanyAccount',function(id,who,perm) local b=company(id);if ready and allowed(b,who,perm) then return account(b) end end)
 exports('VerifyLicense',function(typ,id,category) local l=ready and S('SELECT * FROM fb_licenses WHERE owner_type=? AND owner_id=? AND category=?',{typ,id,category});return l and tonumber(l.active)==1 or false end)
+
+-- Physical fixtures are ordinary Property furniture; only their stock and commercial ownership live here.
+local function fixture(id) if type(id)=='string' then return S('SELECT * FROM fb_fixtures WHERE id=?',{id}) end end
+local function fixturePosition(sid,id) return exports.frontier_property:GetBusinessFixture(sid,id) end
+local function validFixture(f)
+ if not f then return end
+ local p=fixturePosition(f.property_id,f.id);if not p or not propertyOwner(f.grantor,f.property_id) then return end
+ if f.owner_type=='company' then
+  local b=company(f.owner_id);local g=S('SELECT * FROM fb_locations WHERE company_id=? AND property_id=?',{f.owner_id,f.property_id})
+  if not b or b.status~='active' or not g or not propertyOwner(g.grantor,f.property_id) or not decode(g.rights)[f.kind=='counter' and 'retail' or 'stock'] then return end
+ end
+ return p
+end
+local function fixtureRight(f,who,perm)
+ if f.owner_type=='character' then return f.owner_id==who end
+ local b=company(f.owner_id)
+ if b and b.status=='liquidating' then return (perm=='retrieve' or perm=='stock') and isOwner(b.id,who)~=nil end
+ return allowed(b,who,perm)
+end
+local function stock(f)
+ local ok,v=inv:GetStorageContents('business_'..f.id);if not ok then return {} end
+ local items={};for _,s in pairs(v.slots or {}) do if s.item or s.itemId or s.item_id then local k=s.item or s.itemId or s.item_id;items[k]=(items[k] or 0)+tonumber(s.quantity or 0) end end
+ return items
+end
+receipt=function(typ,id,ref,detail)
+ Q('INSERT IGNORE INTO fb_receipts(id,owner_type,owner_id,reference_id,detail,created) VALUES(?,?,?,?,?,?)',{uuid(),typ,id,ref,encode(detail),now()})
+end
+fixtureView=function(src,sid,id)
+ local who=cid(src);local p=fixturePosition(sid,id)
+ requireThat(who and p and near(src,p,C.storageDistance),'Approach fixture')
+ local f=fixture(id);local canSetup=propertyOwner(who,sid)
+ local options={}
+ if canSetup then for _,b in ipairs(Q("SELECT c.id,c.name FROM fb_companies c JOIN fb_locations l ON c.id=l.company_id WHERE l.property_id=? AND c.status='active'",{sid})) do if allowed(company(b.id),who,'locations') then options[#options+1]=b end end end
+ local products={}
+ if f and validFixture(f) then local quantities=stock(f);for _,r in ipairs(Q('SELECT * FROM fb_prices WHERE fixture_id=?',{id})) do products[#products+1]={item=r.item_id,price=r.price,quantity=quantities[r.item_id] or 0} end end
+ TriggerClientEvent('frontier_business:view',src,{fixture={id=id,property=sid,kind=p.item=='property_counter' and 'counter' or 'storage',registered=f,setup=canSetup,companies=options,products=products,manage=f and fixtureRight(f,who,'retail') or false,access=f and fixtureRight(f,who,'stock') or false,unregister=f and canSetup and (f.owner_type=='character' and f.owner_id==who or f.owner_type=='company' and isOwner(f.owner_id,who)~=nil) or false}})
+end
+AddEventHandler('frontier_business:fixture',function(src,sid,id)
+ if GetInvokingResource()~='frontier_property' then return end
+ CreateThread(function() run(function() sessions[src]={property=sid,fixture=id};fixtureView(src,sid,id) end,src) end)
+end)
+exports('FixtureBound',function(id) return not ready or fixture(id)~=nil end)
+exports('CanAccessStorage',function(src,id,action)
+ if not ready or type(id)~='string' then return false end
+ local f=fixture(id:match('^business_([a-f0-9]+)$'));local who=cid(src)
+ if not f or not who then return false end
+ local p=validFixture(f)
+ local b=f.owner_type=='company' and company(f.owner_id)
+ if b and b.status=='liquidating' and tonumber(b.liquidate_until)>now() and isOwner(b.id,who) then
+  p=fixturePosition(f.property_id,f.id);return p and near(src,p,C.storageDistance) and (action=='view' or action=='retrieve') or false
+ end
+ if not p or not near(src,p,C.storageDistance) then return false end
+ if action=='view' then return fixtureRight(f,who,'stock') end
+ if action=='store' then return fixtureRight(f,who,'deposit') end
+ if action=='retrieve' then return fixtureRight(f,who,'retrieve') end
+ if action=='storageMove' or action=='storageSplit' then return fixtureRight(f,who,'deposit') and fixtureRight(f,who,'retrieve') end
+ return false
+end)
+AddEventHandler('frontier_business:storageLog',function(who,id,action,key,detail)
+ if GetInvokingResource()~='frontier_inventory' then return end
+ local fid=id:match('^business_([a-f0-9]+)$');if not fid then return end
+ Q('INSERT IGNORE INTO fb_storage_audit VALUES(?,?,?,?,?,?)',{key,fid,who,action,encode(detail),now()})
+end)
+fixtureAction=function(src,who,a,d)
+ if a=='claimRetail' then
+  local row=S("SELECT * FROM fb_retail WHERE id=? AND buyer=? AND state='paid'",{d.id,who});requireThat(row,'Purchase unavailable')
+  local f=fixture(row.fixture_id);local p=f and fixturePosition(f.property_id,f.id);requireThat(p and near(src,p,C.storageDistance),'Return to the sales counter')
+  local ok,e=inv:BusinessMoveStock(row.fixture_id,row.id,who,row.item_id,tonumber(row.quantity),'claim');requireThat(ok,e)
+  U("UPDATE fb_retail SET state='complete' WHERE id=?",{row.id});return true
+ end
+ if not ({fixtureSetup=true,fixtureStock=true,fixturePrice=true,fixtureBuy=true,fixtureRemove=true})[a] then return false end
+ local session=sessions[src];requireThat(session and session.fixture,'Open fixture first')
+ local id,sid=session.fixture,session.property;local p=fixturePosition(sid,id);requireThat(p and near(src,p,C.storageDistance),'Approach fixture')
+ local f=fixture(id)
+ if a=='fixtureSetup' then
+  requireThat(not f and propertyOwner(who,sid) and str(d.name,60),'Invalid fixture setup')
+  local typ,owner='character',who;local kind=p.item=='property_counter' and 'counter' or 'storage'
+  if d.company and d.company~='' then
+   local b=company(d.company);local g=S('SELECT * FROM fb_locations WHERE company_id=? AND property_id=?',{d.company,sid})
+   requireThat(allowed(b,who,'locations') and g and propertyOwner(g.grantor,sid) and decode(g.rights)[kind=='counter' and 'retail' or 'stock'],'Company usage not granted')
+   typ,owner='company',b.id
+  end
+  local ok,e=inv:CreateStorage({id='business_'..id,name='Commercial stock',slots=100,grams=1000000,ace='' });requireThat(ok,e)
+  Q('INSERT INTO fb_fixtures VALUES(?,?,?,?,?,?,?)',{id,sid,typ,owner,kind,d.name,who})
+ elseif a=='fixtureStock' then
+  requireThat(f and (validFixture(f) or f.owner_type=='company' and company(f.owner_id).status=='liquidating') and fixtureRight(f,who,'stock'),'Denied')
+  TriggerClientEvent('frontier_business:close',src);local ok,e=inv:OpenStorage(src,'business_'..id);requireThat(ok,e)
+ elseif a=='fixtureRemove' then
+  requireThat(f and propertyOwner(who,sid) and (f.owner_type=='character' and f.owner_id==who or f.owner_type=='company' and isOwner(f.owner_id,who)),'Denied')
+  requireThat(not next(stock(f)) and not S("SELECT id FROM fb_retail WHERE fixture_id=? AND state NOT IN ('complete','failed') LIMIT 1",{id}),'Empty storage and resolve purchases first')
+  tx({sql('DELETE FROM fb_prices WHERE fixture_id=?',{id}),sql('DELETE FROM fb_fixtures WHERE id=?',{id})})
+ elseif a=='fixturePrice' then
+  requireThat(f and validFixture(f) and f.kind=='counter' and fixtureRight(f,who,'retail') and str(d.item,48) and integer(d.price,0,100000000),'Denied')
+  local ok,def=inv:GetTradeItemDefinition(d.item);requireThat(ok and def.transferable,'Invalid item')
+  if d.price==0 then U('DELETE FROM fb_prices WHERE fixture_id=? AND item_id=?',{id,d.item}) else Q('INSERT INTO fb_prices VALUES(?,?,?) ON DUPLICATE KEY UPDATE price=VALUES(price)',{id,d.item,d.price}) end
+ elseif a=='fixtureBuy' then
+  requireThat(f and validFixture(f) and f.kind=='counter' and integer(d.quantity,1,1000),'Invalid purchase')
+  local r=S('SELECT * FROM fb_prices WHERE fixture_id=? AND item_id=?',{id,d.item});requireThat(r and (stock(f)[d.item] or 0)>=d.quantity,'Stock unavailable')
+  local from=bank(who);local to=f.owner_type=='company' and account(company(f.owner_id)) or bank(f.owner_id)
+  requireThat(from and to and from~=to,'Invalid accounts')
+  Q("INSERT INTO fb_retail VALUES(?,?,?,?,?,?,?,?,?,?,'reserve',?)",{uuid(),id,who,from,f.owner_type,f.owner_id,to,d.item,d.quantity,tonumber(r.price)*d.quantity,now()})
+ end
+ return true
+end
+retailStep=function(r)
+ local quantity=tonumber(r.quantity)
+ if r.state=='reserve' then
+  local ok,e=inv:BusinessMoveStock(r.fixture_id,r.id,r.buyer,r.item_id,quantity,'reserve')
+  if ok then U("UPDATE fb_retail SET state='payment' WHERE id=?",{r.id}) elseif e=='insufficient_stock' then U("UPDATE fb_retail SET state='failed' WHERE id=?",{r.id}) end
+ elseif r.state=='payment' then
+  local ok,e=transfer(r.id,tonumber(r.buyer_bank),tonumber(r.seller_bank),tonumber(r.price))
+  if ok then
+   local detail={item=r.item_id,quantity=quantity,total=tonumber(r.price),buyer=r.buyer,seller=r.seller_id}
+   receipt('character',r.buyer,'retail:'..r.id,detail);receipt(r.seller_type,r.seller_id,'retail:'..r.id,detail)
+   U("UPDATE fb_retail SET state='paid' WHERE id=?",{r.id})
+  elseif definite(e) or e=='balance_limit' then U("UPDATE fb_retail SET state='return' WHERE id=?",{r.id}) end
+ elseif r.state=='return' then
+  if inv:BusinessMoveStock(r.fixture_id,r.id,r.buyer,r.item_id,quantity,'return') then U("UPDATE fb_retail SET state='failed' WHERE id=?",{r.id}) end
+ end
+end
+AddEventHandler('frontier:playerUnloaded',function(p) sessions[p.source]=nil;TriggerClientEvent('frontier_business:close',p.source) end)
+AddEventHandler('playerDropped',function() sessions[source]=nil end)
