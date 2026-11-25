@@ -24,6 +24,7 @@ local specs={
  {'fp_camps',{'settlement_id','storage_id'},1},
  {'fp_buildings',{'id','settlement_id','exterior','x','y','z','heading','radius','complete','locked','asset_value'},1},
  {'fp_interiors',{'building_id','template_id','routing_bucket','capacity'},1},
+ {'fp_plot_furniture',{'id','settlement_id','item_id','x','y','z','heading'},1},
  {'fp_furniture',{'id','building_id','item_id','x','y','z','heading'},1},
  {'fp_construction',{'building_id','stage_no','progress_seconds'},1},
  {'fp_stages',{'building_id','stage_no','label','seconds','tools_json'},2},
@@ -51,6 +52,7 @@ local function project(S)
             put('fp_listings',sid,sid,s.listing.price,s.listing.active and 1 or 0)
             for id in pairs(s.listing.approvals) do put('fp_approvals',key(sid,id),sid,id) end
         end
+        for fid,f in pairs(s.furniture or {}) do put('fp_plot_furniture',fid,fid,sid,f.item,f.x,f.y,f.z,f.heading) end
         for bid,b in pairs(s.buildings) do
             put('fp_buildings',bid,bid,sid,b.exterior,b.x,b.y,b.z,b.heading,b.radius,b.complete and 1 or 0,b.locked and 1 or 0,b.value)
             if b.interior then put('fp_interiors',bid,bid,b.interior,b.bucket,b.capacity) end
@@ -73,7 +75,7 @@ function D.load()
     local S={settlements={},jobs={},visits={},nextBucket=num(meta.next_bucket)}
     local buildings={}
     for _,r in ipairs(rows('fp_settlements')) do
-        S.settlements[r.id]={id=r.id,name=r.name,x=num(r.x),y=num(r.y),z=num(r.z),radius=num(r.radius),primary=r.primary_owner,status=r.status,map=flag(r.map_public),owners={},members={},buildings={}}
+        S.settlements[r.id]={id=r.id,name=r.name,x=num(r.x),y=num(r.y),z=num(r.z),radius=num(r.radius),primary=r.primary_owner,status=r.status,map=flag(r.map_public),owners={},members={},buildings={},furniture={}}
     end
     for _,r in ipairs(rows('fp_owners')) do S.settlements[r.settlement_id].owners[r.character_id]=true end
     for _,r in ipairs(rows('fp_permissions')) do S.settlements[r.settlement_id].members[r.character_id]=decode(r.rights_json) end
@@ -85,6 +87,7 @@ function D.load()
         buildings[r.id]=b;S.settlements[r.settlement_id].buildings[r.id]=b
     end
     for _,r in ipairs(rows('fp_interiors')) do local b=buildings[r.building_id];b.interior=r.template_id;b.bucket=num(r.routing_bucket);b.capacity=num(r.capacity) end
+    for _,r in ipairs(rows('fp_plot_furniture')) do S.settlements[r.settlement_id].furniture[r.id]={item=r.item_id,x=num(r.x),y=num(r.y),z=num(r.z),heading=num(r.heading)} end
     for _,r in ipairs(rows('fp_furniture')) do buildings[r.building_id].furniture[r.id]={item=r.item_id,x=num(r.x),y=num(r.y),z=num(r.z),heading=num(r.heading)} end
     for _,r in ipairs(rows('fp_construction')) do local b=buildings[r.building_id];b.stage=num(r.stage_no);b.progress=num(r.progress_seconds) end
     for _,r in ipairs(rows('fp_stages')) do buildings[r.building_id].stages[num(r.stage_no)]={label=r.label,seconds=num(r.seconds),tools=decode(r.tools_json),materials={}} end

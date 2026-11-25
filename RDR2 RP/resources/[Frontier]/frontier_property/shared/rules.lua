@@ -26,3 +26,31 @@ function R.fits(s,p,r,ignore)
     for id,b in pairs(s.buildings) do if id~=ignore and R.distance(b,p)<r+b.radius+1 then return false end end
     return true
 end
+
+function R.transform(o,p)
+    local a=math.rad(o.heading or 0);local x,y=p.x or 0,p.y or 0
+    return {x=o.x+x*math.cos(a)-y*math.sin(a),y=o.y+x*math.sin(a)+y*math.cos(a),z=o.z+(p.z or 0),heading=((o.heading or 0)+(p.heading or 0))%360,model=p.model}
+end
+function R.localPoint(o,p)
+    local a=math.rad(o.heading or 0);local x,y=p.x-o.x,p.y-o.y
+    return {x=x*math.cos(a)+y*math.sin(a),y=-x*math.sin(a)+y*math.cos(a),z=p.z-o.z,heading=((p.heading or 0)-(o.heading or 0))%360}
+end
+function R.parts(e,c)
+    return e.assembly and c.TestAssemblies[e.assembly].parts or {{model=e.model,x=0,y=0,z=0,heading=0}}
+end
+function R.indoor(b,p,c)
+    local e=c.Exteriors[b.exterior]
+    if not b.complete or not e or not e.interior then return false end
+    local part=R.parts(e,c)[e.indoorPart or 1]
+    local bounds=part and c.IndoorBounds[part.model]
+    if not bounds then return false end
+    local q=R.localPoint(R.transform(b,part),p)
+    return q.x>=bounds.min.x and q.x<=bounds.max.x and q.y>=bounds.min.y and q.y<=bounds.max.y and q.z>=bounds.min.z and q.z<=bounds.max.z
+end
+function R.buildingAt(s,p,c)
+    local best,dist
+    for id,b in pairs(s.buildings or {}) do
+        if R.indoor(b,p,c) then local d=R.distance(b,p);if not dist or d<dist or (d==dist and id<best) then best,dist=id,d end end
+    end
+    return best
+end

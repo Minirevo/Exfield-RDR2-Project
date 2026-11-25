@@ -72,6 +72,16 @@ PropertyConfig = {
     -- Crow Maps streamed house models; footprint and collision require live validation.
     -- Existing exterior keys remain stable for saved construction records.
     Exteriors={
+        ranch={label='Beecher ranch house',category='Residential',model='bee_mainhouse_foundext',assembly='bee_mainhouse',indoorPart=3,radius=22,slots=60,materials={wood=45,wooden_planks=60,iron_ingot=12},seconds=600,value=75000,interior=true},
+        workerhouse={label='Workers house',category='Residential',model='bee_workerexterior',assembly='bee_workerhouse',indoorPart=2,radius=16,slots=25,materials={wood=20,wooden_planks=25,iron_ingot=4},seconds=240,value=28000,interior=true},
+        manor={label='Caliga Hall manor',category='Residential',model='caligahall_ext',assembly='caligahall',indoorPart=2,radius=30,slots=100,materials={wood=90,wooden_planks=120,iron_ingot=25},seconds=1200,value=160000,interior=true},
+        stable={label='Stable',category='Livestock',model='bee_stableext',assembly='bee_stable',indoorPart=2,radius=18,slots=40,materials={wood=35,wooden_planks=45,iron_ingot=8},seconds=420,value=48000,interior=true},
+        house3={label='Country house',category='Residential',model='free_house03',radius=15,slots=35,materials={wood=28,wooden_planks=35,iron_ingot=6},seconds=360,value=42000,interior=true},
+        addhouse={label='Ranch annex',category='Residential',model='bee_addhouse',radius=10,slots=20,materials={wood=18,wooden_planks=20,iron_ingot=4},seconds=240,value=22000,interior=true},
+        townhouse={label='Town house',category='Residential',model='bla_house2',radius=16,slots=40,materials={wood=35,wooden_planks=40,iron_ingot=8},seconds=420,value=50000,interior=true},
+        coop={label='Chicken coop',category='Livestock',model='bee_chickencoop',radius=6,slots=0,materials={wood=10,wooden_planks=12,iron_ingot=2},seconds=120,value=9000,interior=false},
+        silo={label='Silo',category='Storage',model='bee_silo',radius=9,slots=0,materials={wood=20,wooden_planks=25,iron_ingot=5},seconds=240,value=22000,interior=false},
+        gazebo={label='Gazebo',category='Decoration',model='bee_gazebo',radius=8,slots=0,materials={wood=15,wooden_planks=18,iron_ingot=2},seconds=180,value=15000,interior=false},
         shack={label='Wooden cabin',category='Residential',model='free_house02',radius=10,slots=10,materials={wood=12,wooden_planks=12,iron_ingot=2},seconds=120,value=12000,interior=true},
         cabin={label='Large ranch house',category='Residential',model='free_house01',radius=14,slots=30,materials={wood=25,wooden_planks=30,iron_ingot=5},seconds=300,value=35000,interior=true},
         shelter={label='Field shelter',category='Agriculture',model='mp001_p_mp_tent_leento03x',radius=4,slots=0,materials={wood=8,wooden_planks=4},seconds=90,value=5000,interior=false},
@@ -79,8 +89,22 @@ PropertyConfig = {
         pen={label='Livestock pen marker',category='Livestock',model='p_haypile_wag01x',radius=6,slots=0,materials={wood=16,wooden_planks=8},seconds=120,value=8000,interior=false},
         workshop={label='Workshop shack',category='Industrial',model='free_house02',radius=10,slots=20,materials={wood=20,wooden_planks=18,iron_ingot=6},seconds=240,value=22000,interior=true},
         store={label='Trading cabin',category='Commercial',model='free_house01',radius=14,slots=30,materials={wood=25,wooden_planks=30,iron_ingot=8},seconds=300,value=35000,interior=true},
-        warehouse={label='Storage cabin',category='Storage',model='wat_main_cabin',radius=9,slots=40,materials={wood=30,wooden_planks=35,iron_ingot=6},seconds=360,value=40000,interior=true},
+        warehouse={label='Storage cabin',category='Storage',model='bee_stableext',assembly='bee_stable',indoorPart=2,radius=18,slots=40,materials={wood=30,wooden_planks=35,iron_ingot=6},seconds=360,value=40000,interior=true},
     },
+    -- Interior reference bounds are model-local, provisional until measured in-game.
+    -- Multipart buildings use the calibrated interior component transform.
+    IndoorBounds={
+        free_house01={min={x=-6,y=-6,z=0},max={x=6,y=6,z=5}},
+        free_house02={min={x=-4,y=-4,z=0},max={x=4,y=4,z=4}},
+        free_house03={min={x=-5,y=-5,z=0},max={x=5,y=5,z=5}},
+        bee_stableint={min={x=-7,y=-5,z=-1},max={x=7,y=5,z=5}},
+        bee_mainhouse_int={min={x=-7,y=-6,z=-2},max={x=7,y=6,z=6}},
+        bee_workerinterior={min={x=-5,y=-4,z=-1},max={x=5,y=4,z=4}},
+        caligahall_int={min={x=-10,y=-8,z=-1},max={x=10,y=8,z=9}},
+        bee_addhouse={min={x=-4,y=-4,z=0},max={x=4,y=4,z=4}},
+        bla_house2={min={x=-5,y=-5,z=0},max={x=5,y=5,z=5}},
+    },
+    OutdoorFurnitureSlots=0, -- 0 = unlimited; indoor association is informational.
     Interiors={
         watson={label='Small cabin',id=53250,x=-1817.708,y=658.421,z=131.0,slots=15,bounds=3,materials={wooden_planks=8,iron_ingot=2},seconds=90,value=8000},
         mountain={label='Mountain cabin',id=28162,x=-556.359,y=2702.787,z=317.932,slots=25,bounds=3,materials={wooden_planks=12,iron_ingot=3},seconds=120,value=12000},

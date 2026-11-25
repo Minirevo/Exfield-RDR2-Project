@@ -15,7 +15,8 @@ function request(src,action,d)
     if action=='site' then
         if b and s.status=='active' and close(src,b,C.InteractionDistance) and (allowed(s,id,'work') or allowed(s,id,'deliver')) then view(src,'site',s,b) end; return
     end
-    if action=='enter' then if b then enter(src,s,b,id) end; return end
+    if action=='enter' then return end
+    if action=='furnitureMenu' then local plot=plotAt(src,id);if plot then view(src,'furnitureMenu',plot) end;return end
     if action=='buyItem' then
         if not nearShop(src) or type(d.item)~='string' then return end
         local def=d.item==C.Kit.id and C.Kit or C.Tools[d.item] or C.Furniture[d.item]; local a=account(src,id)
@@ -37,33 +38,50 @@ function request(src,action,d)
         local pos=position(src)
         if not pos or not R.near(pos,d,C.PlacementDistance) or math.abs(pos.z-d.z)>C.MaxHeightOffset then return notice(src,'Invalid placement range.') end
         if p.mode=='furniture' or p.mode=='moveFurniture' then
-            if not b or not atInterior(src,s,b) or not allowed(s,id,'furnish') then return end
-            local interior=C.Interiors[b.interior]; local f=C.Furniture[p.item]
-            if not R.near(interior,d,interior.bounds) then return notice(src,'Outside room bounds.') end
-            local used=0
-            for k,v in pairs(b.furniture) do
+            if pos.bucket~=0 or not allowed(s,id,'furnish') or R.distance(s,d)>s.radius or R.distance(s,pos)>s.radius then return notice(src,'Furniture must remain on your plot.') end
+            local f=C.Furniture[p.item];if not f then return end
+            s.furniture=s.furniture or {}
+            local inside=R.buildingAt(s,d,C)
+            local outdoorUsed=0
+            for k,v in pairs(s.furniture) do
                 if k~=p.fid then
-                    used=used+C.Furniture[v.item].slots
                     if R.near(v,d,0.5) then return notice(src,'Furniture overlaps.') end
+                    if not R.buildingAt(s,v,C) then outdoorUsed=outdoorUsed+C.Furniture[v.item].slots end
                 end
             end
-            if used+f.slots>b.capacity then return notice(src,'Furnishing capacity reached.') end
+            if not inside and C.OutdoorFurnitureSlots>0 and outdoorUsed+f.slots>C.OutdoorFurnitureSlots then return notice(src,'Outdoor furniture capacity reached.') end
             local furniture={item=p.item,x=d.x,y=d.y,z=d.z,heading=d.heading%360}
-            if p.mode=='moveFurniture' then if not b.furniture[p.fid] then return end; b.furniture[p.fid]=furniture; save()
-            else queue({kind='furniture',actor=id,src=src,sid=s.id,bid=b.id,fid=uuid(),item=p.item,furniture=furniture}) end
+            if p.mode=='moveFurniture' then
+                if not s.furniture[p.fid] then return end
+                s.furniture[p.fid]=furniture;save();notice(src,inside and 'Furniture moved indoors.' or 'Furniture moved outdoors.')
+            else queue({kind='furniture',actor=id,src=src,sid=s.id,fid=uuid(),item=p.item,furniture=furniture,physical=true}) end
             return
         end
-        local e=C.Exteriors[p.exterior]; local i=p.interior and C.Interiors[p.interior]
+        local e=C.Exteriors[p.exterior]; local i=nil
         if pos.bucket~=0 or not allowed(s,id,p.mode=='move' and 'move' or 'build') or not e or not R.fits(s,d,e.radius,p.mode=='move' and p.bid or nil) then return notice(src,'Building must fit inside the claim and avoid other structures.') end
         if p.mode=='move' then
             if not b or not b.complete or occupied(s.id) or b.exterior~=p.exterior then return end
+            local moved={}
+            for fid,f in pairs(s.furniture or {}) do
+                if R.buildingAt(s,f,C)==b.id then
+                    local q=R.transform(d,R.localPoint(b,f))
+                    if R.distance(s,q)>s.radius then return notice(src,'Associated furniture would leave the plot.') end
+                    q.item=f.item;moved[fid]=q
+                end
+            end
+            for fid,q in pairs(moved) do
+                for other,f in pairs(s.furniture or {}) do
+                    if not moved[other] and R.near(q,f,0.5) then return notice(src,'Relocation would overlap furniture.') end
+                end
+            end
+            for fid,q in pairs(moved) do s.furniture[fid]=q end
             b.x,b.y,b.z,b.heading=d.x,d.y,d.z,d.heading%360
         else
             local bid=uuid(); if i then
                 S.nextBucket=S.nextBucket+1
                 if S.nextBucket>C.InteriorBucketLimit then error('bucket range exhausted') end
             end
-            s.buildings[bid]={id=bid,exterior=p.exterior,interior=p.interior,x=d.x,y=d.y,z=d.z,heading=d.heading%360,radius=e.radius,
+            s.buildings[bid]={id=bid,exterior=p.exterior,interior=nil,x=d.x,y=d.y,z=d.z,heading=d.heading%360,radius=e.radius,
                 stages=buildingStages(e,i),stage=1,delivered={},progress=0,complete=false,capacity=R.capacity(e,i),
                 furniture={},bucket=S.nextBucket,locked=true,value=e.value+(i and i.value or 0)}
         end
@@ -85,18 +103,22 @@ function request(src,action,d)
         return
     end
     if action=='moveFurniture' or action=='removeFurniture' then
-        if not b or not atInterior(src,s,b) or not allowed(s,id,'furnish') or type(d.fid)~='string' or not b.furniture[d.fid] then return end
-        local f=b.furniture[d.fid]
-        if action=='moveFurniture' then beginPreview(src,s,b,nil,nil,action,d.fid,f.item)
-        else queue({kind=action,actor=id,src=src,sid=s.id,bid=b.id,fid=d.fid,item=f.item}) end
+        if not allowed(s,id,'furnish') or type(d.fid)~='string' then return end
+        local f=(s.furniture or {})[d.fid]
+        if f then
+            if plotAt(src,id)~=s or not close(src,f,C.PlacementDistance) then return notice(src,'Approach the furniture first.') end
+            if action=='moveFurniture' then beginPreview(src,s,nil,nil,nil,action,d.fid,f.item)
+            else queue({kind=action,actor=id,src=src,sid=s.id,fid=d.fid,item=f.item,physical=true}) end
+        elseif action=='removeFurniture' and b and b.furniture[d.fid] and nearCamp(src,s) then
+            queue({kind=action,actor=id,src=src,sid=s.id,bid=b.id,fid=d.fid,item=b.furniture[d.fid].item})
+        end
         return
     end
     if not nearCamp(src,s) then return end
     if action=='plan' and allowed(s,id,'build') then
         local e=type(d.exterior)=='string' and C.Exteriors[d.exterior]
-        local i=type(d.interior)=='string' and C.Interiors[d.interior]
-        if not e or (e.interior and not i) or (not e.interior and i) then return end
-        beginPreview(src,s,nil,d.exterior,e.interior and d.interior or nil,'build')
+        if not e then return end
+        beginPreview(src,s,nil,d.exterior,nil,'build')
     elseif action=='rename' and allowed(s,id,'members') then
         if type(d.name)~='string' or #d.name<1 or #d.name>60 or not utf8.len(d.name) or d.name:find('%c') then return end
         s.name=d.name; save()
@@ -147,8 +169,9 @@ function request(src,action,d)
         b.stages=buildingStages(n,nil); b.stage=1; b.delivered={}; b.progress=0; b.complete=false; save()
     elseif action=='move' and b and b.complete and allowed(s,id,'move') then beginPreview(src,s,b,b.exterior,b.interior,'move')
     elseif action=='demolish' and b and allowed(s,id,'demolish') and not occupied(s.id) and d.confirm=='DEMOLISH' then
+        if next(b.furniture) then return notice(src,'Recover legacy furniture at camp before demolition.') end
         s.buildings[b.id]=nil; save()
-    elseif action=='lock' and b and allowed(s,id,'members') then b.locked=not b.locked; save()
+    elseif action=='lock' then return notice(src,'Physical door locks are not implemented yet.')
     end
     if action~='plan' and action~='move' and s.status=='active' and (owner(s,id) or s.members[id]) then view(src,'camp',s) elseif s.status~='active' then TriggerClientEvent(E..'close',src) end
 end
@@ -168,13 +191,13 @@ AddEventHandler('frontier:inventoryItemUsed',function(src,id,itemId)
                 local ok,err=R.claim(p,C.InitialRadius,S.settlements,nil,C); if not ok then return notice(src,err) end
                 local sid=uuid()
                 local claim={id=sid,name='New settlement',x=p.x,y=p.y,z=p.z,radius=C.InitialRadius,owners={[id]=true},primary=id,
-                    members={},buildings={},status='active',debt=0,nextTax=os.time()+C.TaxPeriod}
+                    members={},buildings={},furniture={},status='active',debt=0,nextTax=os.time()+C.TaxPeriod}
                 queue({kind='claim',actor=id,src=src,sid=sid,item=itemId,claim=claim})
             else
-                local s,b=findVisit(src)
-                if not s or (s.listing and s.listing.active) or not allowed(s,id,'furnish') then return notice(src,'Enter an authorized interior first.') end
+                local s=plotAt(src,id)
+                if not s or (s.listing and s.listing.active) then return notice(src,'Stand on an authorized settlement first.') end
                 TriggerClientEvent('frontier_inventory:close',src)
-                beginPreview(src,s,b,nil,nil,'furniture',nil,itemId)
+                beginPreview(src,s,nil,nil,nil,'furniture',nil,itemId)
             end
         end)
     end)

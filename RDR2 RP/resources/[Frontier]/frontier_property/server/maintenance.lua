@@ -27,6 +27,7 @@ function tick()
         if s.debt>0 and s.listing then s.listing=nil;changed=true end
         if s.debt>0 and s.overdue and now-s.overdue>=C.TaxGrace and not occupied(s.id) then
             local value=0
+            for _,f in pairs(s.furniture or {}) do value=value+C.Furniture[f.item].value end
             for _,b in pairs(s.buildings) do if b.complete then
                 value=value+b.value
                 for _,f in pairs(b.furniture) do value=value+C.Furniture[f.item].value end

@@ -9,5 +9,5 @@ function buildingStages(e,i)
 end
 function buildingInfo(b)
     return {id=b.id,exterior=b.exterior,interior=b.interior,x=b.x,y=b.y,z=b.z,heading=b.heading,radius=b.radius,
-        stage=b.stage,stages=b.stages,delivered=b.delivered,progress=b.progress,complete=b.complete,capacity=b.capacity,furniture=b.furniture,locked=b.locked}
+        stage=b.stage,stages=b.stages,delivered=b.delivered,progress=b.progress,complete=b.complete,capacity=C.Exteriors[b.exterior].slots,furniture=b.furniture,locked=b.locked}
 end

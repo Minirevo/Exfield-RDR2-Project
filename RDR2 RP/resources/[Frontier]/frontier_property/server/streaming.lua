@@ -16,9 +16,15 @@ function world(src)
                     obj(sid..'chest',C.Camp.chest,s.x+2,s.y,s.z,0,'chest',sid,nil,true)
                 end
                 for bid,b in pairs(s.buildings) do if R.distance(p,b)<=C.StreamDistance then
-                    obj(bid,b.complete and C.Exteriors[b.exterior].model or C.Camp.site,b.x,b.y,b.z,b.heading,b.complete and b.interior and 'enter' or not b.complete and 'site' or nil,sid,bid,not b.complete)
-                    data.objects[#data.objects].interaction=b.complete and b.radius+C.InteractionDistance or C.InteractionDistance
+                    if b.complete then
+                        local e=C.Exteriors[b.exterior]
+                        if e then for n,part in ipairs(R.parts(e,C)) do
+                            local q=R.transform(b,part)
+                            obj(bid..':'..n,q.model,q.x,q.y,q.z,q.heading,nil,sid,bid,false)
+                        end end
+                    else obj(bid,C.Camp.site,b.x,b.y,b.z,b.heading,'site',sid,bid,true) end
                 end end
+                for fid,f in pairs(s.furniture or {}) do if R.distance(p,f)<=C.StreamDistance then obj(fid,C.Furniture[f.item].model,f.x,f.y,f.z,f.heading,nil,sid,nil,false) end end
             end
         end end
     elseif v and v.actor==cid(src) then

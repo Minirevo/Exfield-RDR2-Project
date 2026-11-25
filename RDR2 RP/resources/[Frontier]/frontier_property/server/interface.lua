@@ -18,6 +18,11 @@ function view(src,kind,s,b)
         data.settlement.rights={}; for _,perm in ipairs(C.Permissions) do data.settlement.rights[perm]=allowed(s,id,perm)==true end
         if allowed(s,id,'members') then data.settlement.members=s.members; data.settlement.owners=s.owners end
         data.settlement.listing=s.listing
+        data.furniture={};data.legacyFurniture={}
+        if allowed(s,id,'furnish') then
+            for fid,f in pairs(s.furniture or {}) do data.furniture[fid]={item=f.item,building=R.buildingAt(s,f,C)} end
+            for bid,x in pairs(s.buildings) do for fid,f in pairs(x.furniture) do data.legacyFurniture[fid]={item=f.item,bid=bid} end end
+        end
         data.buildings={}; for _,x in pairs(s.buildings) do
             local info=buildingInfo(x); info.furniture=nil; data.buildings[#data.buildings+1]=info
         end

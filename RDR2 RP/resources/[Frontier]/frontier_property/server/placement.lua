@@ -1,12 +1,20 @@
 local _ENV=PropertyRuntime
+function plotAt(src,id)
+    local pos=position(src)
+    if not pos or pos.bucket~=0 then return end
+    for _,s in pairs(S.settlements) do
+        if s.status=='active' and R.distance(s,pos)<=s.radius and allowed(s,id,'furnish') then return s end
+    end
+end
 function beginPreview(src,s,b,exterior,interior,mode,fid,itemId)
     local id=cid(src)
-    previews[src]={sid=s.id,bid=b and b.id,exterior=exterior,interior=interior,mode=mode,fid=fid,item=itemId,actor=id,untilTime=os.time()+120}
+    previews[src]={sid=s.id,bid=b and b.id,exterior=exterior,mode=mode,fid=fid,item=itemId,actor=id,untilTime=os.time()+120}
     local isFurniture=mode=='furniture' or mode=='moveFurniture'
-    local model=isFurniture and C.Furniture[itemId].model or C.Exteriors[exterior].model
+    local e=not isFurniture and C.Exteriors[exterior]
+    local model=isFurniture and C.Furniture[itemId].model or e.model
     local origin=b and mode=='move' and {x=b.x,y=b.y,z=b.z,heading=b.heading} or nil
-    if mode=='moveFurniture' then origin=b.furniture[fid] end
+    if mode=='moveFurniture' then origin=s.furniture[fid] end
     local blockers={}
-    if not isFurniture then for k,v in pairs(s.buildings) do if mode~='move' or k~=b.id then blockers[#blockers+1]={x=v.x,y=v.y,z=v.z,radius=v.radius} end end end
-    TriggerClientEvent(E..'preview',src,{model=model,mode=mode,origin=origin,claim=public(s),blockers=blockers,radius=not isFurniture and C.Exteriors[exterior].radius or nil,room=isFurniture and C.Interiors[b.interior] or nil})
+    if not isFurniture then for k,v in pairs(s.buildings) do if mode~='move' or k~=b.id then blockers[k]={x=v.x,y=v.y,z=v.z,radius=v.radius} end end end
+    TriggerClientEvent(E..'preview',src,{model=model,parts=e and R.parts(e,C) or nil,mode=mode,origin=origin,claim=public(s),blockers=blockers,radius=e and e.radius or nil,furniture=isFurniture,buildings=isFurniture and s.buildings or nil})
 end
