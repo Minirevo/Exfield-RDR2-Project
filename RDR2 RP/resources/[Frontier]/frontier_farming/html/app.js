@@ -26,7 +26,7 @@ function render(){
   el('p',(v.species||'Empty')+' · Female '+v.female+' · Male '+v.male+' · Young '+v.young,work);el('p','Health '+Math.round(v.health)+'% · Products '+v.products+' · Manure '+Math.floor(v.manure),work);
   el('p','Food reserve '+Math.floor(v.feed/3600)+' animal-hours · Water '+Math.floor(v.water/3600)+' animal-hours',work);
   const c=select(work,Object.keys(data.species).filter(k=>(b.kind==='chicken'?k==='chicken':k!=='chicken')).map(k=>[k,k]));const breed=select(work,[['turkoman','Turkoman'],['standardbred','Standardbred'],['shire','Shire']]);button(work,'Redeem female voucher','animal',()=>({species:c.value,sex:'female',breed:breed.value}));button(work,'Redeem male voucher','animal',()=>({species:c.value,sex:'male',breed:breed.value}));
-  if(v.species==='horse'){for(const h of v.horses||[]){const box=el('section',null,work);el('p',h.breed+' · '+h.sex+' · '+Math.floor(h.age/86400)+' days · Care '+Math.round(h.care)+'% · Health '+Math.round(h.health)+'%',box);el('p','Speed '+h.genes.speed+' · Stamina '+h.genes.stamina+' · Health genetics '+h.genes.health+' · Training '+h.training,box);button(box,'Train horse','trainHorse',()=>({horse:h.id}))}}button(work,'Feed','feed');button(work,'Water','water');if(v.species!=='chicken')button(work,'Collect products','collect');button(work,'Collect manure','manure');const sex=select(work,[['female','Female'],['male','Male']]);const qty=el('input',null,work);qty.type='number';qty.min=1;qty.value=1;button(work,'Butcher selected animals','slaughter',()=>({sex:sex.value,count:Number(qty.value)}));
+  if(v.species==='horse'){for(const h of v.horses||[]){const box=el('section',null,work);el('p',h.breed+' · '+h.sex+' · '+Math.floor(h.age/86400)+' days · Care '+Math.round(h.care)+'% · Health '+Math.round(h.health)+'%',box);el('p','Speed '+h.genes.speed+' · Stamina '+h.genes.stamina+' · Health genetics '+h.genes.health+' · Training '+h.training,box);button(box,'Train horse','trainHorse',()=>({horse:h.id}));const price=el('input',null,box);price.type='number';price.min=1;price.value=h.listed||Math.round((h.genes.speed+h.genes.stamina+h.genes.health)*60*(.25+.75*h.care/100)*(.5+.5*h.health/100)*(1+h.training/200)*(h.age>=345600?1:.5));if(h.listed)button(box,'Unlist horse','unlistHorse',()=>({horse:h.id}));else button(box,'List horse (price in cents)','listHorse',()=>({horse:h.id,price:Number(price.value)}));el('small','Certificate: '+h.id,box)}}button(work,'Feed','feed');button(work,'Water','water');if(v.species!=='chicken')button(work,'Collect products','collect');button(work,'Collect manure','manure');const sex=select(work,[['female','Female'],['male','Male']]);const qty=el('input',null,work);qty.type='number';qty.min=1;qty.value=1;button(work,'Butcher selected animals','slaughter',()=>({sex:sex.value,count:Number(qty.value)}));
  }else button(work,'Fill 10 water units into linked stock','fill');
  button(root,'Refresh','open');const release=el('button','Release empty facility',root);release.onclick=()=>{if(confirm('Release this empty facility?'))send('release')}
 }
@@ -52,9 +52,18 @@ window.addEventListener('message',e=>{
  el('h2','Agricultural supplier',root);const d=e.data.data;
  const item=select(root,d.items.map(v=>[v.id,v.name+' · $'+(v.price/100).toFixed(2)]));
  const qty=el('input',null,root);qty.type='number';qty.min=1;qty.max=1000;qty.value=1;
- el('label','Optional company facility ID (deliver to linked stock)',root);const facility=el('input',null,root);
- button(root,'Purchase','buySupply',()=>({item:item.value,quantity:Number(qty.value),facility:facility.value.trim()}));
+ el('label','Destination facility ID (required for animals; optional for company goods)',root);const facility=el('input',null,root);const breed=select(root,[['turkoman','Turkoman'],['standardbred','Standardbred'],['shire','Shire']]);const young=el('input',null,root);young.type='checkbox';el('span',' Juvenile (60% price for animals)',root);
+ button(root,'Purchase','buySupply',()=>({item:item.value,quantity:Number(qty.value),facility:facility.value.trim(),breed:breed.value,juvenile:young.checked}));
  for(const j of d.orders||[])el('p',j.item+' × '+j.quantity+' · '+j.phase+' (automatically retried)',root);
 });
 
 window.addEventListener('message',e=>{if(e.data.type==='slaughter'){cancelAnimationFrame(workFrame);workToken=e.data.data.token;document.body.hidden=true}});
+
+window.addEventListener('message',e=>{
+ if(e.data.type!=='horseMarket')return;
+ document.body.hidden=false;$('tabs').replaceChildren();const root=$('content');root.replaceChildren();
+ el('h2','Horse certificates · Trade market',root);
+ const d=e.data.data;const dest=select(root,(d.destinations||[]).map(v=>[v.id,v.name+' · '+v.id]));
+ if(!dest.options.length)el('p','Approach your registered empty or horse enclosure to buy.',root);
+ for(const v of d.listings||[]){const h=v.horse;const box=el('section',null,root);el('p',h.breed+' · '+h.sex+' · $'+(v.price/100).toFixed(2),box);el('p','Speed '+h.genes.speed+' / Stamina '+h.genes.stamina+' / Health '+h.genes.health+' · Care '+Math.round(h.care)+'% · Training '+h.training,box);el('small',h.id,box);if(dest.options.length)button(box,'Buy certificate and horse','buyHorse',()=>({source:v.facility,dest:dest.value,horse:h.id,price:v.price}))}
+});

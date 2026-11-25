@@ -133,3 +133,7 @@ exports('BusinessFixtureBusy',function(fid)
  (SELECT COUNT(*) FROM fb_trade_routes x JOIN frontier_trade_sales s ON s.id=x.reference_id WHERE x.fixture_id=? AND (s.state IN ('stock','payment','reverse') OR s.state='complete' AND s.claimed_at IS NULL))]],{fid,fid,fid,fid})
  return tonumber(n)~=0
 end)
+
+RegisterCommand('handelspferde',function(src)
+ if src>0 and GetResourceState('frontier_farming')=='started' then exports.frontier_farming:OpenHorseMarket(src) end
+end,false)

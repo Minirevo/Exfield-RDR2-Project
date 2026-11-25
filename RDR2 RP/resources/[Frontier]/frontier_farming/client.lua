@@ -86,3 +86,6 @@ RegisterNetEvent(E..'slaughter',function(d)
 end)
 RegisterCommand('farmfinish',function() if slaughterToken then TriggerServerEvent(E..'action','slaughterFinish',{token=slaughterToken}) end end,false)
 RegisterCommand('farmcancel',function() slaughterToken=nil;TriggerServerEvent(E..'action','cancelWork',{}) end,false)
+
+RegisterNetEvent(E..'horseMarket',function(d) if source~=65535 then return end;focused=true;SetNuiFocus(true,true);SendNUIMessage({type='horseMarket',data=d}) end)
+RegisterCommand('farmhorses',function() TriggerServerEvent(E..'action','horseMarket',{}) end,false)

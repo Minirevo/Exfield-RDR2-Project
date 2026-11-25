@@ -647,3 +647,13 @@ exports('PayFarmOrder',function(id)
  local b=company(j.owner_id);if not b then return false,'invalid_company' end
  return eco:DebitAccount(account(b),tonumber(j.amount),{key='farm_order_'..id,reason='Agricultural supplies',reference=id})
 end)
+
+exports('PayFarmHorseSale',function(id)
+ if GetInvokingResource()~='frontier_farming' or not ready then return false,'forbidden' end
+ local j=S("SELECT h.*,f.owner_type AS seller_type,f.owner_id AS seller_id,t.owner_type AS buyer_type,t.owner_id AS buyer_id FROM ff_horse_sales h JOIN ff_facilities f ON f.id=h.source_id JOIN ff_facilities t ON t.id=h.dest_id WHERE h.id=? AND h.phase='payment'",{id})
+ if not j then return false,'invalid_sale' end
+ local from=j.buyer_type=='company' and account(company(j.buyer_id)) or bank(j.buyer_id)
+ local to=j.seller_type=='company' and account(company(j.seller_id)) or bank(j.seller_id)
+ if from~=tonumber(j.debit) or to~=tonumber(j.credit) then return false,'invalid_account' end
+ return eco:TransferAccounts(from,to,tonumber(j.amount),{key='farm_horse_'..id,reason='Horse certificate sale',reference=id})
+end)
