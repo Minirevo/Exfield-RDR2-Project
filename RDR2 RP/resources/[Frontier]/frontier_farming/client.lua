@@ -48,7 +48,7 @@ local function desired()
     local c=C.species[v.species];local count=math.min(8,v.female+v.male+v.young)
     for i=1,count do
      local a=i*2.39996;local x,y=R.world(b,math.cos(a)*b.width*.23,math.sin(a)*b.length*.23)
-     want[b.id..':animal:'..i]={model=(i==1 and v.male>0) and c.male or c.female,x=x,y=y,z=b.z,heading=(i*83)%360,ped=true}
+     want[b.id..':animal:'..i]={model=(v.species=='horse' and v.horses and v.horses[i] and C.horseBreeds[v.horses[i].breed].model) or ((i==1 and v.male>0) and c.male or c.female),x=x,y=y,z=b.z,heading=(i*83)%360,ped=true}
     end
    end
   end
@@ -70,3 +70,19 @@ AddEventHandler('onClientResourceStop',function(r) if r==GetCurrentResourceName(
 
 RegisterCommand('farmshop',function() TriggerServerEvent(E..'action','shop',{}) end,false)
 RegisterNetEvent(E..'shop',function(d) if source~=65535 then return end;focused=true;SetNuiFocus(true,true);SendNUIMessage({type='shop',data=d}) end)
+
+local slaughterToken
+RegisterNetEvent(E..'slaughter',function(d)
+ if source~=65535 then return end
+ slaughterToken=d.token;focused=false;SetNuiFocus(false,false);SendNUIMessage({type='slaughter',data=d})
+ notice('Slaughter the '..d.count..' marked animals, then /farmfinish. /farmcancel cancels without rewards.')
+ CreateThread(function()
+  for _,id in ipairs(d.ids) do
+   local deadline=GetGameTimer()+5000
+   while not NetworkDoesEntityExistWithNetworkId(id) and GetGameTimer()<deadline do Wait(50) end
+   if NetworkDoesEntityExistWithNetworkId(id) then local p=NetToPed(id);pcall(function() Citizen.InvokeNative(0x283978A15512B2FE,p,true) end) end
+  end
+ end)
+end)
+RegisterCommand('farmfinish',function() if slaughterToken then TriggerServerEvent(E..'action','slaughterFinish',{token=slaughterToken}) end end,false)
+RegisterCommand('farmcancel',function() slaughterToken=nil;TriggerServerEvent(E..'action','cancelWork',{}) end,false)

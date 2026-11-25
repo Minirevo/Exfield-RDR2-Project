@@ -4,7 +4,12 @@ local core,inv,prop,biz=exports.frontier_core,exports.frontier_inventory,exports
 local ready,busy=false,false
 local sessions,rate={},{}
 local workLocks={}
-local function unlock(src) local w=sessions[src];if w then workLocks[w.id]=nil;sessions[src]=nil end end
+local function unlock(src)
+ local w=sessions[src];if w then
+  for _,ped in ipairs(w.animals or {}) do if DoesEntityExist(ped) then DeleteEntity(ped) end end
+  workLocks[w.id]=nil;sessions[src]=nil
+ end
+end
 local function check(ok,msg) if not ok then error(msg or 'Denied',0) end end
 local function notice(src,msg) TriggerClientEvent(E..'notice',src,tostring(msg)) end
 local function cid(src) return core:GetPlayerCharacterId(src) end
@@ -58,7 +63,7 @@ local function view(src)
  for _,b in ipairs(prop:GetFarmBuildings(src)) do if near(src,b) then
   local f=row(b.id);local detail=prop:FarmBuilding(b.plot,b.id,cid(src))
   if f and authorized(src,f,detail) then
-   local s=state(f);if not pending(f.id) then R.advance(s,os.time(),b.size);save(f,s) end
+   local s=state(f);if not pending(f.id) and not workLocks[f.id] then R.advance(s,os.time(),b.size);save(f,s) end
    result[#result+1]={building=b,owner=f.owner_id,ownerType=f.owner_type,storage=f.storage,state=s,stocks=biz:FarmStock(cid(src),f.plot,f.owner_type,f.owner_id),pending=pending(f.id)~=nil}
   elseif not f and detail and detail.owned then result[#result+1]={building=b,unbound=true} end
  end end
@@ -124,17 +129,44 @@ local function action(src,a,d,score)
  if a=='shop' then return shopView(src) end
  if a=='buySupply' then return buySupply(src,d) end
  if a=='cancelWork' then unlock(src);return end
+ if a=='slaughterFinish' then
+  local w=sessions[src];check(w and w.actor==who and w.phase=='slaughter' and d.token==w.token,'No slaughter session')
+  local f=row(w.id);local b=f and current(src,f);check(b and not pending(w.id),'Facility unavailable')
+  tool(src,'knife')
+  for _,ped in ipairs(w.animals) do check(DoesEntityExist(ped) and GetEntityHealth(ped)<=0,'All selected physical animals must be slaughtered first') end
+  local payload=w.data;local hits=w.hits;unlock(src)
+  return action(src,'slaughter',payload,hits+10)
+ end
  if a=='workHit' then
   local w=sessions[src];check(w and w.actor==who and w.token==d.token,'Work session expired')
   local now=GetGameTimer();check(now<=w.expires,'Work session expired')
   local b=prop:FarmBuilding(w.plot,w.id,who);local f=row(w.id)
   check(f and b and near(src,b) and authorized(src,f,b),'Return to facility')
   local elapsed=now-w.started
-  check(elapsed>=300,'Wait for the marker')
+  if elapsed<300 then w.started=now;TriggerClientEvent(E..'workRound',src,{token=w.token,target=w.target,round=w.round});return end
   local phase=(elapsed%1800)/1800
   if math.abs(phase-w.target)<=.13 then w.hits=w.hits+1 end
   w.round=w.round+1
   if w.round>5 then
+   if w.action=='slaughter' then
+    local ss=state(f);local n=tonumber(w.data.count);local sex=w.data.sex
+    check(ss.species and ss.species~='horse' and (sex=='male' or sex=='female') and n and n%1==0 and n>=1 and n<=ss[sex],'Invalid selection')
+    local model=C.species[ss.species][sex];local amount=math.max(1,math.ceil(n*C.slaughterFractions[w.hits+1]))
+    w.animals={};local ids={}
+    local ok,err=pcall(function()
+     for i=1,amount do
+      local angle=i*2.39996;local x,y=R.world(b,math.cos(angle)*b.width*.25,math.sin(angle)*b.length*.25)
+      local ped=CreatePed(joaat(model),x,y,b.z+0.4,0.0,true,true)
+      check(ped and ped~=0 and DoesEntityExist(ped),'Network animal spawn unavailable')
+      w.animals[#w.animals+1]=ped
+      SetEntityRoutingBucket(ped,GetPlayerRoutingBucket(src))
+      ids[#ids+1]=NetworkGetNetworkIdFromEntity(ped)
+     end
+    end)
+    if not ok then unlock(src);TriggerClientEvent(E..'workEnd',src);error(err,0) end
+    w.phase='slaughter';w.expires=GetGameTimer()+300000
+    TriggerClientEvent(E..'slaughter',src,{token=w.token,ids=ids,count=amount});return
+   end
    unlock(src);TriggerClientEvent(E..'workEnd',src)
    return action(src,w.action,w.data,w.hits)
   end
@@ -158,7 +190,7 @@ local function action(src,a,d,score)
  if workLocks[f.id] then error('Facility is being worked',0) end
  if C.work[a] and score==nil then
   local key=C.work[a];if a=='collect' and s.species=='sheep' then key='shear' end
-  tool(src,key);check(not sessions[src],'Finish your current work first')
+  if a~='trainHorse' then tool(src,key) end;check(not sessions[src],'Finish your current work first')
   local w={id=f.id,plot=f.plot,actor=who,token=uuid(),action=a,data=d,hits=0,round=1,started=GetGameTimer(),expires=GetGameTimer()+60000,target=math.random(25,75)/100}
   sessions[src]=w;workLocks[f.id]=src
   TriggerClientEvent(E..'workRound',src,{token=w.token,target=w.target,round=1})
@@ -192,11 +224,20 @@ local function action(src,a,d,score)
   batch(f,s,{{item='farm_'..crop,count=output},{item='farm_seed_'..crop,count=n+math.floor(n/10)}})
  elseif a=='animal' then
   local c=C.species[d.species]
-  check(c and d.species~='horse' and (b.kind=='chicken' and d.species=='chicken' or b.kind=='livestock' and d.species~='chicken'),'Species not supported in this facility')
+  check(c and (b.kind=='chicken' and d.species=='chicken' or b.kind=='livestock' and d.species~='chicken'),'Species not supported in this facility')
   check(not s.species or s.species==d.species or R.count(s)==0 and s.products==0 and math.floor(s.manure)==0,'Empty existing species first')
   check(d.sex=='female' or d.sex=='male','Invalid sex');check(R.count(s)<c.capacity[b.size],'Enclosure full')
-  s.species=d.species;s[d.sex]=s[d.sex]+1
+  s.species=d.species
+  if d.species=='horse' then
+   local breed=d.breed or 'turkoman';check(C.horseBreeds[breed],'Invalid breed')
+   s.horses=s.horses or {};s.horses[#s.horses+1]=R.newHorse(uuid(),breed,d.sex,d.juvenile==true);R.horseCounts(s)
+  else s[d.sex]=s[d.sex]+1 end
   batch(f,s,{{item='farm_'..d.species..'_'..d.sex,count=-1}})
+ elseif a=='trainHorse' then
+  check(s.species=='horse','Horse enclosure required')
+  local h;for _,v in ipairs(s.horses or {}) do if v.id==d.horse then h=v;break end end
+  check(h and not h.listed and h.health>=60 and h.age>=C.species.horse.mature*3600 and os.time()-(h.trainedAt or 0)>=C.horseTrainingInterval,'Horse cannot train now')
+  h.training=math.min(100,h.training+2+(score or 0));h.trainedAt=os.time();save(f,s)
  elseif a=='feed' then
   check(s.species and R.count(s)>0,'No animals');tool(src,'fork')
   local n=R.count(s);s.feed=math.min(n*172800,s.feed+n*43200)
@@ -209,12 +250,12 @@ local function action(src,a,d,score)
  elseif a=='manure' then
   tool(src,'fork');local n=math.floor(s.manure);check(n>0,'No manure available');s.manure=s.manure-n;batch(f,s,{{item='farm_manure',count=n}})
  elseif a=='slaughter' then
-  check(s.species and s.species~='horse','No eligible livestock');tool(src,'knife')
+  check(score and score>=10 and s.species and s.species~='horse','Complete physical slaughter first');tool(src,'knife')
   local n=tonumber(d.count);local sex=d.sex
   check((sex=='female' or sex=='male') and n and n%1==0 and n>=1 and n<=s[sex],'Invalid animal selection')
   local yield=({chicken=1,pig=4,sheep=3,cattle=8})[s.species]
   s[sex]=s[sex]-n
-  local changes={{item='meat',count=math.floor(n*yield*(1+(score or 0)*.05))}}
+  local changes={{item='meat',count=math.floor(n*yield*(1+(score-10)*.05))}}
   if s.species~='chicken' then changes[#changes+1]={item='farm_hide',count=n} end
   batch(f,s,changes)
  elseif a=='fill' then
@@ -286,7 +327,7 @@ CreateThread(function()
    for _,p in pairs(core:GetPlayers()) do
     local result={}
     for _,b in ipairs(prop:GetFarmBuildings(p.source)) do
-     local f=row(b.id);if f then local s=state(f);result[#result+1]={b=b,crop=s.crop,growth=s.growth,dead=s.dead,species=s.species,female=s.female,male=s.male,young=s.young} end
+     local f=row(b.id);if f then local s=state(f);local lock=workLocks[f.id] and sessions[workLocks[f.id]];result[#result+1]={b=b,crop=s.crop,growth=s.growth,dead=s.dead,species=(not lock or lock.phase~='slaughter') and s.species or nil,female=s.female,male=s.male,young=s.young,horses=s.horses} end
     end
     TriggerClientEvent(E..'world',p.source,result)
    end
@@ -298,3 +339,5 @@ exports('CompanyOrdersPending',function(id)
  if GetInvokingResource()~='frontier_business' or not ready then return true end
  return MySQL.single.await("SELECT id FROM ff_orders WHERE owner_type='company' AND owner_id=? AND phase IN ('payment','paid') LIMIT 1",{id})~=nil
 end)
+
+AddEventHandler('onResourceStop',function(name) if name==GetCurrentResourceName() then for src in pairs(sessions) do unlock(src) end end end)

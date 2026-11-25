@@ -45,3 +45,12 @@ for k in pairs(FarmConfig.species) do
  FarmConfig.supplyPrices['farm_'..k..'_male']=FarmConfig.supplyPrices['farm_'..k..'_female']
 end
 FarmConfig.suppliers={{x=-322.4,y=803.9,z=117.9},{x=1328.7,y=-1293.4,z=77.0},{x=-785.1,y=-1322.4,z=43.9}}
+
+FarmConfig.horseBreeds={
+ turkoman={label='Turkoman',model='a_c_horse_turkoman_darkbay',speed=75,stamina=75,health=80},
+ standardbred={label='American Standardbred',model='a_c_horse_americanstandardbred_black',speed=80,stamina=65,health=65},
+ shire={label='Shire',model='a_c_horse_shire_darkbay',speed=45,stamina=75,health=90}
+}
+FarmConfig.work.trainHorse='hoe'
+FarmConfig.horseTrainingInterval=3600
+FarmConfig.slaughterFractions={.5,.5,.3,.3,.15,.05}

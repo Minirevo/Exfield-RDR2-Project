@@ -25,8 +25,8 @@ function render(){
  }else if(b.kind==='livestock'||b.kind==='chicken'){
   el('p',(v.species||'Empty')+' · Female '+v.female+' · Male '+v.male+' · Young '+v.young,work);el('p','Health '+Math.round(v.health)+'% · Products '+v.products+' · Manure '+Math.floor(v.manure),work);
   el('p','Food reserve '+Math.floor(v.feed/3600)+' animal-hours · Water '+Math.floor(v.water/3600)+' animal-hours',work);
-  const c=select(work,Object.keys(data.species).filter(k=>k!=='horse'&&(b.kind==='chicken'?k==='chicken':k!=='chicken')).map(k=>[k,k]));button(work,'Redeem female voucher','animal',()=>({species:c.value,sex:'female'}));button(work,'Redeem male voucher','animal',()=>({species:c.value,sex:'male'}));
-  button(work,'Feed','feed');button(work,'Water','water');if(v.species!=='chicken')button(work,'Collect products','collect');button(work,'Collect manure','manure');const sex=select(work,[['female','Female'],['male','Male']]);const qty=el('input',null,work);qty.type='number';qty.min=1;qty.value=1;button(work,'Butcher selected animals','slaughter',()=>({sex:sex.value,count:Number(qty.value)}));
+  const c=select(work,Object.keys(data.species).filter(k=>(b.kind==='chicken'?k==='chicken':k!=='chicken')).map(k=>[k,k]));const breed=select(work,[['turkoman','Turkoman'],['standardbred','Standardbred'],['shire','Shire']]);button(work,'Redeem female voucher','animal',()=>({species:c.value,sex:'female',breed:breed.value}));button(work,'Redeem male voucher','animal',()=>({species:c.value,sex:'male',breed:breed.value}));
+  if(v.species==='horse'){for(const h of v.horses||[]){const box=el('section',null,work);el('p',h.breed+' · '+h.sex+' · '+Math.floor(h.age/86400)+' days · Care '+Math.round(h.care)+'% · Health '+Math.round(h.health)+'%',box);el('p','Speed '+h.genes.speed+' · Stamina '+h.genes.stamina+' · Health genetics '+h.genes.health+' · Training '+h.training,box);button(box,'Train horse','trainHorse',()=>({horse:h.id}))}}button(work,'Feed','feed');button(work,'Water','water');if(v.species!=='chicken')button(work,'Collect products','collect');button(work,'Collect manure','manure');const sex=select(work,[['female','Female'],['male','Male']]);const qty=el('input',null,work);qty.type='number';qty.min=1;qty.value=1;button(work,'Butcher selected animals','slaughter',()=>({sex:sex.value,count:Number(qty.value)}));
  }else button(work,'Fill 10 water units into linked stock','fill');
  button(root,'Refresh','open');const release=el('button','Release empty facility',root);release.onclick=()=>{if(confirm('Release this empty facility?'))send('release')}
 }
@@ -56,3 +56,5 @@ window.addEventListener('message',e=>{
  button(root,'Purchase','buySupply',()=>({item:item.value,quantity:Number(qty.value),facility:facility.value.trim()}));
  for(const j of d.orders||[])el('p',j.item+' × '+j.quantity+' · '+j.phase+' (automatically retried)',root);
 });
+
+window.addEventListener('message',e=>{if(e.data.type==='slaughter'){cancelAnimationFrame(workFrame);workToken=e.data.data.token;document.body.hidden=true}});
