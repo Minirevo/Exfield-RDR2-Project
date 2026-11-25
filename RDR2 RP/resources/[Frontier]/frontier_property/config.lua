@@ -97,3 +97,130 @@ PropertyConfig = {
     -- Conservative catalogue only; configure extra road, water, mission and map exclusions before production.
     ExtraExclusions={}
 }
+
+-- Farming assemblies: exact medium layouts supplied by the in-game designer.
+PropertyConfig.Assemblies.farm_livestock_small={parts={
+{model='p_fence_cattle01x',x=-3.875,y=3.75,z=0,heading=0,terrain='slope'},
+{model='p_fence_cattle01x',x=-0.125,y=3.75,z=0,heading=0,terrain='slope'},
+{model='p_fence_cattle01x',x=3.875,y=3.75,z=0,heading=270,terrain='slope'},
+{model='p_fence_cattle01x',x=3.875,y=-0.25,z=0,heading=270,terrain='slope'},
+{model='p_fence_cattle01x',x=3.875,y=-3.75,z=0,heading=180,terrain='slope'},
+{model='p_fence_cattle01x',x=0.125,y=-3.75,z=0,heading=180,terrain='slope'},
+{model='p_fence_cattle01x',x=-3.625,y=-3.75,z=0,heading=90,terrain='slope'},
+{model='p_fence_cattle01x',x=-3.625,y=0.25,z=0,heading=90,terrain='slope'},
+{model='p_watertrough03x',x=-1.2916666666666665,y=2.5,z=0,heading=0,terrain='ground'},
+{model='p_haybalestack03x',x=1.1625000000000005,y=1,z=0,heading=0,terrain='ground'}}}
+PropertyConfig.Exteriors.farm_livestock_small={label='small livestock enclosure',category='Agriculture',model='p_fence_cattle01x',assembly='farm_livestock_small',radius=9,slots=0,materials={wood=8,wooden_planks=6},seconds=90,value=5000,interior=false,farm='livestock',size='small',width=7.75,length=7.5}
+PropertyConfig.Assemblies.farm_livestock_medium={parts={
+{model='p_fence_cattle01x',x=-7.875,y=7.75,z=0,heading=0,terrain='slope'},
+{model='p_fence_cattle01x',x=-4.125,y=7.75,z=0,heading=0,terrain='slope'},
+{model='p_fence_cattle01x',x=-0.125,y=7.75,z=0,heading=0,terrain='slope'},
+{model='p_fence_cattle01x',x=3.875,y=7.75,z=0,heading=0,terrain='slope'},
+{model='p_fence_cattle01x',x=7.875,y=7.75,z=0,heading=270,terrain='slope'},
+{model='p_fence_cattle01x',x=7.875,y=3.75,z=0,heading=270,terrain='slope'},
+{model='p_fence_cattle01x',x=7.875,y=-0.25,z=0,heading=270,terrain='slope'},
+{model='p_fence_cattle01x',x=7.875,y=-4.25,z=0,heading=270,terrain='slope'},
+{model='p_fence_cattle01x',x=7.875,y=-7.75,z=0,heading=180,terrain='slope'},
+{model='p_fence_cattle01x',x=3.875,y=-7.75,z=0,heading=180,terrain='slope'},
+{model='p_fence_cattle01x',x=-0.125,y=-7.75,z=0,heading=180,terrain='slope'},
+{model='p_fence_cattle01x',x=-3.875,y=-7.75,z=0,heading=180,terrain='slope'},
+{model='p_fence_cattle01x',x=-7.625,y=-7.75,z=0,heading=90,terrain='slope'},
+{model='p_fence_cattle01x',x=-7.625,y=-3.75,z=0,heading=90,terrain='slope'},
+{model='p_fence_cattle01x',x=-7.625,y=0,z=0,heading=90,terrain='slope'},
+{model='p_fence_cattle01x',x=-7.625,y=3.75,z=0,heading=90,terrain='slope'},
+{model='p_watertrough03x',x=-5.125,y=6.5,z=0,heading=0,terrain='ground'},
+{model='p_haybalestack03x',x=1.125,y=5,z=0,heading=0,terrain='ground'}}}
+PropertyConfig.Exteriors.farm_livestock_medium={label='medium livestock enclosure',category='Agriculture',model='p_fence_cattle01x',assembly='farm_livestock_medium',radius=15,slots=0,materials={wood=16,wooden_planks=12},seconds=180,value=10000,interior=false,farm='livestock',size='medium',width=15.75,length=15.5}
+PropertyConfig.Assemblies.farm_livestock_large={parts={
+{model='p_fence_cattle01x',x=-11.875,y=11.75,z=0,heading=0,terrain='slope'},
+{model='p_fence_cattle01x',x=-7.875,y=11.75,z=0,heading=0,terrain='slope'},
+{model='p_fence_cattle01x',x=-3.875,y=11.75,z=0,heading=0,terrain='slope'},
+{model='p_fence_cattle01x',x=0.125,y=11.75,z=0,heading=0,terrain='slope'},
+{model='p_fence_cattle01x',x=4.125,y=11.75,z=0,heading=0,terrain='slope'},
+{model='p_fence_cattle01x',x=7.875,y=11.75,z=0,heading=0,terrain='slope'},
+{model='p_fence_cattle01x',x=11.875,y=11.75,z=0,heading=270,terrain='slope'},
+{model='p_fence_cattle01x',x=11.875,y=7.75,z=0,heading=270,terrain='slope'},
+{model='p_fence_cattle01x',x=11.875,y=3.75,z=0,heading=270,terrain='slope'},
+{model='p_fence_cattle01x',x=11.875,y=-0.25,z=0,heading=270,terrain='slope'},
+{model='p_fence_cattle01x',x=11.875,y=-4.25,z=0,heading=270,terrain='slope'},
+{model='p_fence_cattle01x',x=11.875,y=-8.25,z=0,heading=270,terrain='slope'},
+{model='p_fence_cattle01x',x=11.875,y=-11.75,z=0,heading=180,terrain='slope'},
+{model='p_fence_cattle01x',x=7.875,y=-11.75,z=0,heading=180,terrain='slope'},
+{model='p_fence_cattle01x',x=3.875,y=-11.75,z=0,heading=180,terrain='slope'},
+{model='p_fence_cattle01x',x=-0.125,y=-11.75,z=0,heading=180,terrain='slope'},
+{model='p_fence_cattle01x',x=-4.125,y=-11.75,z=0,heading=180,terrain='slope'},
+{model='p_fence_cattle01x',x=-7.875,y=-11.75,z=0,heading=180,terrain='slope'},
+{model='p_fence_cattle01x',x=-11.625,y=-11.75,z=0,heading=90,terrain='slope'},
+{model='p_fence_cattle01x',x=-11.625,y=-7.75,z=0,heading=90,terrain='slope'},
+{model='p_fence_cattle01x',x=-11.625,y=-3.75,z=0,heading=90,terrain='slope'},
+{model='p_fence_cattle01x',x=-11.625,y=0.25,z=0,heading=90,terrain='slope'},
+{model='p_fence_cattle01x',x=-11.625,y=4.25,z=0,heading=90,terrain='slope'},
+{model='p_fence_cattle01x',x=-11.625,y=8.25,z=0,heading=90,terrain='slope'},
+{model='p_watertrough03x',x=-9.125,y=10.5,z=0,heading=0,terrain='ground'},
+{model='p_haybalestack03x',x=-2.875,y=9,z=0,heading=0,terrain='ground'}}}
+PropertyConfig.Exteriors.farm_livestock_large={label='large livestock enclosure',category='Agriculture',model='p_fence_cattle01x',assembly='farm_livestock_large',radius=20,slots=0,materials={wood=24,wooden_planks=18},seconds=270,value=15000,interior=false,farm='livestock',size='large',width=23.75,length=23.5}
+PropertyConfig.Assemblies.farm_chicken_small={parts={
+{model='p_chickenfence01x',x=-1.75,y=1.75,z=0,heading=0,terrain='slope'},
+{model='p_chickenfence01x',x=-0.25,y=1.75,z=0,heading=0,terrain='slope'},
+{model='p_chickenfence01x',x=1.75,y=1.75,z=0,heading=270,terrain='slope'},
+{model='p_chickenfence01x',x=1.75,y=0,z=0,heading=270,terrain='slope'},
+{model='p_chickenfence01x',x=1.75,y=-1.75,z=0,heading=180,terrain='slope'},
+{model='p_chickenfence01x',x=0.25,y=-1.75,z=0,heading=180,terrain='slope'},
+{model='p_chickenfence01x',x=-1.5,y=-1.75,z=0,heading=90,terrain='slope'},
+{model='p_chickenfence01x',x=-1.5,y=0,z=0,heading=90,terrain='slope'},
+{model='p_chickencoopcart01x',x=-0.25,y=0.75,z=-0.25,heading=180,terrain='fixed'}}}
+PropertyConfig.Exteriors.farm_chicken_small={label='small chicken enclosure',category='Agriculture',model='p_chickenfence01x',assembly='farm_chicken_small',radius=6,slots=0,materials={wood=8,wooden_planks=6},seconds=90,value=5000,interior=false,farm='chicken',size='small',width=3.5,length=3.5}
+PropertyConfig.Assemblies.farm_chicken_medium={parts={
+{model='p_chickenfence01x',x=-3.5,y=3.5,z=0,heading=0,terrain='slope'},
+{model='p_chickenfence01x',x=-1.75,y=3.5,z=0,heading=0,terrain='slope'},
+{model='p_chickenfence01x',x=0,y=3.5,z=0,heading=0,terrain='slope'},
+{model='p_chickenfence01x',x=1.75,y=3.5,z=0,heading=0,terrain='slope'},
+{model='p_chickenfence01x',x=3.5,y=3.5,z=0,heading=270,terrain='slope'},
+{model='p_chickenfence01x',x=3.5,y=1.75,z=0,heading=270,terrain='slope'},
+{model='p_chickenfence01x',x=3.5,y=0,z=0,heading=270,terrain='slope'},
+{model='p_chickenfence01x',x=3.5,y=-1.75,z=0,heading=270,terrain='slope'},
+{model='p_chickenfence01x',x=3.5,y=-3.5,z=0,heading=180,terrain='slope'},
+{model='p_chickenfence01x',x=2,y=-3.5,z=0,heading=180,terrain='slope'},
+{model='p_chickenfence01x',x=0.25,y=-3.5,z=0,heading=180,terrain='slope'},
+{model='p_chickenfence01x',x=-1.5,y=-3.5,z=0,heading=180,terrain='slope'},
+{model='p_chickenfence01x',x=-3.25,y=-3.5,z=0,heading=90,terrain='slope'},
+{model='p_chickenfence01x',x=-3.25,y=-1.75,z=0,heading=90,terrain='slope'},
+{model='p_chickenfence01x',x=-3.25,y=0,z=0,heading=90,terrain='slope'},
+{model='p_chickenfence01x',x=-3.25,y=1.75,z=0,heading=90,terrain='slope'},
+{model='p_chickencoopcart01x',x=-0.5,y=1.5,z=-0.25,heading=180,terrain='fixed'},
+{model='p_chickencoopcart01x',x=1.5,y=0,z=-0.25,heading=90,terrain='fixed'}}}
+PropertyConfig.Exteriors.farm_chicken_medium={label='medium chicken enclosure',category='Agriculture',model='p_chickenfence01x',assembly='farm_chicken_medium',radius=8,slots=0,materials={wood=16,wooden_planks=12},seconds=180,value=10000,interior=false,farm='chicken',size='medium',width=7,length=7}
+PropertyConfig.Assemblies.farm_chicken_large={parts={
+{model='p_chickenfence01x',x=-5.25,y=5.25,z=0,heading=0,terrain='slope'},
+{model='p_chickenfence01x',x=-3.5,y=5.25,z=0,heading=0,terrain='slope'},
+{model='p_chickenfence01x',x=-1.75,y=5.25,z=0,heading=0,terrain='slope'},
+{model='p_chickenfence01x',x=0,y=5.25,z=0,heading=0,terrain='slope'},
+{model='p_chickenfence01x',x=1.75,y=5.25,z=0,heading=0,terrain='slope'},
+{model='p_chickenfence01x',x=3.25,y=5.25,z=0,heading=0,terrain='slope'},
+{model='p_chickenfence01x',x=5.25,y=5.25,z=0,heading=270,terrain='slope'},
+{model='p_chickenfence01x',x=5.25,y=3.5,z=0,heading=270,terrain='slope'},
+{model='p_chickenfence01x',x=5.25,y=1.75,z=0,heading=270,terrain='slope'},
+{model='p_chickenfence01x',x=5.25,y=0,z=0,heading=270,terrain='slope'},
+{model='p_chickenfence01x',x=5.25,y=-1.75,z=0,heading=270,terrain='slope'},
+{model='p_chickenfence01x',x=5.25,y=-3.5,z=0,heading=270,terrain='slope'},
+{model='p_chickenfence01x',x=5.25,y=-5.25,z=0,heading=180,terrain='slope'},
+{model='p_chickenfence01x',x=3.5,y=-5.25,z=0,heading=180,terrain='slope'},
+{model='p_chickenfence01x',x=1.75,y=-5.25,z=0,heading=180,terrain='slope'},
+{model='p_chickenfence01x',x=0,y=-5.25,z=0,heading=180,terrain='slope'},
+{model='p_chickenfence01x',x=-1.75,y=-5.25,z=0,heading=180,terrain='slope'},
+{model='p_chickenfence01x',x=-3.25,y=-5.25,z=0,heading=180,terrain='slope'},
+{model='p_chickenfence01x',x=-5,y=-5.25,z=0,heading=90,terrain='slope'},
+{model='p_chickenfence01x',x=-5,y=-3.5,z=0,heading=90,terrain='slope'},
+{model='p_chickenfence01x',x=-5,y=-1.75,z=0,heading=90,terrain='slope'},
+{model='p_chickenfence01x',x=-5,y=0,z=0,heading=90,terrain='slope'},
+{model='p_chickenfence01x',x=-5,y=1.75,z=0,heading=90,terrain='slope'},
+{model='p_chickenfence01x',x=-5,y=3.5,z=0,heading=90,terrain='slope'},
+{model='p_chickencoopcart01x',x=-2.25,y=3.25,z=-0.25,heading=180,terrain='fixed'},
+{model='p_chickencoopcart01x',x=-0.25,y=1.75,z=-0.25,heading=90,terrain='fixed'}}}
+PropertyConfig.Exteriors.farm_chicken_large={label='large chicken enclosure',category='Agriculture',model='p_chickenfence01x',assembly='farm_chicken_large',radius=11,slots=0,materials={wood=24,wooden_planks=18},seconds=270,value=15000,interior=false,farm='chicken',size='large',width=10.5,length=10.5}
+PropertyConfig.Exteriors.farm_field_small={label='small crop field',category='Agriculture',model='p_handplow01x',radius=5,slots=0,materials={},seconds=60,value=0,interior=false,farm='field',size='small',width=5,length=5}
+PropertyConfig.Exteriors.farm_field_medium={label='medium crop field',category='Agriculture',model='p_handplow01x',radius=9,slots=0,materials={},seconds=120,value=0,interior=false,farm='field',size='medium',width=10,length=10}
+PropertyConfig.Exteriors.farm_field_large={label='large crop field',category='Agriculture',model='p_handplow01x',radius=16,slots=0,materials={},seconds=240,value=0,interior=false,farm='field',size='large',width=20,length=20}
+PropertyConfig.Exteriors.farm_well={label='Farm well',category='Agriculture',model='p_well02x',radius=3,slots=0,materials={wood=12,wooden_planks=8,iron_ingot=2},seconds=120,value=4000,interior=false,farm='well',size='small',width=2,length=2}
+PropertyConfig.Assemblies.farm_well={parts={{model='p_well02x',x=0,y=0,z=0,heading=0,terrain='ground'}}}
+PropertyConfig.Exteriors.farm_well.assembly='farm_well'

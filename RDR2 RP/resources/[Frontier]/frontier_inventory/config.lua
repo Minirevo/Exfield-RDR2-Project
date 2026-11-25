@@ -19,6 +19,7 @@ InventoryConfig = {
     IncapacitatedHealth = 0, -- Set a server-side health threshold or use SetRestricted.
     TrustedResources = {
         frontier_production = true,
+        frontier_farming = true,
         frontier_property = true,
         frontier_business = true,
 		frontier_trade = true,

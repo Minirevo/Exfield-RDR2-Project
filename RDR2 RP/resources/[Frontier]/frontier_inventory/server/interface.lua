@@ -797,3 +797,25 @@ trusted('ConfiscateBusinessStock',function(owner,company,fixture,operation,revis
     box.slots={}
     return Inventory.Commit(key,actor,fingerprint,box)
 end)
+
+-- Farming can apply a bounded batch to an already-authorized physical stock chest.
+trusted('ApplyFarmBatch',function(resource,storage,key,changes)
+    if resource~='frontier_farming' or type(storage)~='string' or not storage:match('^business_[a-f0-9]+$') or not requestKey(key) or type(changes)~='table' or #changes<1 or #changes>16 then return false,'invalid_request' end
+    local fingerprint={'farm',storage};local seen={}
+    for _,v in ipairs(changes) do
+        if type(v)~='table' or not Inventory.items[v.item] or not Inventory.items[v.item].stackable or seen[v.item] or type(v.count)~='number' or v.count%1~=0 or v.count==0 or math.abs(v.count)>10000 then return false,'invalid_item' end
+        seen[v.item]=true;fingerprint[#fingerprint+1]=v.item;fingerprint[#fingerprint+1]=tostring(v.count)
+    end
+    local actor='resource:'..resource;fingerprint=table.concat(fingerprint,':')
+    local ok,replay=Inventory.Replay(key,actor,fingerprint);if not ok then return false,replay end;if replay then return true,key end
+    local loaded,box=Inventory.Load('s_'..storage);if not loaded then return false,box end
+    for _,v in ipairs(changes) do if v.count<0 then
+        local left=-v.count
+        for slot=1,box.slot_limit do local entry=box.slots[slot];if entry and entry.item==v.item then
+            local n=math.min(left,entry.quantity);local took,err=Inventory.Take(box,slot,n);if not took then return false,err end;left=left-n;if left==0 then break end
+        end end
+        if left~=0 then return false,'insufficient_stock' end
+    end end
+    for _,v in ipairs(changes) do if v.count>0 then local put,err=Inventory.Place(box,{item=v.item,quantity=v.count,metadata=Inventory.items[v.item].metadata});if not put then return false,err end end end
+    return Inventory.Commit(key,actor,fingerprint,box)
+end)

@@ -39,8 +39,21 @@ local function collisionReady(h,d)
 end
 local function spawn(d,ghost)
     local h=model(d.model); if not h then return end
-    local z=d.z
-    if d.ground then
+    local z=d.z;local roll=0
+    if d.terrain then
+        local min,max=GetModelDimensions(h)
+        local g=d.terrain=='fixed' and (d.anchorZ or d.z) or groundAt(d.x,d.y,d.anchorZ or d.z)
+        if not g then SetModelAsNoLongerNeeded(h);return nil,'terrain' end
+        if d.terrain=='slope' then
+            local a=math.rad(d.heading);local half=(max.x-min.x)/2
+            local g1=groundAt(d.x-half*math.cos(a),d.y-half*math.sin(a),g)
+            local g2=groundAt(d.x+half*math.cos(a),d.y+half*math.sin(a),g)
+            if not g1 or not g2 then SetModelAsNoLongerNeeded(h);return nil,'terrain' end
+            roll=-math.deg(math.atan(g2-g1,2*half));g=(g1+g2)/2
+            if math.abs(roll)>20 then SetModelAsNoLongerNeeded(h);return nil,'terrain' end
+        end
+        z=g-min.z+(d.offsetZ or 0)
+    elseif d.ground then
         local ground=groundAt(d.x,d.y,d.z)
         if not ground then SetModelAsNoLongerNeeded(h); return nil,'terrain' end
         local min=GetModelDimensions(h)
@@ -54,7 +67,7 @@ local function spawn(d,ghost)
     -- CreateObject can apply a model-dependent Z offset. Override it before freezing,
     -- for BOTH previews and completed models; saved coordinates are entity origins.
     SetEntityCoordsNoOffset(o,d.x+0.0,d.y+0.0,z+0.0,false,false,false)
-    SetEntityRotation(o,0.0,0.0,(d.heading or 0)+0.0,2,false); FreezeEntityPosition(o,true)
+    SetEntityRotation(o,0.0,roll,(d.heading or 0)+0.0,2,false); FreezeEntityPosition(o,true)
     if ghost then
         SetEntityAlpha(o,130,false)
         SetEntityCollision(o,false,false)
@@ -120,7 +133,7 @@ RegisterNetEvent(E..'preview',function(d)
         local handle=spawn(q,true)
         if not handle then for _,h in ipairs(handles) do remove(h) end;notice('Model unavailable: '..part.model);action('cancelPreview');return end
         handles[n]=handle
-        if n==1 and q.ground then local actual=GetEntityCoords(handle);o.z=actual.z-(part.z or 0) end
+        if n==1 and q.ground and not q.terrain then local actual=GetEntityCoords(handle);o.z=actual.z-(part.z or 0) end
     end
     preview={handle=handles[1],handles=handles,parts=parts,x=o.x,y=o.y,z=o.z,heading=o.heading or 0,mode=d.mode,claim=d.claim,blockers=d.blockers,radius=d.radius,furniture=d.furniture}
     notice('Placement: arrows move, PageUp/Down height, Q/R rotate, Enter confirm, Esc cancel.')
