@@ -1,0 +1,34 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
+*{box-sizing:border-box}body{margin:0;color:#ebdfc8;background:transparent;font:14px system-ui,sans-serif}body[hidden]{display:none}main{position:absolute;top:5vh;right:3vw;width:min(440px,45vw);max-height:90vh;overflow:auto;padding:20px;background:#24201a;border:1px solid #b99b63;border-radius:6px}h1{font:26px Georgia;margin:0 0 8px}h2{font:19px Georgia;margin:16px 0 8px}p,small{color:#bfb29b}label{display:block;font-size:12px;margin:9px 0 3px}input,select,button{font:inherit;color:#ebdfc8;background:#382f23;border:1px solid #816c47;border-radius:3px;padding:8px}input,select{width:100%}button{cursor:pointer}button:hover{background:#665034}.row{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}.row>*{flex:1}#status{background:#3d3324;padding:10px;overflow-wrap:anywhere;min-height:40px}#info,#pos{white-space:pre-wrap;font:12px monospace;color:#d6c4a3}textarea{width:100%;height:90px;background:#181510;color:#ebdfc8;border:1px solid #816c47;padding:8px}hr{border:0;border-top:1px solid #56472e;margin:15px 0}
+</style></head><body hidden><main><div class="row"><h1>Farm model lab</h1><button id="close">Close</button></div><small>Temporary local previews · no persistent entities</small>
+<label>Candidate category</label><select id="category"></select><label>Candidate model</label><select id="candidate"></select>
+<label>Model name (editable)</label><input id="name"><label>Entity type</label><select id="kind"><option value="prop">Prop</option><option value="ped">Animal / ped</option></select>
+<div class="row"><button id="spawn">Spawn preview</button><button id="next">Next candidate</button><button id="delete">Delete</button></div>
+<div id="status">Choose a candidate. Models are not guaranteed to exist.</div><p id="info"></p><p id="pos"></p>
+<h2>Placement</h2><div class="row"><button data-m='{"x":-0.25}'>X −</button><button data-m='{"x":0.25}'>X +</button><button data-m='{"y":-0.25}'>Y −</button><button data-m='{"y":0.25}'>Y +</button></div>
+<div class="row"><button data-m='{"z":-0.1}'>Lower</button><button data-m='{"z":0.1}'>Raise</button><button id="ground">Ground</button></div>
+<div class="row"><button data-m='{"heading":-15}'>Rotate −</button><button data-m='{"heading":15}'>Rotate +</button><button data-m='{"scale":-0.1}'>Ped scale −</button><button data-m='{"scale":0.1}'>Ped scale +</button></div>
+<button id="inspect">Walk around preview (reopen with /farmmodels)</button><hr><h2>Test notes</h2><input id="comment" placeholder="Appearance, collision, height, etc."><div class="row"><button id="pass">Record usable</button><button id="fail">Record unusable</button></div><textarea id="notes" readonly placeholder="Select and copy results before closing or stopping the resource."></textarea><small>Results remain in this browser session only. Prop scaling is intentionally unsupported.</small></main>
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+const groups={
+'Animals':['ped','a_c_chicken_01','a_c_rooster_01','a_c_cow','a_c_bull_01','a_c_pig_01','a_c_sheep_01','a_c_goat_01','a_c_horse_turkoman_darkbay','a_c_horse_americanstandardbred_black','a_c_horse_shire_darkbay'],
+'Crops — candidate names':['prop','crp_cornstalks_aa_sim','crp_wheat_stk_ab_sim','crp_cotton_plant_af_p','p_corn01x','p_carrot01x','p_potato01x','p_haybale01x'],
+'Farm structures — candidate names':['prop','p_fence01x','p_fence02x','p_chickencoop01x','p_well01x','p_watertrough01x','p_trough01x','p_haybale02x','p_haystack01x','p_cs_woodpile01x'],
+'Tools and containers — candidate names':['prop','p_bucket01x','p_wateringcan01x','p_pitchfork01x','p_shovel01x','p_hoe01x','p_sack01x','p_chest01x','p_sawbucktable01x']
+};
+let last=null;
+const post=(route,data={})=>fetch('https://'+GetParentResourceName()+'/'+route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).then(r=>r.json()).catch(()=>{$('status').textContent='Request failed.'});
+function options(s,items){s.replaceChildren();for(const name of items){const o=document.createElement('option');o.value=name;o.textContent=name;s.append(o)}}
+function choose(){const a=groups[$('category').value];$('kind').value=a[0];options($('candidate'),a.slice(1));$('name').value=$('candidate').value}
+options($('category'),Object.keys(groups));choose();$('category').onchange=choose;$('candidate').onchange=()=>{$('name').value=$('candidate').value};
+function spawn(){last=null;$('info').textContent='';post('spawn',{name:$('name').value.trim(),kind:$('kind').value})}
+$('spawn').onclick=spawn;$('next').onclick=()=>{let c=$('candidate');c.selectedIndex=(c.selectedIndex+1)%c.options.length;$('name').value=c.value;spawn()};
+for(const k of ['delete','ground','inspect','close'])$(k).onclick=()=>post(k);
+document.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>post('adjust',JSON.parse(b.dataset.m)));
+function record(ok){const name=last?.name||$('name').value.trim();const dims=last?.dimensions;const line=[ok?'USABLE':'UNUSABLE',last?.kind||$('kind').value,name,dims?'size '+[dims.x,dims.y,dims.z].map(n=>n.toFixed(2)).join(' x ')+' m':'', $('comment').value.trim()].filter(Boolean).join(' | ');$('notes').value+=line+'\n';$('comment').value=''}
+$('pass').onclick=()=>record(true);$('fail').onclick=()=>record(false);
+window.addEventListener('message',e=>{const d=e.data;if(d.type==='open')document.body.hidden=false;else if(d.type==='close'||d.type==='inspect')document.body.hidden=true;else if(d.type==='status')$('status').textContent=d.message;else if(d.type==='spawned'){last=d;$('info').textContent=d.name+' · '+d.hash+'\nDimensions: '+Object.values(d.dimensions).map(n=>n.toFixed(2)).join(' × ')+' m'}else if(d.type==='position')$('pos').textContent='XYZ '+[d.x,d.y,d.z].map(n=>n.toFixed(2)).join(', ')+' | heading '+d.heading.toFixed(1)+' | ped scale '+d.scale.toFixed(1)});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')post('close')});
+</script></body></html>
