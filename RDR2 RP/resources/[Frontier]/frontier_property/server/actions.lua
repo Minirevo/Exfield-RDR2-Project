@@ -32,6 +32,7 @@ function request(src,action,d)
     end
     if action=='buySettlement' then
         if not s or s.status~='active' or not s.listing or not s.listing.active or owner(s,id) or occupied(s.id) or s.debt>0 then return end
+        if GetResourceState('frontier_business')=='started' and exports.frontier_business:PlotHasBusinessFixtures(s.id) then return notice(src,'Resolve registered commercial furniture before selling this plot.') end
         if tonumber(d.price)~=s.listing.price then return end
         local a=account(src,id); local payments=shares(s,s.listing.price)
         if a and payments then queue({kind='sale',actor=id,src=src,sid=s.id,account=a,amount=s.listing.price,payouts=payments}) end
@@ -138,6 +139,7 @@ function request(src,action,d)
     elseif action=='tax' and allowed(s,id,'finance') and s.debt>0 then
         local a=account(src,id); if a then queue({kind='tax',actor=id,src=src,sid=s.id,account=a,amount=s.debt}) end
     elseif action=='list' and owner(s,id) and s.debt==0 and not occupied(s.id) then
+        if GetResourceState('frontier_business')=='started' and exports.frontier_business:PlotHasBusinessFixtures(s.id) then return notice(src,'Unregister commercial furniture before listing this plot.') end
         local price=tonumber(d.price)
         if not price or price%1~=0 or price<1 or price>100000000 then return end
         s.listing={price=price,approvals={[id]=true},active=false}
@@ -148,6 +150,7 @@ function request(src,action,d)
         s.listing.active=all; save()
     elseif action=='unlist' and owner(s,id) then s.listing=nil; save()
     elseif action=='abandon' and owner(s,id) and s.primary==id and not occupied(s.id) then
+        if GetResourceState('frontier_business')=='started' and exports.frontier_business:PlotHasBusinessFixtures(s.id) then return notice(src,'Resolve registered commercial furniture before abandoning this plot.') end
         local count=0; for _ in pairs(s.owners) do count=count+1 end
         if count~=1 or s.debt>0 then return notice(src,'Co-owned or indebted settlements cannot be abandoned.') end
         if d.confirm~='ABANDON' then return end
@@ -210,4 +213,11 @@ end)
 exports('GetOwnedPlots',function(who)
     if GetInvokingResource()~='frontier_business' or not ready then return {} end
     local out={};for id,s in pairs(S.settlements) do if owner(s,who) then out[#out+1]=public(s) end end;return out
+end)
+
+exports('GetBusinessFixtureRecovery',function(sid,fid)
+    if GetInvokingResource()~='frontier_business' or not ready then return end
+    local s=settlement(sid);local f=s and s.furniture and s.furniture[fid]
+    if not f or (f.item~='property_storage' and f.item~='property_counter') then return end
+    return {item=f.item,x=f.x,y=f.y,z=f.z,heading=f.heading}
 end)

@@ -498,7 +498,12 @@ local function tradeMove(owner, delivery, character, item, quantity, taking)
         end
     end
     if remaining ~= 0 then return false, 'insufficient_stock' end
-    if confiscate then return Inventory.Commit(key, actor, fingerprint, from) end
+    if confiscate then
+        local logged,err=Inventory.Db('update',[[INSERT IGNORE INTO fb_storage_audit(request_id,fixture_id,actor,action,detail,created,company_id)
+          VALUES(?,?,?,'trade_confiscated',?,UNIX_TIMESTAMP(),?)]],{key,stockId:sub(12),actor,json.encode({reference=delivery,item=item,quantity=quantity}),character})
+        if not logged then return false,err end
+        return Inventory.Commit(key, actor, fingerprint, from)
+    end
     return Inventory.Commit(key, actor, fingerprint, from, to)
 end
 
@@ -744,15 +749,23 @@ trusted('BusinessMoveStock',function(owner,fixture,sale,character,item,quantity,
     local fingerprint=json.encode({fixture,sale,character,item,quantity,mode})
     local ok,replay=Inventory.Replay(key,actor,fingerprint);if not ok then return false,replay end;if replay then return true,key end
     local escrow='besc_'..sale;local stock='s_business_'..fixture
+    local confiscate=false;local company
+    if mode=='return' then
+        local checked,row=Inventory.Db('single',[[SELECT c.id,c.status,c.liquidate_until FROM fb_retail r JOIN fb_companies c ON c.id=r.seller_id
+          WHERE r.id=? AND r.fixture_id=? AND r.seller_type='company']],{sale,fixture})
+        if not checked then return false,row end
+        company=row and row.id
+        confiscate=row and row.status=='liquidating' and tonumber(row.liquidate_until or 0)<=os.time()
+    end
     if mode=='reserve' then ok,replay=Inventory.Ensure(escrow,'storage',200,100000000);if not ok then return false,replay end end
     local fromId=mode=='reserve' and stock or escrow
     local toId=mode=='reserve' and escrow or mode=='return' and stock or 'p_'..character
     if mode=='claim' then ok,replay=Inventory.Ensure(toId,'player',InventoryConfig.Slots,InventoryConfig.WeightGrams);if not ok then return false,replay end end
-    local from,to;ok,from=Inventory.Load(fromId);if not ok then return false,from end;ok,to=Inventory.Load(toId);if not ok then return false,to end
+    local from,to;ok,from=Inventory.Load(fromId);if not ok then return false,from end;if not confiscate then ok,to=Inventory.Load(toId);if not ok then return false,to end end
     local left=quantity
     for slot=1,from.slot_limit do local stack=from.slots[slot];if stack and stack.item==item then
         local n=math.min(left,stack.quantity);local taken,entry=Inventory.Take(from,slot,n);if not taken then return false,entry end
-        local placed,issue=Inventory.Place(to,entry);if not placed then return false,issue end;left=left-n;if left==0 then break end
+        if not confiscate then local placed,issue=Inventory.Place(to,entry);if not placed then return false,issue end end;left=left-n;if left==0 then break end
     end end
     if left~=0 then return false,'insufficient_stock' end
     return Inventory.Commit(key,actor,fingerprint,from,to)
@@ -1061,5 +1074,24 @@ trusted('BusinessMoveStock',function(owner,fixture,sale,character,item,quantity,
         local placed,issue=Inventory.Place(to,entry);if not placed then return false,issue end;left=left-n;if left==0 then break end
     end end
     if left~=0 then return false,'insufficient_stock' end
+    if confiscate then
+        local logged,err=Inventory.Db('update',[[INSERT IGNORE INTO fb_storage_audit(request_id,fixture_id,actor,action,detail,created,company_id) VALUES(?,?,?,'retail_confiscated',?,UNIX_TIMESTAMP(),?)]],{key,fixture,actor,json.encode({reference=sale,item=item,quantity=quantity}),company})
+        if not logged then return false,err end
+        return Inventory.Commit(key,actor,fingerprint,from)
+    end
     return Inventory.Commit(key,actor,fingerprint,from,to)
+end)
+
+trusted('ConfiscateBusinessStock',function(owner,company,fixture,operation,revision)
+    if owner~='frontier_business' or not Inventory.Id(company,32) or not Inventory.Id(fixture,32) or not Inventory.Id(operation,32) or type(revision)~='number' or revision<0 or revision%1~=0 then return false,'invalid_request' end
+    local key='business:seize:'..operation;local actor='resource:'..owner
+    local fingerprint=json.encode({'confiscate',company,fixture,operation})
+    local ok,replay=Inventory.Replay(key,actor,fingerprint);if not ok then return false,replay end;if replay then return true,key end
+    local allowed,row=Inventory.Db('single',[[SELECT f.id FROM fb_fixtures f JOIN fb_companies c ON c.id=f.owner_id JOIN fb_confiscations s ON s.company_id=c.id AND s.fixture_id=f.id
+      WHERE f.id=? AND f.owner_type='company' AND c.id=? AND c.status='liquidating' AND c.liquidate_until<=UNIX_TIMESTAMP() AND s.id=? AND s.status='pending']],{fixture,company,operation})
+    if not allowed then return false,row end;if not row then return false,'forbidden' end
+    local loaded,box=Inventory.Load('s_business_'..fixture);if not loaded then return false,box end
+    if box.revision~=revision then return false,'conflict' end
+    box.slots={}
+    return Inventory.Commit(key,actor,fingerprint,box)
 end)
