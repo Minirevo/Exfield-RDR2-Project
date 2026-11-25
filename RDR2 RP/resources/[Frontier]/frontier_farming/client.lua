@@ -5,9 +5,9 @@ local world,entities={},{}
 local function notice(s) TriggerEvent('chat:addMessage',{args={'Farming',s}}) end
 RegisterCommand('farm',function() TriggerServerEvent(E..'action','open',{}) end,false)
 RegisterNetEvent(E..'notice',function(s) if source~=65535 then return end;notice(s);SendNUIMessage({type='notice',message=s}) end)
-RegisterNetEvent(E..'menu',function(d) if source~=65535 then return end;focused=true;SetNuiFocus(true,true);SendNUIMessage({type='menu',data=d}) end)
-RegisterNetEvent(E..'workRound',function(d) if source==65535 then SendNUIMessage({type='workRound',data=d}) end end)
-RegisterNetEvent(E..'workEnd',function() if source==65535 then SendNUIMessage({type='workEnd'}) end end)
+RegisterNetEvent(E..'menu',function(d) if source~=65535 then return end;ClearPedTasks(PlayerPedId());focused=true;SetNuiFocus(true,true);SendNUIMessage({type='menu',data=d}) end)
+RegisterNetEvent(E..'workRound',function(d) if source==65535 then if d.round==1 and C.scenarios[d.action] then pcall(function() TaskStartScenarioInPlace(PlayerPedId(),GetHashKey(C.scenarios[d.action]),-1,true,false,false,false) end) end;SendNUIMessage({type='workRound',data=d}) end end)
+RegisterNetEvent(E..'workEnd',function() if source==65535 then ClearPedTasks(PlayerPedId());SendNUIMessage({type='workEnd'}) end end)
 RegisterNetEvent(E..'world',function(d) if source==65535 then world=d end end)
 RegisterNUICallback('farmAction',function(d,cb) if focused then TriggerServerEvent(E..'action',d.action,d.data or {}) end;cb({ok=true}) end)
 RegisterNUICallback('close',function(_,cb) focused=false;TriggerServerEvent(E..'action','cancelWork',{});SetNuiFocus(false,false);SendNUIMessage({type='close'});cb({ok=true}) end)
@@ -62,7 +62,7 @@ CreateThread(function()
   for _,e in pairs(entities) do if e.ped and DoesEntityExist(e.handle) then local p=GetEntityCoords(e.handle);local d=e.spawn;if #(p-vector3(d.x,d.y,d.z))>1.8 then TaskGoStraightToCoord(e.handle,d.x,d.y,d.z,1.0,4000,d.heading,0.2) elseif math.random()<.2 then TaskGoStraightToCoord(e.handle,d.x+(math.random()-.5)*1.5,d.y+(math.random()-.5)*1.5,p.z,0.5,3000,d.heading,0.2) end end end
   local added=0
   for key,d in pairs(wanted) do if not entities[key] and added<12 then
-   local h=spawn(d);if h then entities[key]={handle=h,model=d.model,spawn=d,ped=d.ped};added=added+1 end
+   local h=spawn(d);if h then local pos=GetEntityCoords(h);d.z=pos.z;entities[key]={handle=h,model=d.model,spawn=d,ped=d.ped};added=added+1 end
   end end
  end
 end)
@@ -74,7 +74,7 @@ RegisterNetEvent(E..'shop',function(d) if source~=65535 then return end;focused=
 local slaughterToken
 RegisterNetEvent(E..'slaughter',function(d)
  if source~=65535 then return end
- slaughterToken=d.token;focused=false;SetNuiFocus(false,false);SendNUIMessage({type='slaughter',data=d})
+ slaughterToken=d.token;ClearPedTasks(PlayerPedId());focused=false;SetNuiFocus(false,false);SendNUIMessage({type='slaughter',data=d})
  notice('Slaughter the '..d.count..' marked animals, then /farmfinish. /farmcancel cancels without rewards.')
  CreateThread(function()
   for _,id in ipairs(d.ids) do
@@ -128,3 +128,30 @@ RegisterNetEvent(E..'mount',function(d)
  end)
 end)
 RegisterNetEvent(E..'mountReturned',function() if source==65535 then notice('Mount returned to stable record.') end end)
+
+local suppliers={}
+CreateThread(function()
+ while true do Wait(1500);local p=GetEntityCoords(PlayerPedId())
+  for i,q in ipairs(C.suppliers) do
+   local dist=#(p-vector3(q.x,q.y,q.z))
+   if dist<60 and not suppliers[i] then
+    local h=spawn({model=C.supplierModel,x=q.x,y=q.y,z=q.z,heading=0,ped=true})
+    if h then suppliers[i]=h;TaskStandStill(h,-1);FreezeEntityPosition(h,true) end
+   elseif dist>75 and suppliers[i] then DeleteEntity(suppliers[i]);suppliers[i]=nil end
+  end
+ end
+end)
+CreateThread(function()
+ while true do
+  local p=GetEntityCoords(PlayerPedId());local shop=false
+  for _,q in ipairs(C.suppliers) do if #(p-vector3(q.x,q.y,q.z))<4 then shop=true;break end end
+  local farm=false
+  if not shop then for _,v in ipairs(world) do local b=v.b;if #(p-vector3(b.x,b.y,b.z))<math.max(b.width,b.length)/2+C.reach then farm=true;break end end end
+  if not focused and (shop or farm) and not (type(IsNuiFocused)=='function' and IsNuiFocused()) then
+   Wait(0);local msg=shop and 'Agricultural supplies: /farmshop or G' or 'Farm management: /farm or G'
+   SetTextScale(.30,.30);SetTextColor(255,255,255,255);SetTextCentre(true);DisplayText(CreateVarString(10,'LITERAL_STRING',msg),.5,.91)
+   if IsControlJustPressed(0,0x760A9C6F) then TriggerServerEvent(E..'action',shop and 'shop' or 'open',{}) end
+  else Wait(300) end
+ end
+end)
+AddEventHandler('onClientResourceStop',function(r) if r==GetCurrentResourceName() then for _,h in pairs(suppliers) do DeleteEntity(h) end end end)

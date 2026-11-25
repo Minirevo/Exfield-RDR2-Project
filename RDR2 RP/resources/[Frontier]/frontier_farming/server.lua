@@ -162,7 +162,15 @@ local function orderStep(j)
   local ok,e
   if j.owner_type=='company' then ok,e=inv:ApplyFarmBatch(j.storage,'farm_supply_'..j.id,{{item=j.item,count=tonumber(j.quantity)}})
   else ok,e=inv:FarmSupplyDelivery(j.actor,j.item,tonumber(j.quantity),'farm_supply_'..j.id) end
-  if not ok then return false,e end
+  if not ok then
+   if j.owner_type=='company' and ({weight=true,slots=true,stack_conflict=true,not_found=true})[e] then
+    local status=MySQL.scalar.await("SELECT status FROM fb_companies WHERE id=?",{j.owner_id})
+    if status=='liquidating' then
+     local refunded=biz:RefundFarmOrder(j.id);if refunded then MySQL.update.await("UPDATE ff_orders SET phase='refunded' WHERE id=?",{j.id});return true end
+    end
+   end
+   return false,e
+  end
   MySQL.update.await("UPDATE ff_orders SET phase='complete' WHERE id=?",{j.id})
  end
  return true
@@ -173,7 +181,12 @@ local function shopView(src)
  for k,v in pairs(C.supplyPrices) do list[#list+1]={id=k,name=C.items[k].name,price=v} end
  table.sort(list,function(a,b)return a.name<b.name end)
  local orders=MySQL.query.await("SELECT id,item,quantity,amount,phase FROM ff_orders WHERE actor=? AND phase IN ('payment','paid') ORDER BY created DESC",{who})
- TriggerClientEvent(E..'shop',src,{items=list,orders=orders})
+ local destinations={}
+ for _,f in ipairs(MySQL.query.await('SELECT * FROM ff_facilities ORDER BY kind,size')) do
+  local b=prop:FarmBuilding(f.plot,f.id,who)
+  if b and authorized(src,f,b) then destinations[#destinations+1]={id=f.id,name=f.size..' '..f.kind..' · '..f.owner_type,kind=f.kind} end
+ end
+ TriggerClientEvent(E..'shop',src,{items=list,orders=orders,destinations=destinations})
 end
 local function buySupply(src,d)
  local who=cid(src);check(who and supplier(src),'Approach an agricultural supplier')
@@ -277,7 +290,7 @@ local function action(src,a,d,score)
  if a=='horseMarket' then return horseMarket(src) end
  if a=='buyHorse' then return buyHorse(src,d) end
  if a=='buySupply' then return buySupply(src,d) end
- if a=='cancelWork' then unlock(src);waterWork[src]=nil;return end
+ if a=='cancelWork' then unlock(src);waterWork[src]=nil;if d.reopen then return view(src) end;return end
  if a=='slaughterFinish' then
   local w=sessions[src];check(w and w.actor==who and w.phase=='slaughter' and d.token==w.token,'No slaughter session')
   local f=row(w.id);local b=f and current(src,f);check(b and not pending(w.id),'Facility unavailable')
@@ -287,12 +300,12 @@ local function action(src,a,d,score)
   return action(src,'slaughter',payload,hits+10)
  end
  if a=='workHit' then
-  local w=sessions[src];check(w and w.actor==who and w.token==d.token,'Work session expired')
+  local w=sessions[src];check(w and w.phase~='slaughter' and w.actor==who and w.token==d.token,'Work session expired')
   local now=GetGameTimer();check(now<=w.expires,'Work session expired')
   local b=prop:FarmBuilding(w.plot,w.id,who);local f=row(w.id)
   check(f and b and near(src,b) and authorized(src,f,b),'Return to facility')
   local elapsed=now-w.started
-  if elapsed<300 then w.started=now;TriggerClientEvent(E..'workRound',src,{token=w.token,target=w.target,round=w.round});return end
+  if elapsed<300 then w.started=now;TriggerClientEvent(E..'workRound',src,{token=w.token,target=w.target,round=w.round,action=w.action});return end
   local phase=(elapsed%1800)/1800
   if math.abs(phase-w.target)<=.13 then w.hits=w.hits+1 end
   w.round=w.round+1
@@ -342,7 +355,7 @@ local function action(src,a,d,score)
   if a~='trainHorse' then tool(src,key) end;check(not sessions[src],'Finish your current work first')
   local w={id=f.id,plot=f.plot,actor=who,token=uuid(),action=a,data=d,hits=0,round=1,started=GetGameTimer(),expires=GetGameTimer()+60000,target=math.random(25,75)/100}
   sessions[src]=w;workLocks[f.id]=src
-  TriggerClientEvent(E..'workRound',src,{token=w.token,target=w.target,round=1})
+  TriggerClientEvent(E..'workRound',src,{token=w.token,target=w.target,round=1,action=a})
   return
  end
  if a=='link' then
@@ -355,12 +368,12 @@ local function action(src,a,d,score)
   MySQL.update.await('DELETE FROM ff_facilities WHERE id=?',{f.id})
  elseif a=='plant' then
   check(b.kind=='field' and not s.crop and C.crops[d.crop],'Invalid crop or occupied field');tool(src,'hoe')
-  s.crop=d.crop;s.growth=0;s.dead=false;s.fertilized=false;s.neglect=0;s.water=0
+  s.crop=d.crop;s.growth=0;s.dead=false;s.fertilized=false;s.neglect=0;s.water=0;s.harvestRemaining=nil;s.seedRemaining=nil
   batch(f,s,{{item='farm_seed_'..d.crop,count=-C.fieldCapacity[b.size]}})
  elseif a=='water' then
   check(s.crop and not s.dead or R.count(s)>0,'Nothing to water');tool(src,'water')
   local units=b.kind=='field' and math.ceil(C.fieldCapacity[b.size]/25) or math.ceil(R.count(s)/4)
-  s.water=math.min(172800*(b.kind=='field' and 1 or R.count(s)),s.water+43200*(b.kind=='field' and 1 or R.count(s)))
+  s.water=math.min(172800*(b.kind=='field' and 1 or R.count(s)),s.water+43200*(b.kind=='field' and 1 or R.count(s))*(1+(score or 0)*.05))
   batch(f,s,{{item='farm_water',count=-units}})
  elseif a=='fertilize' then
   check(s.crop and not s.dead and not s.fertilized,'No eligible crop');tool(src,'fork');s.fertilized=true
@@ -370,9 +383,17 @@ local function action(src,a,d,score)
  elseif a=='harvest' then
   check(s.crop and not s.dead and s.growth>=1,'Crop not ready');tool(src,'sickle')
   local n=C.fieldCapacity[b.size];local crop=s.crop
-  local output=math.floor(n*(s.fertilized and 2.5 or 2)*s.soil/100*(1+(score or 0)*.05))
-  s.crop=nil;s.growth=0;s.water=0;s.soil=math.max(60,s.soil-1)
-  batch(f,s,{{item='farm_'..crop,count=output},{item='farm_seed_'..crop,count=n+math.floor(n/10)}})
+  if not s.harvestRemaining then
+   s.harvestRemaining=math.floor(n*(s.fertilized and 2.5 or 2)*s.soil/100*(1+(score or 0)*.05))
+   s.seedRemaining=n+math.floor(n/10)
+  end
+  local output=math.min(C.harvestBatch,s.harvestRemaining)
+  local seeds=output==s.harvestRemaining and s.seedRemaining or math.floor(s.seedRemaining*output/s.harvestRemaining)
+  s.harvestRemaining=s.harvestRemaining-output;s.seedRemaining=s.seedRemaining-seeds
+  if s.harvestRemaining==0 then s.crop=nil;s.growth=0;s.water=0;s.soil=math.max(60,s.soil-1);s.harvestRemaining=nil;s.seedRemaining=nil end
+  local changes={{item='farm_'..crop,count=output}}
+  if seeds>0 then changes[#changes+1]={item='farm_seed_'..crop,count=seeds} end
+  batch(f,s,changes)
  elseif a=='animal' then
   local c=C.species[d.species]
   check(c and (b.kind=='chicken' and d.species=='chicken' or b.kind=='livestock' and d.species~='chicken'),'Species not supported in this facility')
@@ -401,13 +422,14 @@ local function action(src,a,d,score)
   h.training=math.min(100,h.training+2+(score or 0));h.trainedAt=os.time();save(f,s)
  elseif a=='feed' then
   check(s.species and R.count(s)>0,'No animals');tool(src,'fork')
-  local n=R.count(s);s.feed=math.min(n*172800,s.feed+n*43200)
-  batch(f,s,{{item=C.species[s.species].feed,count=-n}})
+  local n=R.count(s);s.feed=math.min(n*172800,s.feed+n*43200*(1+(score or 0)*.05))
+  local food=C.species[s.species].feed;if s.species=='pig' and C.pigFeed[d.food] then food=d.food end
+  batch(f,s,{{item=food,count=-n}})
  elseif a=='collect' then
   check(s.species and C.species[s.species].product and s.products>=1,'No products available')
   check(s.species~='chicken','Eggs are automatically deposited')
   tool(src,s.species=='sheep' and 'shear' or 'milk')
-  local n=s.products;s.products=0;batch(f,s,{{item=C.species[s.species].product,count=n}})
+  local n=s.products;s.products=0;batch(f,s,{{item=C.species[s.species].product,count=math.floor(n*(1+(score or 0)*.05))}})
  elseif a=='manure' then
   tool(src,'fork');local n=math.floor(s.manure);check(n>0,'No manure available');s.manure=s.manure-n;batch(f,s,{{item='farm_manure',count=n}})
  elseif a=='slaughter' then
@@ -416,7 +438,7 @@ local function action(src,a,d,score)
   check((sex=='female' or sex=='male') and n and n%1==0 and n>=1 and n<=s[sex],'Invalid animal selection')
   local yield=({chicken=1,pig=4,sheep=3,cattle=8})[s.species]
   s[sex]=s[sex]-n
-  local changes={{item='meat',count=math.floor(n*yield*(1+(score-10)*.05))}}
+  local changes={{item='farm_meat',count=math.floor(n*yield*(1+(score-10)*.05))}}
   if s.species~='chicken' then changes[#changes+1]={item='farm_hide',count=n} end
   batch(f,s,changes)
  elseif a=='fill' then
@@ -440,7 +462,7 @@ end)
 AddEventHandler('playerDropped',function() local src=source;unlock(src);waterWork[src]=nil;rate[src]=nil;CreateThread(function() if ready then while busy do Wait(100) end;run(nil,function() returnMount(src) end) end end) end)
 AddEventHandler('frontier:playerUnloaded',function(p) local src=p.source;unlock(src);waterWork[src]=nil;CreateThread(function() if ready then while busy do Wait(100) end;run(nil,function() returnMount(src) end) end end) end)
 CreateThread(function() while true do Wait(1000);for src,w in pairs(sessions) do if GetGameTimer()>w.expires then unlock(src);TriggerClientEvent(E..'workEnd',src) end end end end)
-exports('FacilityBound',function(id) return not ready or row(id)~=nil end)
+exports('FacilityBound',function(id) return not ready or busy or row(id)~=nil end)
 exports('DrainCompany',function(id)
  if GetInvokingResource()~='frontier_business' or not ready or busy then return false end
  busy=true

@@ -37,7 +37,7 @@ function R.advanceHorses(s,elapsed,size,t)
   s.breedClock=s.breedClock+cared
   if s.breedClock>=172800 then
    s.horseSerial=(s.horseSerial or 0)+1
-   local id=mare.id..'-'..t..'-'..s.horseSerial
+   local id=string.format('%08x%08x%08x%08x',math.random(0,0xffffffff),math.random(0,0xffffffff),math.random(0,0xffffffff),math.random(0,0xffffffff))
    s.horses[#s.horses+1]=R.newHorse(id,math.random(2)==1 and mare.breed or stallion.breed,math.random(2)==1 and 'female' or 'male',true,{mare,stallion})
    s.breedClock=s.breedClock%172800
   end
@@ -49,7 +49,7 @@ function R.advance(s,t,size)
  local elapsed=math.min(C.maxOffline,math.max(0,t-s.last));s.last=t
  if elapsed==0 then return end
  if s.kind=='field' and s.crop then
-  if s.dead then return end
+  if s.dead or s.growth>=1 then return end
   local c=C.crops[s.crop];local wet=math.min(elapsed,s.water or 0)
   s.water=math.max(0,s.water-wet);s.growth=math.min(1,s.growth+wet/(c.hours*3600)*(s.fertilized and 1.25 or 1))
   if s.growth<1 then s.neglect=wet==elapsed and 0 or ((wet>0 and 0 or s.neglect)+elapsed-wet);if s.neglect>=C.waterGrace then s.dead=true end end
@@ -57,8 +57,8 @@ function R.advance(s,t,size)
   s.horses=s.horses or {};R.advanceHorses(s,elapsed,size,t)
  elseif s.species and R.count(s)>0 then
   local c=C.species[s.species];local count=R.count(s)
-  local wet=math.min(elapsed,s.water/count,s.feed/count)
-  s.water=math.max(0,s.water-wet*count);s.feed=math.max(0,s.feed-wet*count)
+  local fed=math.min(elapsed,s.feed/count);local watered=math.min(elapsed,s.water/count);local wet=math.min(fed,watered)
+  s.water=math.max(0,s.water-watered*count);s.feed=math.max(0,s.feed-fed*count)
   s.health=math.max(0,math.min(100,s.health+wet/3600-(elapsed-wet)/3600))
   s.neglect=wet==elapsed and 0 or ((wet>0 and 0 or s.neglect)+elapsed-wet)
   if s.neglect>=C.waterGrace*2 then

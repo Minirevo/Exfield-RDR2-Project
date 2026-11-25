@@ -58,3 +58,12 @@ FarmConfig.slaughterFractions={.5,.5,.3,.3,.15,.05}
 FarmConfig.waterSiteRadius=8
 FarmConfig.waterFillMs=5000
 FarmConfig.mountMaxSeconds=3600
+
+FarmConfig.items.farm_meat={name='Farm meat',grams=300}
+FarmConfig.items.farm_hay.grams=150
+FarmConfig.harvestBatch=200
+FarmConfig.pigFeed={farm_corn=true,farm_carrot=true,farm_potato=true,farm_wheat=true,farm_broccoli=true,farm_artichoke=true}
+FarmConfig.scenarios={plant='WORLD_HUMAN_FARMER_RAKE',clearCrop='WORLD_HUMAN_FARMER_RAKE',harvest='WORLD_HUMAN_FARMER_WEEDING',fertilize='WORLD_HUMAN_FARMER_RAKE',water='WORLD_HUMAN_CROUCH_INSPECT',feed='WORLD_HUMAN_FARMER_RAKE',manure='WORLD_HUMAN_FARMER_RAKE',collect='WORLD_HUMAN_CROUCH_INSPECT',trainHorse='WORLD_HUMAN_CROUCH_INSPECT'}
+FarmConfig.supplierModel='a_m_m_valtownfolk_01'
+FarmConfig.supplyPrices.farm_wheat=12
+FarmConfig.supplyPrices.farm_corn=12

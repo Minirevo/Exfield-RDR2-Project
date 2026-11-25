@@ -461,6 +461,7 @@ fixtureAction=function(src,who,a,d)
   if d.price==0 then U('DELETE FROM fb_prices WHERE fixture_id=? AND item_id=?',{id,d.item}) else Q('INSERT INTO fb_prices VALUES(?,?,?) ON DUPLICATE KEY UPDATE price=VALUES(price)',{id,d.item,d.price}) end
  elseif a=='fixtureBuy' then
   requireThat(f and validFixture(f) and f.kind=='counter' and integer(d.quantity,1,1000),'Invalid purchase')
+  if type(d.item)=='string' and d.item:match('^farm_') and not d.item:match('^farm_seed_') then local l=S('SELECT active FROM fb_licenses WHERE owner_type=? AND owner_id=? AND category=?',{f.owner_type,f.owner_id,'agriculture'});requireThat(l and tonumber(l.active)==1,'Agriculture license required') end
   local r=S('SELECT * FROM fb_prices WHERE fixture_id=? AND item_id=?',{id,d.item});requireThat(r and (stock(f)[d.item] or 0)>=d.quantity,'Stock unavailable')
   local from=bank(who);local to=f.owner_type=='company' and account(company(f.owner_id)) or bank(f.owner_id)
   requireThat(from and to and from~=to,'Invalid accounts')
@@ -657,4 +658,11 @@ exports('PayFarmHorseSale',function(id)
  local to=j.seller_type=='company' and account(company(j.seller_id)) or bank(j.seller_id)
  if from~=tonumber(j.debit) or to~=tonumber(j.credit) then return false,'invalid_account' end
  return eco:TransferAccounts(from,to,tonumber(j.amount),{key='farm_horse_'..id,reason='Horse certificate sale',reference=id})
+end)
+
+exports('RefundFarmOrder',function(id)
+ if GetInvokingResource()~='frontier_farming' or not ready then return false,'forbidden' end
+ local j=S("SELECT * FROM ff_orders WHERE id=? AND owner_type='company' AND phase='paid'",{id})
+ local b=j and company(j.owner_id);if not b or b.status~='liquidating' then return false,'invalid_order' end
+ return eco:CreditAccount(account(b),tonumber(j.amount),{key='farm_refund_'..id,reason='Undelivered agricultural supply refund',reference=id})
 end)

@@ -40,6 +40,12 @@ local function command(name, callback)
     end, false)
 end
 
+
+local function farmSaleAllowed(typ,id,item)
+ if not TradeConfig.Agricultural[item] then return true end
+ return GetResourceState('frontier_business')=='started' and exports.frontier_business:VerifyLicense(typ,id,'agriculture')
+end
+
 command('handelannehmen', function(source, character, args)
     if not uuid(args[1]) then return 'Verwendung: /handelannehmen <Gesuch-ID>' end
     local ok, accounts = economy:GetCharacterAccounts(source)
@@ -48,6 +54,8 @@ command('handelannehmen', function(source, character, args)
     if not uuid(id) or core:GetPlayerCharacterId(source) ~= character then return 'Annahme konnte nicht bestätigt werden.' end
     local quote = args[2] and (tonumber(args[2]) or -1) or 0
     if quote < 0 or quote > 10000 or quote ~= math.floor(quote) then return 'Ungültiger Preis.' end
+    local item=db('scalar','SELECT item_id FROM frontier_trade_requests WHERE id=?',{args[1]})
+    if not item or not farmSaleAllowed('character',character,item) then return 'Agriculture license required or request unavailable.' end
     if procedure('accept', id, args[1], character, accounts.bank.id, quote) then
         return 'Vertrag angenommen. Vertrags-ID: ' .. id
     end
@@ -61,6 +69,8 @@ command('handelliefern', function(source, character, args)
     end
     local id = db('scalar', 'SELECT UUID()')
     if not uuid(id) or core:GetPlayerCharacterId(source) ~= character then return 'Lieferung konnte nicht bestätigt werden.' end
+    local item=db('scalar','SELECT r.item_id FROM frontier_trade_contracts c JOIN frontier_trade_requests r ON r.id=c.request_id WHERE c.id=?',{args[1]})
+    if not item or not farmSaleAllowed('character',character,item) then return 'Agriculture license required or contract unavailable.' end
     if procedure('deliver', id, args[1], character, count) then
         return 'Lieferung vorgemerkt. Liefer-ID: ' .. id
     end

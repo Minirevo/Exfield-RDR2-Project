@@ -20,18 +20,18 @@ function render(){
   el('p',v.crop?'Crop: '+v.crop+' · Soil: '+v.soil+'%':'Empty field · Soil: '+v.soil+'%',work);
   if(!v.crop){const c=select(work,Object.keys(data.crops).map(k=>[k,k]));button(work,'Plant','plant',()=>({crop:c.value}))}
   else if(v.dead)button(work,'Clear dead crops','clearCrop');
-  else{const p=el('progress',null,work);p.max=1;p.value=v.growth;el('p',Math.floor(v.growth*100)+'% · Water reserve '+Math.floor(v.water/3600)+'h',work);button(work,'Water','water');button(work,'Fertilize','fertilize');if(v.growth>=1)button(work,'Harvest','harvest')}
+  else{const p=el('progress',null,work);p.max=1;p.value=v.growth;el('p',Math.floor(v.growth*100)+'% · Water reserve '+Math.floor(v.water/3600)+'h',work);button(work,'Water','water');button(work,'Fertilize','fertilize');if(v.growth>=1)button(work,v.harvestRemaining?'Harvest next batch ('+v.harvestRemaining+' remaining)':'Harvest','harvest')}
   button(work,'Convert 5 manure to fertilizer','fertilizer');
  }else if(b.kind==='livestock'||b.kind==='chicken'){
   el('p',(v.species||'Empty')+' · Female '+v.female+' · Male '+v.male+' · Young '+v.young,work);el('p','Health '+Math.round(v.health)+'% · Products '+v.products+' · Manure '+Math.floor(v.manure),work);
   el('p','Food reserve '+Math.floor(v.feed/3600)+' animal-hours · Water '+Math.floor(v.water/3600)+' animal-hours',work);
   const c=select(work,Object.keys(data.species).filter(k=>(b.kind==='chicken'?k==='chicken':k!=='chicken')).map(k=>[k,k]));const breed=select(work,[['turkoman','Turkoman'],['standardbred','Standardbred'],['shire','Shire']]);button(work,'Redeem female voucher','animal',()=>({species:c.value,sex:'female',breed:breed.value}));button(work,'Redeem male voucher','animal',()=>({species:c.value,sex:'male',breed:breed.value}));
-  if(v.species==='horse'){for(const h of v.horses||[]){const box=el('section',null,work);el('p',h.breed+' · '+h.sex+' · '+Math.floor(h.age/86400)+' days · Care '+Math.round(h.care)+'% · Health '+Math.round(h.health)+'%',box);el('p','Speed '+h.genes.speed+' · Stamina '+h.genes.stamina+' · Health genetics '+h.genes.health+' · Training '+h.training,box);button(box,'Train horse','trainHorse',()=>({horse:h.id}));button(box,'Ride horse','mountHorse',()=>({horse:h.id}));const price=el('input',null,box);price.type='number';price.min=1;price.value=h.listed||Math.round((h.genes.speed+h.genes.stamina+h.genes.health)*60*(.25+.75*h.care/100)*(.5+.5*h.health/100)*(1+h.training/200)*(h.age>=345600?1:.5));if(h.listed)button(box,'Unlist horse','unlistHorse',()=>({horse:h.id}));else button(box,'List horse (price in cents)','listHorse',()=>({horse:h.id,price:Number(price.value)}));el('small','Certificate: '+h.id,box)}}button(work,'Feed','feed');button(work,'Water','water');if(v.species!=='chicken')button(work,'Collect products','collect');button(work,'Collect manure','manure');const sex=select(work,[['female','Female'],['male','Male']]);const qty=el('input',null,work);qty.type='number';qty.min=1;qty.value=1;button(work,'Butcher selected animals','slaughter',()=>({sex:sex.value,count:Number(qty.value)}));
+  if(v.species==='horse'){for(const h of v.horses||[]){const box=el('section',null,work);el('p',h.breed+' · '+h.sex+' · '+Math.floor(h.age/86400)+' days · Care '+Math.round(h.care)+'% · Health '+Math.round(h.health)+'%',box);el('p','Speed '+h.genes.speed+' · Stamina '+h.genes.stamina+' · Health genetics '+h.genes.health+' · Training '+h.training,box);button(box,'Train horse','trainHorse',()=>({horse:h.id}));button(box,'Ride horse','mountHorse',()=>({horse:h.id}));const price=el('input',null,box);price.type='number';price.min=1;price.value=h.listed||Math.round((h.genes.speed+h.genes.stamina+h.genes.health)*60*(.25+.75*h.care/100)*(.5+.5*h.health/100)*(1+h.training/200)*(h.age>=345600?1:.5));if(h.listed)button(box,'Unlist horse','unlistHorse',()=>({horse:h.id}));else button(box,'List horse (price in cents)','listHorse',()=>({horse:h.id,price:Number(price.value)}));el('small','Certificate: '+h.id,box)}}if(v.species==='pig'){const food=select(work,['corn','carrot','potato','wheat','broccoli','artichoke'].map(k=>['farm_'+k,k]));button(work,'Feed','feed',()=>({food:food.value}))}else button(work,'Feed','feed');button(work,'Water','water');if(v.species!=='chicken')button(work,'Collect products','collect');button(work,'Collect manure','manure');const sex=select(work,[['female','Female'],['male','Male']]);const qty=el('input',null,work);qty.type='number';qty.min=1;qty.value=1;button(work,'Butcher selected animals','slaughter',()=>({sex:sex.value,count:Number(qty.value)}));
  }else button(work,'Fill 10 water units into linked stock','fill');
  button(root,'Refresh','open');const release=el('button','Release empty facility',root);release.onclick=()=>{if(confirm('Release this empty facility?'))send('release')}
 }
 window.addEventListener('message',e=>{const d=e.data;if(d.type==='menu'){data=d.data;document.body.hidden=false;render()}else if(d.type==='close')document.body.hidden=true;else if(d.type==='notice')$('notice').textContent=d.message});
-function close(){fetch('https://'+GetParentResourceName()+'/close',{method:'POST',body:'{}'});document.body.hidden=true}
+function close(){cancelAnimationFrame(workFrame);workToken=null;fetch('https://'+GetParentResourceName()+'/close',{method:'POST',body:'{}'});document.body.hidden=true}
 $('close').onclick=close;document.addEventListener('keydown',e=>{if(e.key==='Escape')close()});
 
 function workRound(d){
@@ -42,9 +42,9 @@ function workRound(d){
  const marker=el('div',null,bar);marker.style.cssText='position:absolute;height:100%;width:4px;background:white';
  const start=performance.now();function frame(t){marker.style.left=(((t-start)%1800)/18)+'%';workFrame=requestAnimationFrame(frame)}workFrame=requestAnimationFrame(frame);
  const hit=el('button','Stop marker',root);hit.onclick=()=>{hit.disabled=true;send('workHit',{token:workToken})};
- button(root,'Cancel work','cancelWork');root.lastChild.onclick=()=>{send('cancelWork');cancelAnimationFrame(workFrame);workToken=null;send('open')};
+ button(root,'Cancel work','cancelWork');root.lastChild.onclick=()=>{send('cancelWork',{reopen:true});cancelAnimationFrame(workFrame);workToken=null};
 }
-window.addEventListener('message',e=>{const d=e.data;if(d.type==='workRound')workRound(d.data);else if(d.type==='workEnd'){cancelAnimationFrame(workFrame);workToken=null;send('open')}});
+window.addEventListener('message',e=>{const d=e.data;if(d.type==='workRound')workRound(d.data);else if(d.type==='workEnd'){cancelAnimationFrame(workFrame);workToken=null;setTimeout(()=>{if(!document.body.hidden)send('open')},650)}});
 
 window.addEventListener('message',e=>{
  if(e.data.type!=='shop')return;
@@ -52,7 +52,7 @@ window.addEventListener('message',e=>{
  el('h2','Agricultural supplier',root);const d=e.data.data;
  const item=select(root,d.items.map(v=>[v.id,v.name+' · $'+(v.price/100).toFixed(2)]));
  const qty=el('input',null,root);qty.type='number';qty.min=1;qty.max=1000;qty.value=1;
- el('label','Destination facility ID (required for animals; optional for company goods)',root);const facility=el('input',null,root);const breed=select(root,[['turkoman','Turkoman'],['standardbred','Standardbred'],['shire','Shire']]);const young=el('input',null,root);young.type='checkbox';el('span',' Juvenile (60% price for animals)',root);
+ el('label','Destination facility (required for animals; optional for company goods)',root);const facility=select(root,[['','Personal inventory'],...(d.destinations||[]).map(f=>[f.id,f.name+' · '+f.id])]);const breed=select(root,[['turkoman','Turkoman'],['standardbred','Standardbred'],['shire','Shire']]);const young=el('input',null,root);young.type='checkbox';el('span',' Juvenile (60% price for animals)',root);
  button(root,'Purchase','buySupply',()=>({item:item.value,quantity:Number(qty.value),facility:facility.value.trim(),breed:breed.value,juvenile:young.checked}));
  for(const j of d.orders||[])el('p',j.item+' × '+j.quantity+' · '+j.phase+' (automatically retried)',root);
 });
