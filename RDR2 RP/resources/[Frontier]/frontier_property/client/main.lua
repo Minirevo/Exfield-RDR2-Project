@@ -20,13 +20,47 @@ local function model(name)
     while not HasModelLoaded(h) and GetGameTimer()<deadline do Wait(10) end
     if HasModelLoaded(h) then return h end
 end
+-- Terrain is streamed client-side. Never freeze a camp prop at an unverified height.
+local function groundAt(x,y,z)
+    RequestCollisionAtCoord(x+0.0,y+0.0,z+0.0)
+    local ok,height=GetGroundZFor_3dCoord(x+0.0,y+0.0,z+5.0,false)
+    if ok and R.finite(height) and math.abs(height-z)<=C.GroundSearchTolerance then return height end
+end
+local collisionWarnings={}
+local function collisionReady(h,d)
+    RequestCollisionAtCoord(d.x+0.0,d.y+0.0,d.z+0.0)
+    RequestCollisionForModel(h)
+    local deadline=GetGameTimer()+1500
+    while not HasCollisionForModelLoaded(h) and GetGameTimer()<deadline do Wait(25) end
+    return HasCollisionForModelLoaded(h)
+end
 local function spawn(d,ghost)
     local h=model(d.model); if not h then return end
-    local o=CreateObject(h,d.x,d.y,d.z,false,false,false,false,false)
+    local z=d.z
+    if d.ground then
+        local ground=groundAt(d.x,d.y,d.z)
+        if not ground then SetModelAsNoLongerNeeded(h); return nil,'terrain' end
+        local min=GetModelDimensions(h)
+        z=ground-(min and min.z or 0)+(C.GroundModelOffsets[d.model] or 0)
+    end
+    local loaded=ghost or collisionReady(h,d)
+    local o=CreateObject(h,d.x+0.0,d.y+0.0,z+0.0,false,false,false,false,false)
     SetModelAsNoLongerNeeded(h)
     if o==0 then return end
-    SetEntityHeading(o,d.heading or 0); FreezeEntityPosition(o,true)
-    if ghost then SetEntityAlpha(o,130,false); SetEntityCollision(o,false,false) end
+    -- CreateObject can apply a model-dependent Z offset. Override it before freezing,
+    -- for BOTH previews and completed models; saved coordinates are entity origins.
+    SetEntityCoordsNoOffset(o,d.x+0.0,d.y+0.0,z+0.0,false,false,false)
+    SetEntityHeading(o,(d.heading or 0)+0.0); FreezeEntityPosition(o,true)
+    if ghost then
+        SetEntityAlpha(o,130,false)
+        SetEntityCollision(o,false,false)
+    else
+        SetEntityCollision(o,true,true)
+        if not loaded and not collisionWarnings[d.model] then
+            collisionWarnings[d.model]=true
+            print(('[frontier_property] Model collision not ready: %s (%s)'):format(d.model,h))
+        end
+    end
     return o
 end
 local function clear()
@@ -75,9 +109,13 @@ RegisterNetEvent(E..'preview',function(d)
     local ped=PlayerPedId(); local pos=GetOffsetFromEntityInWorldCoords(ped,0.0,3.0,0.0)
     local o=d.origin or {x=pos.x,y=pos.y,z=pos.z,heading=GetEntityHeading(ped)}
     o.model=d.model
+    -- New exterior previews start at the terrain, not at the player's body height.
+    -- Existing buildings and furniture preserve their exact saved transform.
+    o.ground=not d.origin and not d.room
     local handle=spawn(o,true)
     if not handle then notice('Model unavailable: '..d.model); action('cancelPreview'); return end
-    preview={handle=handle,x=o.x,y=o.y,z=o.z,heading=o.heading or 0,mode=d.mode,claim=d.claim,blockers=d.blockers,radius=d.radius,room=d.room}
+    local actual=GetEntityCoords(handle)
+    preview={handle=handle,x=actual.x,y=actual.y,z=actual.z,heading=o.heading or 0,mode=d.mode,claim=d.claim,blockers=d.blockers,radius=d.radius,room=d.room}
     notice('Placement: arrows move, PageUp/Down height, Q/R rotate, Enter confirm, Esc cancel.')
 end)
 RegisterNUICallback('menuReady',function(d,cb)
@@ -109,7 +147,7 @@ RegisterCommand('propertystop',function() action('stopWork') end,false)
 local function nearest()
     local p=GetEntityCoords(PlayerPedId()); local best,dist
     for _,o in pairs(objects) do
-        local d=o.data; local n= #(p-vector3(d.x,d.y,d.z))
+        local d=o.data; local n= #(p-(o.actual or vector3(d.x,d.y,d.z)))
         if d.action and n<=(d.interaction or C.InteractionDistance) and (not dist or n<dist) then best,dist=d,n end
     end
     return best
@@ -123,6 +161,20 @@ local function interact()
     for _,s in ipairs(C.Shops) do if #(p-vector3(s.x,s.y,s.z))<=5 then action('shop'); return end end
 end
 RegisterCommand('propertymenu',interact,false)
+-- Diagnostic only: does not modify models or saved coordinates.
+RegisterCommand('propertycollision',function()
+    local pos=GetEntityCoords(PlayerPedId()); local nearestObject,dist
+    for _,o in pairs(objects) do
+        if DoesEntityExist(o.handle) then
+            local n=#(pos-GetEntityCoords(o.handle))
+            if not dist or n<dist then nearestObject,dist=o,n end
+        end
+    end
+    if not nearestObject or dist>30 then return notice('No property object within 30m.') end
+    local o=nearestObject; local hash=GetHashKey(o.data.model)
+    local msg=('Model %s | model collision loaded: %s | world collision loaded: %s'):format(o.data.model,tostring(HasCollisionForModelLoaded(hash)),tostring(HasCollisionLoadedAroundEntity(o.handle)))
+    print('[frontier_property] '..msg); notice(msg)
+end,false)
 local function hint(msg)
     local str=CreateVarString(10,'LITERAL_STRING',msg)
     SetTextScale(0.32,0.32); SetTextColor(255,255,255,255); SetTextCentre(true)
@@ -136,11 +188,25 @@ CreateThread(function()
         for _,d in pairs(world.objects or {}) do wanted[d.key]=d end
         for key,o in pairs(objects) do
             local d=wanted[key]
-            if not d or d.model~=o.data.model or d.x~=o.data.x or d.y~=o.data.y or d.z~=o.data.z or d.heading~=o.data.heading then remove(o.handle); objects[key]=nil end
+            if d and DoesEntityExist(o.handle) then
+                local pos=GetEntityCoords(PlayerPedId())
+                if #(pos-GetEntityCoords(o.handle))<60 then
+                    RequestCollisionAtCoord(d.x+0.0,d.y+0.0,d.z+0.0)
+                    local hash=GetHashKey(d.model)
+                    if not HasCollisionForModelLoaded(hash) then RequestCollisionForModel(hash) end
+                    SetEntityCollision(o.handle,true,true)
+                end
+            end
+            if not d or not DoesEntityExist(o.handle) or d.model~=o.data.model or d.x~=o.data.x or d.y~=o.data.y or d.z~=o.data.z or d.heading~=o.data.heading then remove(o.handle); objects[key]=nil end
         end
         for key,d in pairs(wanted) do
             if not objects[key] and (not retry[key] or GetGameTimer()>retry[key]) then
-                local h=spawn(d,false); if h then objects[key]={handle=h,data=d} else retry[key]=GetGameTimer()+30000 end
+                local h,reason=spawn(d,false)
+                if h then
+                    local actual=GetEntityCoords(h)
+                    objects[key]={handle=h,data=d,actual=actual}
+                    retry[key]=nil
+                else retry[key]=GetGameTimer()+(reason=='terrain' and 1000 or 30000) end
             end
         end
         local p=GetEntityCoords(PlayerPedId()); local claim
@@ -191,7 +257,9 @@ end
 local function confirm()
     local p=preview;if not p then return end
     if not validPreview(p) then notice('Invalid placement.'); return end
-    local d={x=p.x,y=p.y,z=p.z,heading=p.heading};cancel(false);action('place',d)
+    local actual=GetEntityCoords(p.handle)
+    local d={x=actual.x,y=actual.y,z=actual.z,heading=GetEntityHeading(p.handle)}
+    cancel(false);action('place',d)
 end
 RegisterCommand('property_confirm',confirm,false)
 RegisterCommand('property_cancel',function() cancel(true) end,false)

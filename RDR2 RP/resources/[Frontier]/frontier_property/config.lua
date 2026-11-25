@@ -3,6 +3,9 @@ PropertyConfig = {
     TownClearance=100, TaxBase=1000, TaxPeriod=604800, TaxGrace=604800,
     ForeclosureDeduction=30, ForeclosurePenalty=50, StreamDistance=350, InteractionDistance=5,
     PlacementDistance=30, MaxHeightOffset=5, TickMs=1000, StorageSlots=60, StorageGrams=100000,
+    -- Ground probing is for camp props, construction markers and initial previews only.
+    -- Completed structures and furniture use exact saved entity origins.
+    GroundSearchTolerance=12, GroundModelOffsets={},
     Kit={id='settlement_kit',name='Settlement kit',grams=15000,price=25000},
     Camp={fire='p_campfiredirt01x',tent='mp001_p_mp_tent_leento03x',chest='p_chest01x',site='p_cs_woodpile01x'},
     Towns={
