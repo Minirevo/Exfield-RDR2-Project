@@ -6,9 +6,11 @@ local function notice(s) TriggerEvent('chat:addMessage',{args={'Farming',s}}) en
 RegisterCommand('farm',function() TriggerServerEvent(E..'action','open',{}) end,false)
 RegisterNetEvent(E..'notice',function(s) if source~=65535 then return end;notice(s);SendNUIMessage({type='notice',message=s}) end)
 RegisterNetEvent(E..'menu',function(d) if source~=65535 then return end;focused=true;SetNuiFocus(true,true);SendNUIMessage({type='menu',data=d}) end)
+RegisterNetEvent(E..'workRound',function(d) if source==65535 then SendNUIMessage({type='workRound',data=d}) end end)
+RegisterNetEvent(E..'workEnd',function() if source==65535 then SendNUIMessage({type='workEnd'}) end end)
 RegisterNetEvent(E..'world',function(d) if source==65535 then world=d end end)
 RegisterNUICallback('farmAction',function(d,cb) if focused then TriggerServerEvent(E..'action',d.action,d.data or {}) end;cb({ok=true}) end)
-RegisterNUICallback('close',function(_,cb) focused=false;SetNuiFocus(false,false);SendNUIMessage({type='close'});cb({ok=true}) end)
+RegisterNUICallback('close',function(_,cb) focused=false;TriggerServerEvent(E..'action','cancelWork',{});SetNuiFocus(false,false);SendNUIMessage({type='close'});cb({ok=true}) end)
 local function spawn(d)
  local h=GetHashKey(d.model);if not IsModelValid(h) then return end
  RequestModel(h);local untilTime=GetGameTimer()+1500
@@ -26,7 +28,7 @@ local function spawn(d)
  SetEntityAsMissionEntity(ent,true,true);SetEntityCoordsNoOffset(ent,d.x,d.y,z,false,false,false);SetEntityHeading(ent,d.heading);SetEntityInvincible(ent,true)
  if d.ped then
   pcall(function() Citizen.InvokeNative(0x283978A15512B2FE,ent,true) end)
-  SetBlockingOfNonTemporaryEvents(ent,true);TaskStandStill(ent,-1)
+  SetBlockingOfNonTemporaryEvents(ent,true);TaskStandStill(ent,3000)
  else FreezeEntityPosition(ent,true) end
  return ent
 end
@@ -57,9 +59,10 @@ CreateThread(function()
  while true do
   Wait(1000);local wanted=desired()
   for key,e in pairs(entities) do if not wanted[key] or wanted[key].model~=e.model or not DoesEntityExist(e.handle) then DeleteEntity(e.handle);entities[key]=nil end end
+  for _,e in pairs(entities) do if e.ped and DoesEntityExist(e.handle) then local p=GetEntityCoords(e.handle);local d=e.spawn;if #(p-vector3(d.x,d.y,d.z))>1.8 then TaskGoStraightToCoord(e.handle,d.x,d.y,d.z,1.0,4000,d.heading,0.2) elseif math.random()<.2 then TaskGoStraightToCoord(e.handle,d.x+(math.random()-.5)*1.5,d.y+(math.random()-.5)*1.5,p.z,0.5,3000,d.heading,0.2) end end end
   local added=0
   for key,d in pairs(wanted) do if not entities[key] and added<12 then
-   local h=spawn(d);if h then entities[key]={handle=h,model=d.model};added=added+1 end
+   local h=spawn(d);if h then entities[key]={handle=h,model=d.model,spawn=d,ped=d.ped};added=added+1 end
   end end
  end
 end)

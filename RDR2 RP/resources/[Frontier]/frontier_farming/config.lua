@@ -31,3 +31,17 @@ for k in pairs(FarmConfig.species) do
   FarmConfig.items['farm_'..k..'_male']={name=k..' male voucher',grams=10}
  end
 end
+
+FarmConfig.work={plant='hoe',water='water',fertilize='fork',harvest='sickle',clearCrop='hoe',feed='fork',collect='milk',manure='fork',slaughter='knife'}
+FarmConfig.tools.knife='farm_knife'
+FarmConfig.items.farm_knife={name='Butcher knife',grams=500,maxStack=1}
+FarmConfig.items.farm_hide={name='Animal hide',grams=400}
+FarmConfig.items.farm_horse_female={name='Mare voucher',grams=10}
+FarmConfig.items.farm_horse_male={name='Stallion voucher',grams=10}
+FarmConfig.supplyPrices={farm_hoe=1500,farm_sickle=1200,farm_watering_can=800,farm_bucket=600,farm_pitchfork=1200,farm_milking_kit=1000,farm_shears=800,farm_knife=900,farm_hay=12,farm_fertilizer=25}
+for k in pairs(FarmConfig.crops) do FarmConfig.supplyPrices['farm_seed_'..k]=5 end
+for k in pairs(FarmConfig.species) do
+ FarmConfig.supplyPrices['farm_'..k..'_female']=({chicken=150,pig=700,sheep=900,cattle=1800,horse=12000})[k]
+ FarmConfig.supplyPrices['farm_'..k..'_male']=FarmConfig.supplyPrices['farm_'..k..'_female']
+end
+FarmConfig.suppliers={{x=-322.4,y=803.9,z=117.9},{x=1328.7,y=-1293.4,z=77.0},{x=-785.1,y=-1322.4,z=43.9}}

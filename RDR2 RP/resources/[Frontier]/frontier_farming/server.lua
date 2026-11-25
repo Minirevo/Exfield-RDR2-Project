@@ -3,6 +3,8 @@ local E='frontier_farming:'
 local core,inv,prop,biz=exports.frontier_core,exports.frontier_inventory,exports.frontier_property,exports.frontier_business
 local ready,busy=false,false
 local sessions,rate={},{}
+local workLocks={}
+local function unlock(src) local w=sessions[src];if w then workLocks[w.id]=nil;sessions[src]=nil end end
 local function check(ok,msg) if not ok then error(msg or 'Denied',0) end end
 local function notice(src,msg) TriggerClientEvent(E..'notice',src,tostring(msg)) end
 local function cid(src) return core:GetPlayerCharacterId(src) end
@@ -62,9 +64,28 @@ local function view(src)
  end end
  TriggerClientEvent(E..'menu',src,{facilities=result,crops=C.crops,species=C.species,capacity=C.fieldCapacity})
 end
-local function action(src,a,d)
+local function action(src,a,d,score)
  local who=cid(src);check(who,'Select a character first')
  if a=='open' then return view(src) end
+ if a=='cancelWork' then unlock(src);return end
+ if a=='workHit' then
+  local w=sessions[src];check(w and w.actor==who and w.token==d.token,'Work session expired')
+  local now=GetGameTimer();check(now<=w.expires,'Work session expired')
+  local b=prop:FarmBuilding(w.plot,w.id,who);local f=row(w.id)
+  check(f and b and near(src,b) and authorized(src,f,b),'Return to facility')
+  local elapsed=now-w.started
+  check(elapsed>=300,'Wait for the marker')
+  local phase=(elapsed%1800)/1800
+  if math.abs(phase-w.target)<=.13 then w.hits=w.hits+1 end
+  w.round=w.round+1
+  if w.round>5 then
+   unlock(src);TriggerClientEvent(E..'workEnd',src)
+   return action(src,w.action,w.data,w.hits)
+  end
+  w.started=GetGameTimer();w.target=math.random(25,75)/100
+  TriggerClientEvent(E..'workRound',src,{token=w.token,target=w.target,round=w.round})
+  return
+ end
  check(type(d.id)=='string' and #d.id==32,'Invalid facility')
  local b=get(src,d.id);check(b and near(src,b),'Approach a completed farm building')
  if a=='bind' then
@@ -78,6 +99,15 @@ local function action(src,a,d)
  local f=row(b.id);check(f,'Register facility first');b=current(src,f)
  check(not pending(f.id),'Pending stock operation; recovery required')
  local s=state(f);R.advance(s,os.time(),b.size);save(f,s)
+ if workLocks[f.id] then error('Facility is being worked',0) end
+ if C.work[a] and score==nil then
+  local key=C.work[a];if a=='collect' and s.species=='sheep' then key='shear' end
+  tool(src,key);check(not sessions[src],'Finish your current work first')
+  local w={id=f.id,plot=f.plot,actor=who,token=uuid(),action=a,data=d,hits=0,round=1,started=GetGameTimer(),expires=GetGameTimer()+60000,target=math.random(25,75)/100}
+  sessions[src]=w;workLocks[f.id]=src
+  TriggerClientEvent(E..'workRound',src,{token=w.token,target=w.target,round=1})
+  return
+ end
  if a=='link' then
   check(biz:FarmStockValid(f.plot,f.owner_type,f.owner_id,d.storage),'Invalid stock chest')
   MySQL.update.await('UPDATE ff_facilities SET storage=? WHERE id=?',{d.storage,f.id})
@@ -101,7 +131,7 @@ local function action(src,a,d)
  elseif a=='harvest' then
   check(s.crop and not s.dead and s.growth>=1,'Crop not ready');tool(src,'sickle')
   local n=C.fieldCapacity[b.size];local crop=s.crop
-  local output=math.floor(n*(s.fertilized and 2.5 or 2)*s.soil/100)
+  local output=math.floor(n*(s.fertilized and 2.5 or 2)*s.soil/100*(1+(score or 0)*.05))
   s.crop=nil;s.growth=0;s.water=0;s.soil=math.max(60,s.soil-1)
   batch(f,s,{{item='farm_'..crop,count=output},{item='farm_seed_'..crop,count=n+math.floor(n/10)}})
  elseif a=='animal' then
@@ -122,6 +152,18 @@ local function action(src,a,d)
   local n=s.products;s.products=0;batch(f,s,{{item=C.species[s.species].product,count=n}})
  elseif a=='manure' then
   tool(src,'fork');local n=math.floor(s.manure);check(n>0,'No manure available');s.manure=s.manure-n;batch(f,s,{{item='farm_manure',count=n}})
+ elseif a=='slaughter' then
+  check(s.species and s.species~='horse','No eligible livestock');tool(src,'knife')
+  local n=tonumber(d.count);local sex=d.sex
+  check((sex=='female' or sex=='male') and n and n%1==0 and n>=1 and n<=s[sex],'Invalid animal selection')
+  local yield=({chicken=1,pig=4,sheep=3,cattle=8})[s.species]
+  s[sex]=s[sex]-n
+  local changes={{item='meat',count=math.floor(n*yield*(1+(score or 0)*.05))}}
+  if s.species~='chicken' then changes[#changes+1]={item='farm_hide',count=n} end
+  batch(f,s,changes)
+ elseif a=='fill' then
+  check(b.kind=='well','Approach a constructed well');tool(src,'bucket')
+  batch(f,s,{{item='farm_water',count=10}})
  elseif a=='fertilizer' then
   check(b.kind=='field','Use at a field');batch(f,s,{{item='farm_manure',count=-5},{item='farm_fertilizer',count=1}})
  else error('Action not available in this build',0) end
@@ -137,7 +179,9 @@ RegisterNetEvent(E..'action',function(a,d)
  local t=GetGameTimer();if rate[src] and t-rate[src]<400 then return end;rate[src]=t
  run(src,function() action(src,a,d) end)
 end)
-AddEventHandler('playerDropped',function() rate[source]=nil end)
+AddEventHandler('playerDropped',function() unlock(source);rate[source]=nil end)
+AddEventHandler('frontier:playerUnloaded',function(p) unlock(p.source) end)
+CreateThread(function() while true do Wait(1000);for src,w in pairs(sessions) do if GetGameTimer()>w.expires then unlock(src);TriggerClientEvent(E..'workEnd',src) end end end end)
 exports('FacilityBound',function(id) return not ready or row(id)~=nil end)
 exports('DrainCompany',function(id)
  if GetInvokingResource()~='frontier_business' or not ready or busy then return false end
@@ -165,7 +209,7 @@ MySQL.ready(function()
     local ok,err=finish(j)
     if not ok and ({insufficient_stock=true,weight=true,slots=true,stack_conflict=true,conflict=true,invalid_item=true})[err] then MySQL.update.await('DELETE FROM ff_operations WHERE id=?',{j.id}) end
    end
-   for _,f in ipairs(MySQL.query.await('SELECT * FROM ff_facilities')) do if not pending(f.id) then
+   for _,f in ipairs(MySQL.query.await('SELECT * FROM ff_facilities')) do if not pending(f.id) and not workLocks[f.id] then
     local s=state(f);local b=prop:FarmBuilding(f.plot,f.id,f.owner_id)
     if b then R.advance(s,os.time(),f.size);save(f,s)
      if s.species=='chicken' and s.products>=1 and stockValid(f) then

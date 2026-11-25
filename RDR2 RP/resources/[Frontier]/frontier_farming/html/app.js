@@ -1,6 +1,6 @@
 'use strict';
 const $=id=>document.getElementById(id);
-let data=null,selected=null;
+let data=null,selected=null,workToken=null,workFrame=0;
 function send(action,extra={}){fetch('https://'+GetParentResourceName()+'/farmAction',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,data:{id:selected,...extra}})}).catch(()=>{$('notice').textContent='Request failed'})}
 function el(tag,text,parent){const n=document.createElement(tag);if(text!=null)n.textContent=text;if(parent)parent.append(n);return n}
 function button(parent,text,action,extra){const b=el('button',text,parent);b.onclick=()=>send(action,typeof extra==='function'?extra():extra)}
@@ -26,10 +26,22 @@ function render(){
   el('p',(v.species||'Empty')+' · Female '+v.female+' · Male '+v.male+' · Young '+v.young,work);el('p','Health '+Math.round(v.health)+'% · Products '+v.products+' · Manure '+Math.floor(v.manure),work);
   el('p','Food reserve '+Math.floor(v.feed/3600)+' animal-hours · Water '+Math.floor(v.water/3600)+' animal-hours',work);
   const c=select(work,Object.keys(data.species).filter(k=>k!=='horse'&&(b.kind==='chicken'?k==='chicken':k!=='chicken')).map(k=>[k,k]));button(work,'Redeem female voucher','animal',()=>({species:c.value,sex:'female'}));button(work,'Redeem male voucher','animal',()=>({species:c.value,sex:'male'}));
-  button(work,'Feed','feed');button(work,'Water','water');if(v.species!=='chicken')button(work,'Collect products','collect');button(work,'Collect manure','manure');
- }else el('p','Well construction available; filling interaction is not enabled in this build.',work);
+  button(work,'Feed','feed');button(work,'Water','water');if(v.species!=='chicken')button(work,'Collect products','collect');button(work,'Collect manure','manure');const sex=select(work,[['female','Female'],['male','Male']]);const qty=el('input',null,work);qty.type='number';qty.min=1;qty.value=1;button(work,'Butcher selected animals','slaughter',()=>({sex:sex.value,count:Number(qty.value)}));
+ }else button(work,'Fill 10 water units into linked stock','fill');
  button(root,'Refresh','open');const release=el('button','Release empty facility',root);release.onclick=()=>{if(confirm('Release this empty facility?'))send('release')}
 }
 window.addEventListener('message',e=>{const d=e.data;if(d.type==='menu'){data=d.data;document.body.hidden=false;render()}else if(d.type==='close')document.body.hidden=true;else if(d.type==='notice')$('notice').textContent=d.message});
 function close(){fetch('https://'+GetParentResourceName()+'/close',{method:'POST',body:'{}'});document.body.hidden=true}
 $('close').onclick=close;document.addEventListener('keydown',e=>{if(e.key==='Escape')close()});
+
+function workRound(d){
+ cancelAnimationFrame(workFrame);workToken=d.token;
+ const root=$('content');root.replaceChildren();el('h2','Physical work · '+d.round+'/5',root);
+ const bar=el('div',null,root);bar.style.cssText='height:30px;background:#554533;position:relative;margin:20px 0';
+ const target=el('div',null,bar);target.style.cssText='position:absolute;height:100%;background:#73915c;left:'+((d.target-.13)*100)+'%;width:26%';
+ const marker=el('div',null,bar);marker.style.cssText='position:absolute;height:100%;width:4px;background:white';
+ const start=performance.now();function frame(t){marker.style.left=(((t-start)%1800)/18)+'%';workFrame=requestAnimationFrame(frame)}workFrame=requestAnimationFrame(frame);
+ const hit=el('button','Stop marker',root);hit.onclick=()=>{hit.disabled=true;send('workHit',{token:workToken})};
+ button(root,'Cancel work','cancelWork');root.lastChild.onclick=()=>{send('cancelWork');cancelAnimationFrame(workFrame);workToken=null;send('open')};
+}
+window.addEventListener('message',e=>{const d=e.data;if(d.type==='workRound')workRound(d.data);else if(d.type==='workEnd'){cancelAnimationFrame(workFrame);workToken=null;send('open')}});
