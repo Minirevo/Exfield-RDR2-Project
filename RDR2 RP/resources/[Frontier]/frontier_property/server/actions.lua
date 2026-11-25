@@ -248,6 +248,6 @@ end)
 exports('FarmBuilding',function(sid,bid,who)
     if GetInvokingResource()~='frontier_farming' or not ready then return end
     local s=settlement(sid);local b=s and s.buildings[bid];local e=b and C.Exteriors[b.exterior]
-    if not s or s.status~='active' or s.listing or not b.complete or not e or not e.farm then return end
+    if not s or s.status~='active' or s.listing or not b or not b.complete or not e or not e.farm then return end
     return {id=bid,plot=sid,x=b.x,y=b.y,z=b.z,heading=b.heading,kind=e.farm,size=e.size,width=e.width,length=e.length,personalOwner=s.primary,owned=owner(s,who)==true}
 end)

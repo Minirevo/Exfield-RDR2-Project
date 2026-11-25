@@ -54,3 +54,7 @@ FarmConfig.horseBreeds={
 FarmConfig.work.trainHorse='hoe'
 FarmConfig.horseTrainingInterval=3600
 FarmConfig.slaughterFractions={.5,.5,.3,.3,.15,.05}
+
+FarmConfig.waterSiteRadius=8
+FarmConfig.waterFillMs=5000
+FarmConfig.mountMaxSeconds=3600

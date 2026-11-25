@@ -452,6 +452,7 @@ fixtureAction=function(src,who,a,d)
   TriggerClientEvent('frontier_business:close',src);local ok,e=inv:OpenStorage(src,'business_'..id);requireThat(ok,e);return true
  elseif a=='fixtureRemove' then
   requireThat(f and propertyOwner(who,sid),'Plot owner required')
+  local farm=GetResourceState('frontier_farming');requireThat(farm=='missing' or farm=='started' and not exports.frontier_farming:StorageBound('business_'..id),'Unlink farming storage and resolve orders first')
   requireThat(not exports.frontier_trade:BusinessFixtureBusy(id) and not next(stock(f)) and not S("SELECT id FROM fb_retail WHERE fixture_id=? AND state NOT IN ('complete','failed') LIMIT 1",{id}),'Empty storage and resolve purchases first')
   tx({sql('DELETE FROM fb_prices WHERE fixture_id=?',{id}),sql('DELETE FROM fb_fixtures WHERE id=?',{id})})
  elseif a=='fixturePrice' then
@@ -563,8 +564,8 @@ liquidate=function(b,t)
  local expired=tonumber(b.liquidate_until)<=t
  local drained=exports.frontier_trade:DrainBusiness(b.id,expired)
  if not expired or not drained then return false end
- if GetResourceState('frontier_farming')=='started' and exports.frontier_farming:CompanyOrdersPending(b.id) then return false end
- if GetResourceState('frontier_farming')=='started' and not exports.frontier_farming:DrainCompany(b.id) then return false end
+ local farm=GetResourceState('frontier_farming')
+ if farm~='missing' and (farm~='started' or exports.frontier_farming:CompanyOrdersPending(b.id) or not exports.frontier_farming:DrainCompany(b.id)) then return false end
  if S("SELECT id FROM fb_retail WHERE seller_type='company' AND seller_id=? AND state IN ('reserve','payment','return') LIMIT 1",{b.id}) then return false end
  for _,f in ipairs(Q("SELECT * FROM fb_fixtures WHERE owner_type='company' AND owner_id=? ORDER BY id",{b.id})) do
   local row=S('SELECT * FROM fb_confiscations WHERE company_id=? AND fixture_id=?',{b.id,f.id})
@@ -628,7 +629,7 @@ exports('FarmStock',function(who,sid,typ,id)
  if GetInvokingResource()~='frontier_farming' or not ready then return {} end
  if typ=='character' and who~=id or typ=='company' and not allowed(company(id),who,'farm') then return {} end
  local out={}
- for _,f in ipairs(Q("SELECT * FROM fb_fixtures WHERE property_id=? AND owner_type=? AND owner_id=? AND kind='stock'",{sid,typ,id})) do
+ for _,f in ipairs(Q("SELECT * FROM fb_fixtures WHERE property_id=? AND owner_type=? AND owner_id=? AND kind='storage'",{sid,typ,id})) do
   if validFixture(f) then out[#out+1]={id='business_'..f.id,name=f.name} end
  end
  return out
@@ -636,7 +637,7 @@ end)
 exports('FarmStockValid',function(sid,typ,id,storage)
  if GetInvokingResource()~='frontier_farming' or not ready or type(storage)~='string' then return false end
  local f=fixture(storage:match('^business_([a-f0-9]+)$'))
- return f and f.kind=='stock' and f.property_id==sid and f.owner_type==typ and f.owner_id==id and validFixture(f)~=nil or false
+ return f and f.kind=='storage' and f.property_id==sid and f.owner_type==typ and f.owner_id==id and validFixture(f)~=nil or false
 end)
 
 -- Only a persisted farming order may debit a company account. Replay is independent of employee changes.

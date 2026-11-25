@@ -89,3 +89,42 @@ RegisterCommand('farmcancel',function() slaughterToken=nil;TriggerServerEvent(E.
 
 RegisterNetEvent(E..'horseMarket',function(d) if source~=65535 then return end;focused=true;SetNuiFocus(true,true);SendNUIMessage({type='horseMarket',data=d}) end)
 RegisterCommand('farmhorses',function() TriggerServerEvent(E..'action','horseMarket',{}) end,false)
+
+RegisterCommand('farmwater',function()
+ local p=PlayerPedId();local v=GetEntityCoords(p)
+ local ok,zone=pcall(function() return GetWaterMapZoneAtCoords(v.x,v.y,v.z) end)
+ if not IsEntityInWater(p) and (not ok or not zone or zone==0) then notice('Stand at the water edge.');return end
+ TriggerServerEvent(E..'action','riverStart',{})
+end,false)
+RegisterNetEvent(E..'waterWork',function(d)
+ if source~=65535 then return end
+ local p=PlayerPedId()
+ -- Gathering duration is enforced by the server; animation is cosmetic.
+ pcall(function() TaskStartScenarioInPlace(p,GetHashKey('WORLD_HUMAN_CROUCH_INSPECT'),d.ms,true,false,false,false) end)
+ CreateThread(function() Wait(d.ms+150);ClearPedTasks(p);TriggerServerEvent(E..'action','riverFinish',{token=d.token}) end)
+end)
+RegisterCommand('farmreturn',function() TriggerServerEvent(E..'action','returnMount',{}) end,false)
+RegisterNetEvent(E..'mount',function(d)
+ if source~=65535 then return end
+ focused=false;SetNuiFocus(false,false);SendNUIMessage({type='close'})
+ CreateThread(function()
+  local deadline=GetGameTimer()+8000
+  while not NetworkDoesEntityExistWithNetworkId(d.id) and GetGameTimer()<deadline do Wait(50) end
+  if not NetworkDoesEntityExistWithNetworkId(d.id) then notice('Mount not streamed. /farmreturn to recover.');return end
+  local horse=NetToPed(d.id);local h=d.horse
+  NetworkRequestControlOfEntity(horse)
+  pcall(function()
+   Citizen.InvokeNative(0x283978A15512B2FE,horse,true)
+   Citizen.InvokeNative(0xD2CB0FB0FDCB473D,PlayerId(),horse)
+   Citizen.InvokeNative(0x5DA12E025D47D4E5,horse,0,math.floor(h.genes.health*10+h.training*3))
+   Citizen.InvokeNative(0x5DA12E025D47D4E5,horse,1,math.floor(h.genes.stamina*10+h.training*3))
+   Citizen.InvokeNative(0x5DA12E025D47D4E5,horse,4,math.floor(h.genes.speed*10+h.training*3))
+   Citizen.InvokeNative(0x5DA12E025D47D4E5,horse,5,math.floor(h.genes.speed*10+h.training*3))
+   Citizen.InvokeNative(0xC6258F41D86676E0,horse,0,math.floor(h.health))
+   Citizen.InvokeNative(0xC6258F41D86676E0,horse,1,math.floor(h.care))
+   SetPedConfigFlag(horse,297,true);SetPedConfigFlag(horse,312,true)
+  end)
+  notice('Your horse is ready. Mount normally. /farmreturn returns it to its enclosure.')
+ end)
+end)
+RegisterNetEvent(E..'mountReturned',function() if source==65535 then notice('Mount returned to stable record.') end end)

@@ -3,7 +3,7 @@ local E='frontier_farming:'
 local core,inv,prop,biz=exports.frontier_core,exports.frontier_inventory,exports.frontier_property,exports.frontier_business
 local ready,busy=false,false
 local sessions,rate={},{}
-local workLocks={}
+local workLocks,mounts,mountLocks,waterWork={},{},{},{}
 local function unlock(src)
  local w=sessions[src];if w then
   for _,ped in ipairs(w.animals or {}) do if DoesEntityExist(ped) then DeleteEntity(ped) end end
@@ -13,7 +13,7 @@ end
 local function check(ok,msg) if not ok then error(msg or 'Denied',0) end end
 local function notice(src,msg) TriggerClientEvent(E..'notice',src,tostring(msg)) end
 local function cid(src) return core:GetPlayerCharacterId(src) end
-local function row(id) return MySQL.single.await('SELECT * FROM ff_facilities WHERE id=?',{id}) end
+local function row(id) if type(id)~='string' or #id~=32 or not id:match('^[a-f0-9]+$') then return end;return MySQL.single.await('SELECT * FROM ff_facilities WHERE id=?',{id}) end
 local function state(f) return json.decode(f.state) end
 local function save(f,s) MySQL.update.await('UPDATE ff_facilities SET state=? WHERE id=?',{json.encode(s),f.id}) end
 local function uuid() return MySQL.scalar.await('SELECT UUID()'):gsub('-','') end
@@ -65,7 +65,7 @@ end
 local function animalPending(id)
  return MySQL.single.await("SELECT d.order_id FROM ff_animal_orders d JOIN ff_orders o ON o.id=d.order_id WHERE d.facility=? AND o.phase IN ('payment','paid') LIMIT 1",{id})~=nil
 end
-local function locked(id) return workLocks[id] or pending(id) or horsePending(id) or animalPending(id) end
+local function locked(id) return workLocks[id] or mountLocks[id] or pending(id) or horsePending(id) or animalPending(id) end
 local function horseById(s,id)
  for i,h in ipairs(s.horses or {}) do if h.id==id then return h,i end end
 end
@@ -218,14 +218,66 @@ local function buySupply(src,d)
  local ok,e=orderStep(j);notice(src,ok and 'Supplies purchased' or ('Order pending or rejected: '..tostring(e)));shopView(src)
 end
 
+
+local function returnMount(src)
+ local m=mounts[src];if not m then return end
+ local f=row(m.facility)
+ if f then
+  local st=state(f);R.advance(st,os.time(),f.size)
+  local h,i=horseById(st,m.horse)
+  if h and DoesEntityExist(m.ped) and GetEntityHealth(m.ped)<=0 then table.remove(st.horses,i);R.horseCounts(st) end
+  save(f,st)
+ end
+ if DoesEntityExist(m.ped) then DeleteEntity(m.ped) end
+ mounts[src]=nil;mountLocks[m.facility]=nil
+ TriggerClientEvent(E..'mountReturned',src)
+end
+local function checkout(src,f,b,st,id)
+ check(not mounts[src],'Return your current mount first')
+ local h=horseById(st,id)
+ check(h and not h.listed and h.health>=30 and h.age>=C.species.horse.mature*3600,'Horse is not available to ride')
+ local p=GetEntityCoords(GetPlayerPed(src))
+ local ped=CreatePed(joaat(C.horseBreeds[h.breed].model),p.x+2.0,p.y,p.z+0.4,b.heading,true,true)
+ check(ped and ped~=0 and DoesEntityExist(ped),'Network mount unavailable')
+ SetEntityRoutingBucket(ped,GetPlayerRoutingBucket(src))
+ local net=NetworkGetNetworkIdFromEntity(ped)
+ if not net or net==0 then DeleteEntity(ped);error('Mount network ID unavailable',0) end
+ mounts[src]={actor=cid(src),horse=h.id,facility=f.id,ped=ped,expires=os.time()+C.mountMaxSeconds}
+ mountLocks[f.id]=src
+ TriggerClientEvent(E..'mount',src,{id=net,horse=h})
+end
+local function siteNear(src)
+ local ped=GetPlayerPed(src);if ped==0 or GetPlayerRoutingBucket(src)~=0 then return end
+ local v=GetEntityCoords(ped)
+ for _,q in ipairs(MySQL.query.await('SELECT * FROM ff_water_sites')) do
+  if (v.x-q.x)^2+(v.y-q.y)^2+(v.z-q.z)^2<=C.waterSiteRadius^2 then return q end
+ end
+end
+local function beginWater(src)
+ tool(src,'bucket');check(not waterWork[src],'Already filling a bucket')
+ local q=siteNear(src);check(q,'Approach an approved river or lake collection point')
+ local w={actor=cid(src),id=uuid(),site=q.id,started=GetGameTimer()}
+ waterWork[src]=w;TriggerClientEvent(E..'waterWork',src,{token=w.id,ms=C.waterFillMs})
+end
+local function finishWater(src,d)
+ local w=waterWork[src];check(w and w.actor==cid(src) and w.id==d.token,'Water collection expired')
+ local t=GetGameTimer()-w.started;check(t>=C.waterFillMs and t<=C.waterFillMs+15000,'Invalid filling duration')
+ local q=siteNear(src);check(q and q.id==w.site,'Remain near the water source');tool(src,'bucket')
+ local ok,e=inv:FarmSupplyDelivery(w.actor,'farm_water',10,'farm_water_'..w.id)
+ check(ok,e);waterWork[src]=nil;notice(src,'Filled 10 water units. Carry them back to your farm stock.')
+end
+
 local function action(src,a,d,score)
  local who=cid(src);check(who,'Select a character first')
  if a=='open' then return view(src) end
+ if a=='riverStart' then return beginWater(src) end
+ if a=='riverFinish' then return finishWater(src,d) end
+ if a=='returnMount' then check(mounts[src] and mounts[src].actor==who,'No mount checked out');return returnMount(src) end
  if a=='shop' then return shopView(src) end
  if a=='horseMarket' then return horseMarket(src) end
  if a=='buyHorse' then return buyHorse(src,d) end
  if a=='buySupply' then return buySupply(src,d) end
- if a=='cancelWork' then unlock(src);return end
+ if a=='cancelWork' then unlock(src);waterWork[src]=nil;return end
  if a=='slaughterFinish' then
   local w=sessions[src];check(w and w.actor==who and w.phase=='slaughter' and d.token==w.token,'No slaughter session')
   local f=row(w.id);local b=f and current(src,f);check(b and not pending(w.id),'Facility unavailable')
@@ -296,6 +348,8 @@ local function action(src,a,d,score)
  if a=='link' then
   check(biz:FarmStockValid(f.plot,f.owner_type,f.owner_id,d.storage),'Invalid stock chest')
   MySQL.update.await('UPDATE ff_facilities SET storage=? WHERE id=?',{d.storage,f.id})
+ elseif a=='unlink' then
+  MySQL.update.await('UPDATE ff_facilities SET storage=NULL WHERE id=?',{f.id})
  elseif a=='release' then
   check(not s.crop and R.count(s)==0 and s.products==0 and math.floor(s.manure)==0,'Empty facility before releasing')
   MySQL.update.await('DELETE FROM ff_facilities WHERE id=?',{f.id})
@@ -330,6 +384,8 @@ local function action(src,a,d,score)
    s.horses=s.horses or {};s.horses[#s.horses+1]=R.newHorse(uuid(),breed,d.sex,d.juvenile==true);R.horseCounts(s)
   else s[d.sex]=s[d.sex]+1 end
   batch(f,s,{{item='farm_'..d.species..'_'..d.sex,count=-1}})
+ elseif a=='mountHorse' then
+  return checkout(src,f,b,s,d.horse)
  elseif a=='listHorse' or a=='unlistHorse' then
   local h=horseById(s,d.horse);check(s.species=='horse' and h,'Horse unavailable')
   if a=='listHorse' then
@@ -381,8 +437,8 @@ RegisterNetEvent(E..'action',function(a,d)
  local t=GetGameTimer();if rate[src] and t-rate[src]<400 then return end;rate[src]=t
  run(src,function() action(src,a,d) end)
 end)
-AddEventHandler('playerDropped',function() unlock(source);rate[source]=nil end)
-AddEventHandler('frontier:playerUnloaded',function(p) unlock(p.source) end)
+AddEventHandler('playerDropped',function() local src=source;unlock(src);waterWork[src]=nil;rate[src]=nil;CreateThread(function() if ready then while busy do Wait(100) end;run(nil,function() returnMount(src) end) end end) end)
+AddEventHandler('frontier:playerUnloaded',function(p) local src=p.source;unlock(src);waterWork[src]=nil;CreateThread(function() if ready then while busy do Wait(100) end;run(nil,function() returnMount(src) end) end end) end)
 CreateThread(function() while true do Wait(1000);for src,w in pairs(sessions) do if GetGameTimer()>w.expires then unlock(src);TriggerClientEvent(E..'workEnd',src) end end end end)
 exports('FacilityBound',function(id) return not ready or row(id)~=nil end)
 exports('DrainCompany',function(id)
@@ -391,13 +447,15 @@ exports('DrainCompany',function(id)
  local ok,result=pcall(function()
   for _,f in ipairs(MySQL.query.await("SELECT * FROM ff_facilities WHERE owner_type='company' AND owner_id=?",{id})) do
    if locked(f.id) then return false end
-   MySQL.update.await('DELETE FROM ff_facilities WHERE id=?',{f.id})
+   check(MySQL.transaction.await({{query='INSERT INTO ff_confiscations(id,facility,plot,owner_type,owner_id,snapshot,reason,created) VALUES(?,?,?,?,?,?,?,?)',values={uuid(),f.id,f.plot,f.owner_type,f.owner_id,f.state,'company_liquidation',os.time()}},{query='DELETE FROM ff_facilities WHERE id=?',values={f.id}}}),'Liquidation audit failed')
   end
   return true
  end)
  busy=false;return ok and result==true
 end)
 MySQL.ready(function()
+ MySQL.query.await([[CREATE TABLE IF NOT EXISTS ff_water_sites(id CHAR(32) PRIMARY KEY,x DOUBLE NOT NULL,y DOUBLE NOT NULL,z DOUBLE NOT NULL,name VARCHAR(64) NOT NULL)]])
+ MySQL.query.await([[CREATE TABLE IF NOT EXISTS ff_confiscations(id CHAR(32) PRIMARY KEY,facility CHAR(32) NOT NULL,plot CHAR(32) NOT NULL,owner_type VARCHAR(16) NOT NULL,owner_id VARCHAR(64) NOT NULL,snapshot LONGTEXT NOT NULL,reason VARCHAR(32) NOT NULL,created BIGINT NOT NULL)]])
  MySQL.query.await([[CREATE TABLE IF NOT EXISTS ff_horse_sales(id CHAR(32) PRIMARY KEY,source_id CHAR(32) NOT NULL,dest_id CHAR(32) NOT NULL,source_state LONGTEXT NOT NULL,dest_state LONGTEXT NOT NULL,debit BIGINT NOT NULL,credit BIGINT NOT NULL,amount BIGINT NOT NULL,phase VARCHAR(16) NOT NULL,INDEX(source_id,phase),INDEX(dest_id,phase))]])
  MySQL.query.await([[CREATE TABLE IF NOT EXISTS ff_animal_orders(order_id CHAR(32) PRIMARY KEY,facility CHAR(32) NOT NULL,after_state LONGTEXT NOT NULL,INDEX(facility))]])
  MySQL.query.await([[CREATE TABLE IF NOT EXISTS ff_orders(id CHAR(32) PRIMARY KEY,actor VARCHAR(64) NOT NULL,owner_type VARCHAR(16) NOT NULL,owner_id VARCHAR(64) NOT NULL,storage VARCHAR(80) NOT NULL,bank BIGINT NOT NULL,item VARCHAR(48) NOT NULL,quantity INT NOT NULL,amount INT NOT NULL,phase VARCHAR(16) NOT NULL,created BIGINT NOT NULL,INDEX(actor,phase),INDEX(owner_id,phase))]])
@@ -435,7 +493,7 @@ CreateThread(function()
    for _,p in pairs(core:GetPlayers()) do
     local result={}
     for _,b in ipairs(prop:GetFarmBuildings(p.source)) do
-     local f=row(b.id);if f then local s=state(f);local lock=workLocks[f.id] and sessions[workLocks[f.id]];result[#result+1]={b=b,crop=s.crop,growth=s.growth,dead=s.dead,species=(not lock or lock.phase~='slaughter') and s.species or nil,female=s.female,male=s.male,young=s.young,horses=s.horses} end
+     local f=row(b.id);if f then local s=state(f);if mountLocks[f.id] and s.horses then local m=mounts[mountLocks[f.id]];if m then for i=#s.horses,1,-1 do if s.horses[i].id==m.horse then table.remove(s.horses,i) end end;R.horseCounts(s) end end;local lock=workLocks[f.id] and sessions[workLocks[f.id]];result[#result+1]={b=b,crop=s.crop,growth=s.growth,dead=s.dead,species=(not lock or lock.phase~='slaughter') and s.species or nil,female=s.female,male=s.male,young=s.young,horses=s.horses} end
     end
     TriggerClientEvent(E..'world',p.source,result)
    end
@@ -448,9 +506,50 @@ exports('CompanyOrdersPending',function(id)
  return MySQL.single.await("SELECT id FROM ff_orders WHERE owner_type='company' AND owner_id=? AND phase IN ('payment','paid') LIMIT 1",{id})~=nil
 end)
 
-AddEventHandler('onResourceStop',function(name) if name==GetCurrentResourceName() then for src in pairs(sessions) do unlock(src) end end end)
+AddEventHandler('onResourceStop',function(name) if name==GetCurrentResourceName() then for src in pairs(sessions) do unlock(src) end;for _,m in pairs(mounts) do if DoesEntityExist(m.ped) then DeleteEntity(m.ped) end end end end)
 
 exports('OpenHorseMarket',function(src)
  if GetInvokingResource()~='frontier_trade' then return false end
  run(src,function() horseMarket(src) end);return true
+end)
+
+CreateThread(function()
+ while true do Wait(2000)
+  if ready and not busy then
+   run(nil,function()
+    for src,m in pairs(mounts) do if cid(src)~=m.actor or os.time()>=m.expires or not DoesEntityExist(m.ped) or GetEntityHealth(m.ped)<=0 then returnMount(src) end end
+    for src,w in pairs(waterWork) do if GetGameTimer()-w.started>C.waterFillMs+15000 then waterWork[src]=nil end end
+   end)
+  end
+ end
+end)
+RegisterCommand('farmwatersite',function(src,args)
+ if src==0 or not IsPlayerAceAllowed(src,'frontier.farming.admin') then return end
+ run(src,function()
+  local ped=GetPlayerPed(src);check(ped~=0 and GetPlayerRoutingBucket(src)==0,'Stand at a real water access point')
+  local v=GetEntityCoords(ped);local name=table.concat(args,' '):sub(1,64)
+  if name=='' then name='River access' end
+  MySQL.insert.await('INSERT INTO ff_water_sites(id,x,y,z,name) VALUES(?,?,?,?,?)',{uuid(),v.x,v.y,v.z,name})
+  notice(src,'Water collection point registered: '..name)
+ end)
+end,false)
+RegisterCommand('farmwaterremove',function(src,args)
+ if src==0 or not IsPlayerAceAllowed(src,'frontier.farming.admin') then return end
+ run(src,function() local q=siteNear(src);check(q,'No nearby collection point');MySQL.update.await('DELETE FROM ff_water_sites WHERE id=?',{q.id});notice(src,'Water collection point removed') end)
+end,false)
+exports('StorageBound',function(storage)
+ if GetInvokingResource()~='frontier_business' or not ready then return true end
+ return MySQL.single.await('SELECT id FROM ff_facilities WHERE storage=? LIMIT 1',{storage})~=nil or MySQL.single.await("SELECT id FROM ff_orders WHERE storage=? AND phase IN ('payment','paid') LIMIT 1",{storage})~=nil
+end)
+exports('DrainPlot',function(plot)
+ if GetInvokingResource()~='frontier_property' or not ready or busy then return false end
+ busy=true
+ local ok,result=pcall(function()
+  for _,f in ipairs(MySQL.query.await('SELECT * FROM ff_facilities WHERE plot=?',{plot})) do
+   if locked(f.id) then return false end
+   check(MySQL.transaction.await({{query='INSERT INTO ff_confiscations(id,facility,plot,owner_type,owner_id,snapshot,reason,created) VALUES(?,?,?,?,?,?,?,?)',values={uuid(),f.id,f.plot,f.owner_type,f.owner_id,f.state,'plot_foreclosure',os.time()}},{query='DELETE FROM ff_facilities WHERE id=?',values={f.id}}}),'Foreclosure audit failed')
+  end
+  return true
+ end)
+ busy=false;return ok and result==true
 end)
