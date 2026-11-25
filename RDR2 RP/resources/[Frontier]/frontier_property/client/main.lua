@@ -185,7 +185,7 @@ local function clear()
     for _,o in pairs(objects) do remove(o.handle) end; objects={}
 end
 local function cancel(send)
-    if preview then remove(preview.handle); preview=nil; if send then action('cancelPreview') end end
+    if preview then for _,h in ipairs(preview.handles or {preview.handle}) do remove(h) end; preview=nil; if send then action('cancelPreview') end end
 end
 RegisterNetEvent(E..'notice',function(msg) if source==65535 then notice(msg); SendNUIMessage({type='notice',message=msg}) end end)
 RegisterNetEvent(E..'close',function() if source==65535 then close() end end)
@@ -226,14 +226,17 @@ RegisterNetEvent(E..'preview',function(d)
     close(); cancel(false)
     local ped=PlayerPedId(); local pos=GetOffsetFromEntityInWorldCoords(ped,0.0,3.0,0.0)
     local o=d.origin or {x=pos.x,y=pos.y,z=pos.z,heading=GetEntityHeading(ped)}
-    o.model=d.model
-    -- New exterior previews start at the terrain, not at the player's body height.
-    -- Existing buildings and furniture preserve their exact saved transform.
-    o.ground=not d.origin and not d.room
-    local handle=spawn(o,true)
-    if not handle then notice('Model unavailable: '..d.model); action('cancelPreview'); return end
-    local actual=GetEntityCoords(handle)
-    preview={handle=handle,x=actual.x,y=actual.y,z=actual.z,heading=o.heading or 0,mode=d.mode,claim=d.claim,blockers=d.blockers,radius=d.radius,room=d.room}
+    local parts=d.parts or {{model=d.model,x=0,y=0,z=0,heading=0}}
+    local handles={}
+    for n,part in ipairs(parts) do
+        local q=R.transform(o,part)
+        q.ground=n==1 and not d.origin
+        local handle=spawn(q,true)
+        if not handle then for _,h in ipairs(handles) do remove(h) end;notice('Model unavailable: '..part.model);action('cancelPreview');return end
+        handles[n]=handle
+        if n==1 and q.ground then local actual=GetEntityCoords(handle);o.z=actual.z-(part.z or 0) end
+    end
+    preview={handle=handles[1],handles=handles,parts=parts,x=o.x,y=o.y,z=o.z,heading=o.heading or 0,mode=d.mode,claim=d.claim,blockers=d.blockers,radius=d.radius,furniture=d.furniture,buildings=d.buildings}
     notice('Placement: arrows move, PageUp/Down height, Q/R rotate, Enter confirm, Esc cancel.')
 end)
 RegisterNUICallback('menuReady',function(d,cb)
@@ -258,6 +261,7 @@ RegisterNUICallback('action',function(d,cb)
         action(d.action,d.data); cb({ok=true})
     else cb({ok=false}) end
 end)
+RegisterCommand('propertyfurniture',function() action('furnitureMenu') end,false)
 RegisterCommand('propertymarket',function() action('market') end,false)
 RegisterCommand('propertyshop',function() action('shop') end,false)
 RegisterCommand('propertyexit',function() action('exit') end,false)
@@ -325,6 +329,7 @@ CreateThread(function()
                     SetEntityCollision(o.handle,true,true)
                 end
             end
+            if d then o.data.action=d.action;o.data.interaction=d.interaction end
             if not d or not DoesEntityExist(o.handle) or d.model~=o.data.model or d.x~=o.data.x or d.y~=o.data.y or d.z~=o.data.z or d.heading~=o.data.heading then remove(o.handle); objects[key]=nil end
         end
         for key,d in pairs(wanted) do
@@ -403,7 +408,7 @@ local function adjust(k)
     elseif k=='right' then p.x=p.x+math.cos(h)*step;p.y=p.y+math.sin(h)*step
     elseif k=='raise' then p.z=p.z+0.05 elseif k=='lower' then p.z=p.z-0.05
     elseif k=='rotateL' then p.heading=(p.heading-1.5)%360 elseif k=='rotateR' then p.heading=(p.heading+1.5)%360 end
-    SetEntityCoordsNoOffset(p.handle,p.x,p.y,p.z,false,false,false);SetEntityHeading(p.handle,p.heading)
+    for n,h in ipairs(p.handles) do local q=R.transform(p,p.parts[n]);SetEntityCoordsNoOffset(h,q.x,q.y,q.z,false,false,false);SetEntityRotation(h,0.0,0.0,q.heading+0.0,2,false) end
 end
 for _,k in ipairs({'up','down','left','right','raise','lower','rotateL','rotateR'}) do
     RegisterCommand('property_'..k,function() adjust(k) end,false)
@@ -411,7 +416,7 @@ end
 local function validPreview(p)
     local pos=GetEntityCoords(PlayerPedId())
     if not R.near(pos,p,C.PlacementDistance) or math.abs(pos.z-p.z)>C.MaxHeightOffset then return false end
-    if p.room then return R.near(p.room,p,p.room.bounds) end
+    if p.furniture then return p.claim and R.distance(p.claim,p)<=p.claim.radius and R.distance(p.claim,pos)<=p.claim.radius end
     if p.claim and p.radius then
         local s=p.claim; s.buildings=p.blockers or {}
         return R.fits(s,p,p.radius)
@@ -421,8 +426,7 @@ end
 local function confirm()
     local p=preview;if not p then return end
     if not validPreview(p) then notice('Invalid placement.'); return end
-    local actual=GetEntityCoords(p.handle)
-    local d={x=actual.x,y=actual.y,z=actual.z,heading=GetEntityHeading(p.handle)}
+    local d={x=p.x,y=p.y,z=p.z,heading=p.heading}
     cancel(false);action('place',d)
 end
 RegisterCommand('property_confirm',confirm,false)
@@ -459,7 +463,7 @@ CreateThread(function()
             DisableControlAction(0,keys.confirm,true); DisableControlAction(0,keys.cancel,true)
             if IsDisabledControlJustPressed(0,keys.confirm) then confirm()
             elseif IsDisabledControlJustPressed(0,keys.cancel) then cancel(true) end
-            if preview then hint((validPreview(preview) and 'VALID' or 'INVALID')..' | Arrows move | Enter confirm | Esc cancel') end
+            if preview then local area=preview.furniture and (R.buildingAt({buildings=preview.buildings},preview,C) and ' | INDOOR' or ' | OUTDOOR') or '';hint((validPreview(preview) and 'VALID' or 'INVALID')..area..' | Arrows move | Enter confirm | Esc cancel') end
         elseif not focused and not IsNuiFocused() then
             local d=nearest(); local shop=false;local p=GetEntityCoords(PlayerPedId())
             if not d and not interior then for _,s in ipairs(C.Shops) do if #(p-vector3(s.x,s.y,s.z))<=5 then shop=true;break end end end
@@ -473,3 +477,14 @@ end)
 AddEventHandler('onClientResourceStop',function(r)
     if r==GetCurrentResourceName() then close();cancel(false);clear();clearTest();for _,b in pairs(markers) do RemoveBlip(b) end end
 end)
+
+-- Trusted admin can report model bounds from the temporary spawned components.
+RegisterCommand('propertybounds',function()
+    for _,o in ipairs(testObjects) do
+        if DoesEntityExist(o.handle) then
+            local lo,hi=GetModelDimensions(GetHashKey(o.data.model))
+            local msg=('%s min={x=%.3f,y=%.3f,z=%.3f},max={x=%.3f,y=%.3f,z=%.3f}'):format(o.data.model,lo.x,lo.y,lo.z,hi.x,hi.y,hi.z)
+            print('[frontier_property] '..msg);notice(msg)
+        end
+    end
+end,false)

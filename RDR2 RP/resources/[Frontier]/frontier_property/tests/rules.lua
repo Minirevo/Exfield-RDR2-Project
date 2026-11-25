@@ -13,3 +13,13 @@ assert(not R.fits(s,{x=124,y=0,z=0},5))
 local payout,paid,forgiven=R.foreclosure(10000,1000,C)
 assert(payout==3000 and paid==1000 and forgiven==0)
 print('rules passed')
+
+local C=PropertyConfig
+local b={id='stable',exterior='stable',complete=true,x=100,y=200,z=30,heading=90}
+local part=PropertyRules.parts(C.Exteriors.stable,C)[2]
+local origin=PropertyRules.transform(b,part)
+local inside=PropertyRules.transform(origin,{x=0,y=0,z=1})
+assert(PropertyRules.indoor(b,inside,C))
+assert(PropertyRules.buildingAt({buildings={stable=b}},inside,C)=='stable')
+assert(not PropertyRules.indoor(b,{x=100,y=250,z=30},C))
+b.complete=false;assert(not PropertyRules.indoor(b,inside,C))

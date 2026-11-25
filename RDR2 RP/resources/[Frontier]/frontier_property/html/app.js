@@ -29,6 +29,11 @@ function render(){
   for(const [k,n] of entries(stage.materials)){const left=n-(b.delivered?.[k]||0);const r=node('article',k+' · '+(n-left)+' / '+n,root);if(left>0&&s.rights.deliver){const q=input(r,'number',Math.min(left,5));q.min=1;q.max=left;button(r,'Deliver',()=>act('deliver',args({item:k,quantity:Number(q.value)})))}}
   if(s.rights.work)button(root,'Start work',()=>act('work',args()));button(root,'Stop work',()=>act('stopWork',args()));return
  }
+ if(state.kind==='furnitureMenu'){
+  node('p','Use furniture from inventory anywhere on your settlement. Move or pick up nearby objects below.',root);
+  for(const [id,f] of entries(state.furniture)){const building=vals(state.buildings).find(b=>b.id===f.building);const r=node('article',f.item+' · '+(building?'Indoor: '+state.catalogue[building.exterior].label:'Outdoor'),root);button(r,'Move',()=>act('moveFurniture',args({fid:id})));button(r,'Pick up',()=>act('removeFurniture',args({fid:id})))}
+  return
+ }
  if(state.kind==='interior'&&b){
   button(root,'Leave building',()=>act('exit'));node('p','Furnishing capacity: '+b.capacity+' slots',root);
   node('p','Use a furniture item from Frontier Inventory to place it.',root);
@@ -37,6 +42,7 @@ function render(){
  node('p','Radius '+s.radius+'m · Weekly tax '+money(s.tax)+' · Outstanding '+money(s.debt),root);
  if(s.rights.expand)confirmInline(root,'Expand +25m · '+money(s.expansion),()=>act('expand',args()));
  if(s.rights.finance&&s.debt>0)button(root,'Pay tax',()=>act('tax',args()));
+ if(s.rights.furnish){button(root,'Manage plot furniture',()=>act('furnitureMenu',args()));for(const [id,f] of entries(state.legacyFurniture)){const r=node('article','Legacy interior item: '+f.item,root);button(r,'Recover to inventory',()=>act('removeFurniture',args({bid:f.bid,fid:id})))}}
  if(s.rights.storage)button(root,'Camp chest',()=>act('chest',args()));
  if(s.rights.members){const sec=section(root,'Settlement management');const name=input(sec,'text',s.name);name.maxLength=60;button(sec,'Rename',()=>act('rename',args({name:name.value})));if(s.owner)button(sec,s.map?'Hide map marker':'Show map marker',()=>act('map',args()));
   const target=input(sec,'number','','Online player ID');const rights={};const list=node('div',undefined,sec);for(const k of vals(state.permissions)){const label=node('label',undefined,list);rights[k]=input(label,'checkbox');label.append(document.createTextNode(k))}
@@ -46,16 +52,16 @@ function render(){
   for(const [id,r] of entries(s.members)){const row=node('article',id+' · '+entries(r).filter(([,v])=>v).map(([k])=>k).join(', '),sec);button(row,'Edit permissions',()=>{for(const [k,v] of entries(rights))v.checked=r[k]===true;button(row,'Save selected permissions',()=>act('member',args({character:id,rights:Object.fromEntries(entries(rights).map(([k,v])=>[k,v.checked]))})));});button(row,'Remove',()=>act('member',args({character:id,remove:true})))};
  }
  if(s.rights.build){const sec=section(root,'Construction catalogue');
-  const cats=[...new Set(vals(state.catalogue).map(e=>e.category))].sort();const cat=select(sec,cats.map(c=>[c,c]));const ext=select(sec,[]);const int=select(sec,[]);const detail=node('p','',sec);
-  function update(){const e=state.catalogue[ext.value];if(!e)return;int.hidden=!e.interior;const i=e.interior?state.interiors[int.value]:null;detail.textContent='Exterior: '+materials(e.materials)+' | '+e.slots+' slots'+(i?' / Interior: '+materials(i.materials)+' | '+i.slots+' slots':'')+' / Total slots: '+(e.slots+(i?.slots||0))}
+  const cats=[...new Set(vals(state.catalogue).map(e=>e.category))].sort();const cat=select(sec,cats.map(c=>[c,c]));const ext=select(sec,[]);const detail=node('p','',sec);
+  function update(){const e=state.catalogue[ext.value];if(e)detail.textContent='Materials: '+materials(e.materials)+' | Physical building'}
   function populate(){ext.replaceChildren();for(const [key,e] of entries(state.catalogue))if(e.category===cat.value){const o=node('option',e.label,ext);o.value=key}update()}
-  for(const [key,i] of entries(state.interiors)){const o=node('option',i.label,int);o.value=key}cat.onchange=populate;ext.onchange=update;int.onchange=update;populate();
-  button(sec,'Place building preview',()=>act('plan',args({exterior:ext.value,interior:state.catalogue[ext.value].interior?int.value:null})));
+  cat.onchange=populate;ext.onchange=update;populate();
+  button(sec,'Place building preview',()=>act('plan',args({exterior:ext.value})));
  }
  const sec=section(root,'Buildings');
  for(const v of vals(state.buildings)){const e=state.catalogue[v.exterior];const r=node('article',e.label+' · '+(v.complete?'Complete':'Stage '+v.stage)+' · '+v.capacity+' slots',sec);const a={sid:s.id,bid:v.id};
   if(v.complete&&s.rights.move)button(r,'Relocate',()=>act('move',a));
-  if(v.complete&&s.rights.members&&v.interior)button(r,v.locked?'Unlock':'Lock',()=>act('lock',a));
+  // Physical door locking is not implemented; do not expose a misleading lock button.
   if(v.complete&&s.rights.build){const choices=entries(state.catalogue).filter(([,n])=>n.category===e.category&&n.interior===e.interior&&n.slots>e.slots);if(choices.length){const up=select(r,choices.map(([k,n])=>[k,n.label]));confirmInline(r,'Upgrade',()=>act('upgrade',{...a,exterior:up.value}))}}
   if(s.rights.demolish)confirmInline(r,'Demolish without refund',()=>act('demolish',{...a,confirm:'DEMOLISH'}));
  }
