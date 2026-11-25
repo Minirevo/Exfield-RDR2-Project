@@ -438,7 +438,7 @@ RegisterCommand('frontier_inv_test', function(source, args)
 end, false)
 
 trusted('GetTradeItemDefinition', function(owner, item)
-    if owner ~= 'frontier_trade' then return false, 'forbidden' end
+    if owner ~= 'frontier_trade' and owner ~= 'frontier_business' then return false, 'forbidden' end
     local definition = Inventory.Id(item, 48) and Inventory.items[item]
     if not definition then return false, 'invalid_item' end
     return true, { id = item, name = definition.name, transferable = definition.transfer }
@@ -462,6 +462,321 @@ local function tradeMove(owner, delivery, character, item, quantity, taking)
     if replay then return true, key end
 
     local boxId = 'trade_' .. delivery
+    local stockId = 'p_' .. character
+    local confiscate = false
+    -- Company IDs are exactly 32 hex characters; character IDs have the f_ prefix.
+    -- Persisted routes, never a fictitious player inventory, select the physical stock.
+    if #character==32 and character:match('^[a-f0-9]+
+        local created, issue = Inventory.Ensure(boxId, 'storage', 200, 100000000)
+        if not created then return false, issue end
+    elseif stockId:sub(1,2)=='p_' then
+        local created, issue = Inventory.Ensure(stockId, 'player', InventoryConfig.Slots, InventoryConfig.WeightGrams)
+        if not created then return false, issue end
+    end
+    local loaded, box = Inventory.Load(boxId)
+    if not loaded then return false, box end
+    local player
+    if not confiscate then
+        local ok;ok,player=Inventory.Load(stockId)
+        if not ok then return false,player end
+    end
+    local from, to = player, box
+    if not taking then from, to = box, player end
+    local remaining = quantity
+    for slot = 1, from.slot_limit do
+        local stack = from.slots[slot]
+        if stack and stack.item == item then
+            local chunk = math.min(remaining, stack.quantity)
+            local removed, value = Inventory.Take(from, slot, chunk)
+            if not removed then return false, value end
+            if not confiscate then
+                local placed, issue = Inventory.Place(to, value)
+                if not placed then return false, issue end
+            end
+            remaining = remaining - chunk
+            if remaining == 0 then break end
+        end
+    end
+    if remaining ~= 0 then return false, 'insufficient_stock' end
+    if confiscate then return Inventory.Commit(key, actor, fingerprint, from) end
+    return Inventory.Commit(key, actor, fingerprint, from, to)
+end
+
+trusted('ReserveTradeDelivery', function(owner, delivery, character, item, quantity)
+    return tradeMove(owner, delivery, character, item, quantity, true)
+end)
+trusted('ClaimTradeDelivery', function(owner, delivery, character, item, quantity)
+    return tradeMove(owner, delivery, character, item, quantity, false)
+end)
+
+trusted('MoveTradeSaleStock', function(owner, sale, offer, item, quantity, reverse)
+    if owner ~= 'frontier_trade' then return false, 'forbidden' end
+    if not tradeUuid(sale) or not tradeUuid(offer) or sale == offer
+        or not Inventory.Id(item,48) or not Inventory.Int(quantity,1000)
+        or type(reverse) ~= 'boolean' then return false, 'invalid_request' end
+    local key = sale .. (reverse and ':return' or ':allocate')
+    local actor = 'resource:' .. owner
+    local fingerprint = json.encode({ sale,offer,item,quantity,reverse })
+    local ok, result = Inventory.Replay(key,actor,fingerprint)
+    if not ok then return false,result end
+    if result then return true,key end
+    local saleBox = 'trade_' .. sale
+    local offerBox = 'trade_' .. offer
+    if not reverse then
+        ok,result = Inventory.Ensure(saleBox,'storage',200,100000000)
+        if not ok then return false,result end
+    end
+    local from,to
+    ok,from = Inventory.Load(reverse and saleBox or offerBox)
+    if not ok then return false,from end
+    ok,to = Inventory.Load(reverse and offerBox or saleBox)
+    if not ok then return false,to end
+    local remaining = quantity
+    for slot=1,from.slot_limit do
+        local stack=from.slots[slot]
+        if stack and stack.item == item then
+            local count=math.min(remaining,stack.quantity)
+            local taken, entry=Inventory.Take(from,slot,count)
+            if not taken then return false,entry end
+            local placed, issue=Inventory.Place(to,entry)
+            if not placed then return false,issue end
+            remaining=remaining-count
+            if remaining==0 then break end
+        end
+    end
+    if remaining~=0 then return false,'insufficient_stock' end
+    return Inventory.Commit(key,actor,fingerprint,from,to)
+end)
+
+local function npcBox(owner, character, item)
+    if owner ~= 'frontier_trade' then return false,'forbidden' end
+    if not Inventory.Id(character,48) or not character:match('^npc_')
+        or not Inventory.Id(item,48) or not Inventory.items[item] then return false,'invalid_request' end
+    local ready, issue=Inventory.Ensure('p_'..character,'player',InventoryConfig.Slots,InventoryConfig.WeightGrams)
+    if not ready then return false,issue end
+    return Inventory.Load('p_'..character)
+end
+
+trusted('GetTradeNpcStock',function(owner,character,item)
+    local ok,box=npcBox(owner,character,item)
+    if not ok then return false,box end
+    return true,countEntries(box,item)
+end)
+
+trusted('ChangeTradeNpcStock',function(owner,character,item,count,add,key)
+    if not Inventory.Int(count,1000) or type(add)~='boolean' or not requestKey(key) or type(key)~='string' then
+        return false,'invalid_request'
+    end
+    local ok,box=npcBox(owner,character,item)
+    if not ok then return false,box end
+    local actor='resource:'..owner
+    local fingerprint=json.encode({'npc-stock',character,item,count,add})
+    local checked,replay=Inventory.Replay(key,actor,fingerprint)
+    if not checked then return false,replay end
+    if replay then return true,key end
+    return Inventory.Change({key=key,actor=actor,fingerprint=fingerprint},box,add,item,count)
+end)
+
+local function productionMove(from,to,requested)
+    if requested then
+        for _, item in ipairs(requested) do
+            local remaining=item.count
+            for slot=1,from.slot_limit do
+                local entry=from.slots[slot]
+                if entry and entry.item==item.id then
+                    local amount=math.min(remaining,entry.quantity)
+                    local ok,stack=Inventory.Take(from,slot,amount)
+                    if not ok then return false,stack end
+                    local put,reason=Inventory.Place(to,stack)
+                    if not put then return false,reason end
+                    remaining=remaining-amount
+                    if remaining==0 then break end
+                end
+            end
+            if remaining~=0 then return false,'insufficient_stock' end
+        end
+    else
+        for slot=1,from.slot_limit do
+            local stack=from.slots[slot]
+            if stack then
+                local ok,reason=Inventory.Place(to,stack)
+                if not ok then return false,reason end
+                from.slots[slot]=nil
+            end
+        end
+    end
+    return true
+end
+
+local function productionBox(id,kind,slots,grams)
+    local ok,reason=Inventory.Ensure(id,kind,slots,grams)
+    if not ok then return false,reason end
+    return Inventory.Load(id)
+end
+
+trusted('GetProductionStorage',function(resource,owner,slots,grams)
+    if resource~='frontier_production' then return false,'forbidden' end
+    if not Inventory.Id(owner,64) or not Inventory.Int(slots,200) or not Inventory.Int(grams,100000000) then
+        return false,'invalid_request'
+    end
+    local ok,box=productionBox('prod_'..owner,'storage',slots,grams)
+    if not ok then return false,box end
+    local present=Inventory.Present(box)
+    local used=0
+    for _,stack in pairs(box.slots) do used=used+stack.quantity end
+    present.units=used
+    return true,present
+end)
+
+trusted('ApplyProductionInventory',function(resource,action,owner,key,options)
+    if resource~='frontier_production' then return false,'forbidden' end
+    if not Inventory.Id(owner,64) or type(key)~='string' or not requestKey(key)
+        or type(options)~='table' then return false,'invalid_request' end
+    local holding=action=='reserve' or action=='return' or action=='finish'
+    local job=options.job
+    if holding and (type(job)~='string' or #job~=36 or not job:match('^[a-f0-9-]+$')) then
+        return false,'invalid_request'
+    end
+    local requested=options.items
+    if requested~=nil then
+        if type(requested)~='table' or #requested<1 or #requested>12 then return false,'invalid_request' end
+        local seen={}
+        for _,entry in ipairs(requested) do
+            if type(entry)~='table' or not Inventory.Id(entry.id,48) or not Inventory.items[entry.id]
+                or seen[entry.id] or not Inventory.Int(entry.count,10000) then return false,'invalid_item' end
+            seen[entry.id]=true
+        end
+    end
+    if (action=='reserve' or action=='finish') and not requested then return false,'invalid_request' end
+    local parts={action,owner,job or ''}
+    for _,entry in ipairs(requested or {}) do
+        parts[#parts+1]=entry.id; parts[#parts+1]=tostring(entry.count)
+    end
+    local actor='resource:'..resource
+    local fingerprint=table.concat(parts,':')
+    local checked,replay=Inventory.Replay(key,actor,fingerprint)
+    if not checked then return false,replay end
+    if replay then return true,key end
+
+    local ok,from,to
+    if action=='reserve' then
+        ok,from=productionBox('p_'..owner,'player',InventoryConfig.Slots,InventoryConfig.WeightGrams)
+        if not ok then return false,from end
+        ok,to=productionBox('prjob_'..job,'storage',200,100000000)
+    elseif action=='return' then
+        ok,from=Inventory.Load('prjob_'..job)
+        if not ok then return false,from end
+        ok,to=productionBox('p_'..owner,'player',InventoryConfig.Slots,InventoryConfig.WeightGrams)
+    elseif action=='finish' or action=='collect' then
+        if not Inventory.Int(options.slots,200) or not Inventory.Int(options.grams,100000000)
+            or not Inventory.Int(options.units,10000) then return false,'invalid_request' end
+        if action=='collect' then
+            ok,from=productionBox('prod_'..owner,'storage',options.slots,options.grams)
+            if not ok then return false,from end
+            if not next(from.slots) then return false,'insufficient_stock' end
+            ok,to=productionBox('p_'..owner,'player',InventoryConfig.Slots,InventoryConfig.WeightGrams)
+        else
+            ok,from=Inventory.Load('prjob_'..job)
+            if not ok then return false,from end
+            if not next(from.slots) then return false,'insufficient_stock' end
+            ok,to=productionBox('prod_'..owner,'storage',options.slots,options.grams)
+        end
+    else
+        return false,'invalid_request'
+    end
+    if not ok then return false,to end
+
+    if action=='finish' then
+        local used=0
+        for _,entry in pairs(to.slots) do used=used+entry.quantity end
+        for _,entry in ipairs(requested) do
+            local definition=Inventory.items[entry.id]
+            used=used+entry.count
+            if used>options.units then return false,'storage_full' end
+            if definition.stackable then
+                local put,reason=Inventory.Place(to,{item=entry.id,quantity=entry.count,metadata=definition.metadata})
+                if not put then return false,reason end
+            else
+                if entry.count>to.slot_limit then return false,'slots' end
+                for _=1,entry.count do
+                    local instance=Inventory.Uuid()
+                    if not instance then return false,'database_error' end
+                    local put,reason=Inventory.Place(to,{item=entry.id,quantity=1,metadata=definition.metadata,instance=instance})
+                    if not put then return false,reason end
+                end
+            end
+        end
+        from.slots={}
+    else
+        local wanted=requested
+        if action=='return' then wanted=nil end
+        local moved,reason=productionMove(from,to,wanted)
+        if not moved then return false,reason end
+    end
+    return Inventory.Commit(key,actor,fingerprint,from,to)
+end)
+
+-- Persistent character identity for idempotent property jobs.
+trusted('PropertyChangeCharacter', function(owner, id, item, quantity, add, key)
+    if owner ~= 'frontier_property' or not Inventory.Id(id,64) or not id:match('^f_[a-f0-9]+$')
+        or type(add) ~= 'boolean' or not Inventory.Id(item,48) or not Inventory.Int(quantity,10000)
+        or not requestKey(key) or key==nil then return false,'invalid_request' end
+    if not Inventory.items[item] then return false,'invalid_item' end
+    local ctx={id=id,key=key,actor='resource:'..owner,fingerprint=json.encode({'property_change',id,item,quantity,add})}
+    local ok,replay=Inventory.Replay(key,ctx.actor,ctx.fingerprint)
+    if not ok then return false,replay end
+    if replay then return true,key end
+    local loaded,box=Inventory.Load('p_'..id)
+    if not loaded then
+        if box~='not_found' then return false,box end
+        local made,err=Inventory.Ensure('p_'..id,'player',Config.Slots,Config.WeightGrams)
+        if not made then return false,err end
+        loaded,box=Inventory.Load('p_'..id)
+        if not loaded then return false,box end
+    end
+    return Inventory.Change(ctx,box,add,item,quantity)
+end)
+
+trusted('BusinessMoveStock',function(owner,fixture,sale,character,item,quantity,mode)
+    if owner~='frontier_business' or not Inventory.Id(fixture,32) or not Inventory.Id(sale,32) or not Inventory.Id(character,64) or not Inventory.Id(item,48) or not Inventory.Int(quantity,1000) then return false,'invalid_request' end
+    if mode~='reserve' and mode~='claim' and mode~='return' then return false,'invalid_request' end
+    local key='business:'..sale..':'..mode;local actor='resource:'..owner
+    local fingerprint=json.encode({fixture,sale,character,item,quantity,mode})
+    local ok,replay=Inventory.Replay(key,actor,fingerprint);if not ok then return false,replay end;if replay then return true,key end
+    local escrow='besc_'..sale;local stock='s_business_'..fixture
+    if mode=='reserve' then ok,replay=Inventory.Ensure(escrow,'storage',200,100000000);if not ok then return false,replay end end
+    local fromId=mode=='reserve' and stock or escrow
+    local toId=mode=='reserve' and escrow or mode=='return' and stock or 'p_'..character
+    if mode=='claim' then ok,replay=Inventory.Ensure(toId,'player',InventoryConfig.Slots,InventoryConfig.WeightGrams);if not ok then return false,replay end end
+    local from,to;ok,from=Inventory.Load(fromId);if not ok then return false,from end;ok,to=Inventory.Load(toId);if not ok then return false,to end
+    local left=quantity
+    for slot=1,from.slot_limit do local stack=from.slots[slot];if stack and stack.item==item then
+        local n=math.min(left,stack.quantity);local taken,entry=Inventory.Take(from,slot,n);if not taken then return false,entry end
+        local placed,issue=Inventory.Place(to,entry);if not placed then return false,issue end;left=left-n;if left==0 then break end
+    end end
+    if left~=0 then return false,'insufficient_stock' end
+    return Inventory.Commit(key,actor,fingerprint,from,to)
+end)
+) then
+        local routeOk, route = Inventory.Db('single', [[
+            SELECT f.fixture_id, c.status, c.liquidate_until FROM fb_trade_routes f
+            JOIN fb_companies c ON c.id=f.company_id
+            WHERE f.reference_id=? AND f.company_id=?
+        ]], {delivery,character})
+        if not routeOk then return false,route end
+        if not route and not taking then
+            routeOk,route=Inventory.Db('single', [[
+                SELECT f.fixture_id,c.status,c.liquidate_until FROM frontier_trade_deliveries d
+                JOIN frontier_trade_contracts t ON t.id=d.contract_id
+                JOIN fb_trade_routes f ON f.reference_id=t.request_id AND f.company_id=?
+                JOIN fb_companies c ON c.id=f.company_id WHERE d.id=?
+            ]], {character,delivery})
+            if not routeOk then return false,route end
+        end
+        if not route then return false,'missing_company_route' end
+        stockId='s_business_'..route.fixture_id
+        confiscate=not taking and (route.status=='archived' or route.status=='liquidating' and tonumber(route.liquidate_until or 0)<=os.time())
+    end
     if taking then
         local created, issue = Inventory.Ensure(boxId, 'storage', 200, 100000000)
         if not created then return false, issue end

@@ -52,7 +52,7 @@ tradeExport('FundTradeHold', function(reference, character, bankId, amount)
         or not Economy.PositiveInteger(amount, Economy.MaxMinor) then return false, 'invalid_request' end
     local checked, bank = Economy.Db('scalar', [[
         SELECT id FROM frontier_economy_accounts
-        WHERE id = ? AND owner_type IN ('character','trade_npc') AND owner_id = ?
+        WHERE id = ? AND owner_type IN ('character','trade_npc','business') AND owner_id = ?
           AND account_type = 'bank' AND currency = 'USD'
     ]], { bankId, character })
     if not checked then return false, bank end
@@ -73,7 +73,7 @@ tradeExport('ReleaseTradeHold', function(reference, character, bankId, amount)
         or not Economy.PositiveInteger(bankId, Economy.MaxId)
         or not Economy.PositiveInteger(amount, Economy.MaxMinor) then return false, 'invalid_request' end
     local ok, bank = Economy.Db('scalar', [[
-        SELECT id FROM frontier_economy_accounts WHERE id = ? AND owner_type IN ('character','trade_npc')
+        SELECT id FROM frontier_economy_accounts WHERE id = ? AND owner_type IN ('character','trade_npc','business')
           AND owner_id = ? AND account_type = 'bank' AND currency = 'USD'
     ]], { bankId, character })
     if not ok then return false, bank end
@@ -98,7 +98,7 @@ local function settle(reference, operation, character, bankId, amount, refund)
         or not Economy.PositiveInteger(bankId, Economy.MaxId)
         or not Economy.PositiveInteger(amount, Economy.MaxMinor) then return false, 'invalid_request' end
     local ok, bank = Economy.Db('scalar', [[
-        SELECT id FROM frontier_economy_accounts WHERE id = ? AND owner_type IN ('character','trade_npc')
+        SELECT id FROM frontier_economy_accounts WHERE id = ? AND owner_type IN ('character','trade_npc','business')
           AND owner_id = ? AND account_type = 'bank' AND currency = 'USD'
     ]], { bankId, character })
     if not ok then return false, bank end
@@ -135,7 +135,7 @@ tradeExport('PayTradeSale', function(reference, buyer, debit, seller, credit, am
         or not Economy.PositiveInteger(amount, Economy.MaxMinor) then return false, 'invalid_request' end
     local ok, count = Economy.Db('scalar', [[
         SELECT COUNT(*) FROM frontier_economy_accounts
-        WHERE owner_type IN ('character','trade_npc') AND account_type='bank' AND currency='USD'
+        WHERE owner_type IN ('character','trade_npc','business') AND account_type='bank' AND currency='USD'
           AND ((id=? AND owner_id=?) OR (id=? AND owner_id=?))
     ]], { debit, buyer, credit, seller })
     if not ok then return false, count end

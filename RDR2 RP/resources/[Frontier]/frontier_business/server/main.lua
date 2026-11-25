@@ -3,7 +3,7 @@ local core,eco,inv=exports.frontier_core,exports.frontier_economy,exports.fronti
 local Q,U,S=MySQL.query.await,MySQL.update.await,MySQL.single.await
 local ready,busy=false,false
 local sessions={}
-local fixtureAction,fixtureView,retailStep,fixtureInfo,receipt,tradeReceipts
+local fixtureAction,fixtureView,retailStep,fixtureInfo,receipt,tradeReceipts,tradeAction,tradeView
 local function now() return os.time() end
 local function uuid() return MySQL.scalar.await('SELECT REPLACE(UUID(),CHAR(45),SPACE(0))') end
 local function encode(v) return json.encode(v) end
@@ -125,6 +125,7 @@ local function propertyOwner(who,sid) return tonumber(MySQL.scalar.await("SELECT
 local function handle(src,a,d)
  local who=cid(src);requireThat(who,'Load a character')
  if fixtureAction and fixtureAction(src,who,a,d) then return end
+ if a=='trade' then return tradeAction(src,who,d) end
  local b=company(d.company)
  if a=='register' then
   requireThat(office(src),'Visit a registry office');requireThat(str(d.name,80) and str(d.description,255),'Invalid name or description')
@@ -194,6 +195,7 @@ local function view(src)
   b.licenses=Q("SELECT * FROM fb_licenses WHERE owner_type='company' AND owner_id=?",{b.id});b.locations=Q('SELECT * FROM fb_locations WHERE company_id=?',{b.id});b.receipts=(b.owner or allowed(b,who,'logs')) and Q("SELECT * FROM fb_receipts WHERE owner_type='company' AND owner_id=? AND hidden=0 ORDER BY created DESC LIMIT 100",{b.id}) or {};b.shares=shares(b.id);b.employees=Q('SELECT character_id,rank_id FROM fb_employees WHERE company_id=?',{b.id})
   b.proposals=Q("SELECT * FROM fb_proposals WHERE company_id=? AND status='open'",{b.id})
   b.rights={};for _,k in ipairs(C.permissions) do b.rights[k]=allowed(b,who,k) end
+  if b.owner or b.rights.trade then tradeView(b,who) end
   if b.owner or b.rights.finance then local ok,v=eco:GetAccountBalance(account(b));if ok then b.balance=v.balance_minor end end
   if b.owner or b.rights.logs then b.logs=Q('SELECT * FROM fb_logs WHERE company_id=? ORDER BY id DESC LIMIT 100',{b.id}) end
  end
@@ -206,9 +208,9 @@ local function run(fn,src)
  busy=true;local ok,e=pcall(fn);busy=false;if not ok then print('[frontier_business] '..tostring(e));if src then tell(src,tostring(e)) end end
 end
 RegisterNetEvent('frontier_business:open',function() local src=source;sessions[src]=nil;run(function() view(src) end,src) end)
-RegisterNetEvent('frontier_business:action',function(a,d) local src=source;if type(a)~='string' or type(d)~='table' then return end;run(function() requireThat(not S('SELECT id FROM fb_jobs LIMIT 1'),'A transaction is pending');handle(src,a,d);tell(src,'Request accepted.');view(src) end,src) end)
+RegisterNetEvent('frontier_business:action',function(a,d) local src=source;if type(a)~='string' or type(d)~='table' then return end;run(function() requireThat(not S('SELECT id FROM fb_jobs LIMIT 1'),'A transaction is pending');handle(src,a,d);tell(src,'Request accepted.');if a~='fixtureStock' then view(src) end end,src) end)
 local function tick()
- local t=now()
+ local t=now();tradeReceipts()
  for _,b in ipairs(Q("SELECT * FROM fb_companies WHERE status='active' AND next_tax<=?",{t})) do
   local periods=math.floor((t-tonumber(b.next_tax))/C.week)+1;U('UPDATE fb_companies SET debt=debt+?,overdue=COALESCE(overdue,?),next_tax=next_tax+? WHERE id=?',{C.baseTax*periods,b.next_tax,periods*C.week,b.id})
  end
@@ -227,7 +229,8 @@ local function tick()
  end
  for _,b in ipairs(Q("SELECT * FROM fb_companies WHERE status='liquidating'")) do
   U('DELETE FROM fb_employees WHERE company_id=?',{b.id});U('UPDATE fb_licenses SET active=0 WHERE owner_type=? AND owner_id=?',{'company',b.id})
-  -- Do not erase assets until storage liquidation and final accounting are implemented.
+  exports.frontier_trade:DrainBusiness(b.id,tonumber(b.liquidate_until)<=t)
+  -- Final accounting and confiscation are completed by the liquidation worker in the next commit.
  end
  for _,b in ipairs(Q("SELECT * FROM fb_companies WHERE status='active' AND next_dividend<=?",{t})) do
   U('UPDATE fb_companies SET next_dividend=? WHERE id=?',{t+C.week,b.id})
@@ -345,10 +348,10 @@ fixtureAction=function(src,who,a,d)
   Q('INSERT INTO fb_fixtures VALUES(?,?,?,?,?,?,?)',{id,sid,typ,owner,kind,d.name,who})
  elseif a=='fixtureStock' then
   requireThat(f and (validFixture(f) or f.owner_type=='company' and company(f.owner_id).status=='liquidating') and fixtureRight(f,who,'stock'),'Denied')
-  TriggerClientEvent('frontier_business:close',src);local ok,e=inv:OpenStorage(src,'business_'..id);requireThat(ok,e)
+  TriggerClientEvent('frontier_business:close',src);local ok,e=inv:OpenStorage(src,'business_'..id);requireThat(ok,e);return true
  elseif a=='fixtureRemove' then
   requireThat(f and propertyOwner(who,sid) and (f.owner_type=='character' and f.owner_id==who or f.owner_type=='company' and isOwner(f.owner_id,who)),'Denied')
-  requireThat(not next(stock(f)) and not S("SELECT id FROM fb_retail WHERE fixture_id=? AND state NOT IN ('complete','failed') LIMIT 1",{id}),'Empty storage and resolve purchases first')
+  requireThat(not exports.frontier_trade:BusinessFixtureBusy(id) and not next(stock(f)) and not S("SELECT id FROM fb_retail WHERE fixture_id=? AND state NOT IN ('complete','failed') LIMIT 1",{id}),'Empty storage and resolve purchases first')
   tx({sql('DELETE FROM fb_prices WHERE fixture_id=?',{id}),sql('DELETE FROM fb_fixtures WHERE id=?',{id})})
  elseif a=='fixturePrice' then
   requireThat(f and validFixture(f) and f.kind=='counter' and fixtureRight(f,who,'retail') and str(d.item,48) and integer(d.price,0,100000000),'Denied')
@@ -381,3 +384,55 @@ retailStep=function(r)
 end
 AddEventHandler('frontier:playerUnloaded',function(p) sessions[p.source]=nil;TriggerClientEvent('frontier_business:close',p.source) end)
 AddEventHandler('playerDropped',function() sessions[source]=nil end)
+
+exports('AuthorizeTradeFixture',function(src,id,fid,perm,physical)
+ if GetInvokingResource()~='frontier_trade' or not ready then return false end
+ local who=cid(src);local f=fixture(fid);local b=company(id)
+ if not who or not f or f.owner_type~='company' or f.owner_id~=id or not b then return false end
+ local p
+ if b.status=='liquidating' and tonumber(b.liquidate_until)>now() and isOwner(id,who) and perm=='deposit' then
+  p=fixturePosition(f.property_id,f.id)
+ else
+  if not allowed(b,who,'trade') or not fixtureRight(f,who,perm) then return false end
+  p=validFixture(f)
+ end
+ return p~=nil and (not physical or near(src,p,C.storageDistance)==true)
+end)
+tradeAction=function(src,who,d)
+ local b=company(d.company);requireThat(b,'Company unavailable')
+ local recovery=d.operation=='claimDelivery' or d.operation=='claimSale'
+ requireThat(allowed(b,who,'trade') or recovery and b.status=='liquidating' and tonumber(b.liquidate_until)>now() and isOwner(b.id,who),'Denied')
+ local ok,e=exports.frontier_trade:BusinessAction(src,b.id,d.operation,d);requireThat(ok,e);log(b.id,who,'trade:'..d.operation,{reference=e});tell(src,tostring(e))
+end
+tradeView=function(b,who)
+ if b.status~='active' and not (b.owner and b.status=='liquidating') then return end
+ b.trade=exports.frontier_trade:BusinessSnapshot(b.id)
+ b.tradeFixtures={}
+ for _,f in ipairs(Q("SELECT * FROM fb_fixtures WHERE owner_type='company' AND owner_id=?",{b.id})) do
+  if validFixture(f) or b.status=='liquidating' and fixturePosition(f.property_id,f.id) then
+   b.tradeFixtures[#b.tradeFixtures+1]={id=f.id,name=f.name,deposit=fixtureRight(f,who,'deposit') or b.status=='liquidating' and b.owner,retrieve=fixtureRight(f,who,'retrieve')}
+  end
+ end
+end
+-- Idempotent receipt synchronization catches crashes after Trade settles a payment.
+tradeReceipts=function()
+ for _,side in ipairs({'buyer','seller'}) do
+  local actor=side=='buyer' and 'r.buyer_id' or 'c.seller_id'
+  Q(([[INSERT IGNORE INTO fb_receipts(id,owner_type,owner_id,reference_id,detail,created)
+   SELECT REPLACE(UUID(),'-',''),IF(b.id IS NULL,'character','company'),%s,CONCAT('trade:delivery:',d.id),
+   JSON_OBJECT('item',r.item_id,'quantity',d.quantity,'total',d.quantity*c.unit_minor,'buyer',r.buyer_id,'seller',c.seller_id),UNIX_TIMESTAMP()
+   FROM frontier_trade_deliveries d JOIN frontier_trade_contracts c ON c.id=d.contract_id JOIN frontier_trade_requests r ON r.id=c.request_id
+   LEFT JOIN fb_companies b ON b.id=%s
+   WHERE d.state='complete' AND (b.id IS NOT NULL OR LEFT(%s,2)='f_')
+   AND NOT EXISTS(SELECT 1 FROM fb_receipts x WHERE x.owner_type=IF(b.id IS NULL,'character','company') AND x.owner_id=%s AND x.reference_id=CONCAT('trade:delivery:',d.id))
+   LIMIT 100]]):format(actor,actor,actor,actor))
+  actor=side=='buyer' and 's.buyer_id' or 'o.seller_id'
+  Q(([[INSERT IGNORE INTO fb_receipts(id,owner_type,owner_id,reference_id,detail,created)
+   SELECT REPLACE(UUID(),'-',''),IF(b.id IS NULL,'character','company'),%s,CONCAT('trade:sale:',s.id),
+   JSON_OBJECT('item',o.item_id,'quantity',s.quantity,'total',s.quantity*o.unit_minor,'buyer',s.buyer_id,'seller',o.seller_id),UNIX_TIMESTAMP()
+   FROM frontier_trade_sales s JOIN frontier_trade_offers o ON o.id=s.offer_id LEFT JOIN fb_companies b ON b.id=%s
+   WHERE s.state='complete' AND (b.id IS NOT NULL OR LEFT(%s,2)='f_')
+   AND NOT EXISTS(SELECT 1 FROM fb_receipts x WHERE x.owner_type=IF(b.id IS NULL,'character','company') AND x.owner_id=%s AND x.reference_id=CONCAT('trade:sale:',s.id))
+   LIMIT 100]]):format(actor,actor,actor,actor))
+ end
+end
