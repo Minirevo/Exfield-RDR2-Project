@@ -36,7 +36,7 @@ function R.localPoint(o,p)
     return {x=x*math.cos(a)+y*math.sin(a),y=-x*math.sin(a)+y*math.cos(a),z=p.z-o.z,heading=((p.heading or 0)-(o.heading or 0))%360}
 end
 function R.parts(e,c)
-    return e.assembly and c.TestAssemblies[e.assembly].parts or {{model=e.model,x=0,y=0,z=0,heading=0}}
+    return e.assembly and c.Assemblies[e.assembly].parts or {{model=e.model,x=0,y=0,z=0,heading=0}}
 end
 function R.indoor(b,p,c)
     local e=c.Exteriors[b.exterior]

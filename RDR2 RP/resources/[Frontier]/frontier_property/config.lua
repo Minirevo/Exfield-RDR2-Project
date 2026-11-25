@@ -6,48 +6,19 @@ PropertyConfig = {
     -- Ground probing is for camp props, construction markers and initial previews only.
     -- Completed structures and furniture use exact saved entity origins.
     GroundSearchTolerance=12, GroundModelOffsets={},
-    -- Server-side ACE required. Disable these tools on public servers.
-    AdminTesting={Enabled=true,Ace='frontier.property.test',FinishDistance=20,AssetModels={
-        bee_addhouse=15,
-        bee_chickencoop=7,
-        bee_entrance=6,
-        bee_entrancestable=6,
-        bee_gazebo=8,
-        bee_mainhouse_foundext=18,
-        bee_mainhouse_int=18,
-        bee_mainhouse_wallext=18,
-        bee_silo=12,
-        bee_stableext=18,
-        bee_stableint=18,
-        bee_workerexterior=15,
-        bee_workerinterior=15,
-        bla_dechouse2=16,
-        bla_house2=16,
-        brontewindow=4,
-        caligahall_ext=22,
-        caligahall_int=22,
-        caligahall_roofext=22,
-        cookingstation=5,
-        cookingstation2=5,
-        fancyfireplace=5,
-        free_house01=15,
-        free_house02=12,
-        free_house03=15
-    }},
-    -- Test assemblies: first part is the ground anchor, remaining parts use its exact
-    -- origin plus local-space offsets calibrated in-game; verify after respawn.
-    TestAssemblies={
-        bee_stable={distance=18,parts={
+    -- Physical building assemblies. Preserve calibrated local-space offsets.
+    Assemblies={
+        bee_stable={parts={
             {model='bee_stableext',x=-0.100,y=0.100,z=0.000,heading=2.000},
             {model='bee_stableint',x=-0.660,y=-1.000,z=-0.270,heading=336.000}}},
-        bee_mainhouse={distance=20,parts={
+        bee_mainhouse={parts={
             {model='bee_mainhouse_foundext',x=0.000,y=0.000,z=0.000,heading=0.000},
             {model='bee_mainhouse_wallext',x=-0.350,y=5.200,z=3.750,heading=0.000},
             {model='bee_mainhouse_int',x=-1.500,y=6.300,z=2.000,heading=0.000}}},
-        bee_workerhouse={distance=16,parts={
+        bee_workerhouse={parts={
             {model='bee_workerexterior',x=0.000,y=0.000,z=0.000,heading=0.000},
             {model='bee_workerinterior',x=-0.900,y=0.425,z=0.050,heading=0.000}}},
-        caligahall={distance=25,parts={
+        caligahall={parts={
             {model='caligahall_ext',x=0.000,y=0.000,z=0.000,heading=0.000},
             {model='caligahall_int',x=-0.500,y=-0.300,z=0.650,heading=0.000},
             {model='caligahall_roofext',x=0.560,y=1.080,z=9.150,heading=0.000}}},

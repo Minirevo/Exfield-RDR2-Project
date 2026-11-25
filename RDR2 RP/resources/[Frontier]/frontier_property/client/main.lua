@@ -1,9 +1,6 @@
 local C,R=PropertyConfig,PropertyRules
 local E='frontier_property:'
 local objects,markers={},{}
-local testObjects,testGeneration={},0
-local testAssembly=nil
-local testEdit=nil
 local world={claims={},objects={},markers={}}
 local interior,preview,inside,focused=nil,nil,nil,false
 local pendingMenu,menuSequence=nil,0
@@ -67,120 +64,6 @@ local function spawn(d,ghost)
     end
     return o
 end
-local function clearTest()
-    testGeneration=testGeneration+1
-    for _,o in ipairs(testObjects) do remove(o.handle) end
-    testObjects={};testAssembly=nil;testEdit=nil
-end
-RegisterNetEvent(E..'adminClear',function()
-    if source~=65535 then return end
-    clearTest();notice('Temporary property test object removed.')
-end)
-RegisterNetEvent(E..'adminSpawn',function(d)
-    if source~=65535 or type(d)~='table' or type(d.model)~='string' then return end
-    clearTest()
-    local generation=testGeneration
-    local ped=PlayerPedId()
-    local pos=GetOffsetFromEntityInWorldCoords(ped,0.0,d.distance+0.0,0.0)
-    local data={model=d.model,x=pos.x,y=pos.y,z=pos.z,heading=GetEntityHeading(ped),ground=true}
-    local h,reason=spawn(data,false)
-    if generation~=testGeneration then if h then remove(h) end;return end
-    if not h then return notice('Test spawn failed: '..tostring(reason or 'model unavailable')) end
-    local actual=GetEntityCoords(h)
-    data.x,data.y,data.z=actual.x,actual.y,actual.z;data.ground=false
-    testObjects={{handle=h,data=data}}
-    local msg=('Test model %s | model collision loaded: %s | world collision loaded: %s'):format(d.model,tostring(HasCollisionForModelLoaded(GetHashKey(d.model))),tostring(HasCollisionLoadedAroundEntity(h)))
-    print('[frontier_property] '..msg);notice(msg)
-end)
-local function componentTransform(origin,part)
-    local a=math.rad(origin.heading)
-    return {model=part.model,
-        x=origin.x+(part.x or 0)*math.cos(a)-(part.y or 0)*math.sin(a),
-        y=origin.y+(part.x or 0)*math.sin(a)+(part.y or 0)*math.cos(a),
-        z=origin.z+(part.z or 0),
-        heading=(origin.heading+(part.heading or 0))%360}
-end
-local function reportTest(o,i)
-    local hash=GetHashKey(o.data.model)
-    local msg=('Part %d %s | model collision loaded: %s | world collision loaded: %s'):format(i,o.data.model,tostring(HasCollisionForModelLoaded(hash)),tostring(HasCollisionLoadedAroundEntity(o.handle)))
-    print('[frontier_property] '..msg);notice(msg)
-end
-RegisterNetEvent(E..'adminAssembly',function(d)
-    if source~=65535 or type(d)~='table' then return end
-    local def=C.TestAssemblies[d.key]
-    if not def or not R.finite(d.distance) then return end
-    clearTest()
-    local generation=testGeneration
-    local ped=PlayerPedId()
-    local pos=GetOffsetFromEntityInWorldCoords(ped,0.0,d.distance+0.0,0.0)
-    local origin={x=pos.x,y=pos.y,z=pos.z,heading=GetEntityHeading(ped)}
-    local parts={}
-    for i,part in ipairs(def.parts) do
-        local data=componentTransform(origin,part)
-        data.ground=i==1
-        local h,reason=spawn(data,false)
-        if generation~=testGeneration then if h then remove(h) end;return end
-        if not h then clearTest();return notice('Assembly failed at '..part.model..': '..tostring(reason or 'model unavailable')) end
-        if i==1 then
-            local actual=GetEntityCoords(h)
-            origin.z=actual.z-(part.z or 0)
-        end
-        local offset={model=part.model,x=part.x or 0,y=part.y or 0,z=part.z or 0,heading=part.heading or 0}
-        parts[i]=offset
-        local actual=GetEntityCoords(h)
-        data.x,data.y,data.z=actual.x,actual.y,actual.z;data.ground=false
-        testObjects[i]={handle=h,data=data}
-    end
-    testAssembly={key=d.key,origin=origin,parts=parts}
-    notice('Assembled '..d.key..' ('..#parts..' parts). /propertycollision lists each part.')
-    for i,o in ipairs(testObjects) do reportTest(o,i) end
-end)
--- Adjust one test component in assembly-local coordinates. No database writes.
-local function adjustPart(i,axis,delta,quiet)
-    if not testAssembly then return notice('Spawn an assembly first.') end
-    local part=i and testAssembly.parts[i]
-    if not part or (axis~='x' and axis~='y' and axis~='z' and axis~='heading') or not R.finite(delta) or math.abs(delta)> (axis=='heading' and 360 or 20) then
-        return notice('Usage: /propertypart <part number> <x|y|z|heading> <delta>')
-    end
-    local o=testObjects[i]
-    if not o or not DoesEntityExist(o.handle) then return notice('Test component is missing.') end
-    part[axis]=part[axis]+delta
-    local data=componentTransform(testAssembly.origin,part)
-    FreezeEntityPosition(o.handle,false)
-    SetEntityCoordsNoOffset(o.handle,data.x+0.0,data.y+0.0,data.z+0.0,false,false,false)
-    SetEntityRotation(o.handle,0.0,0.0,data.heading+0.0,2,false)
-    FreezeEntityPosition(o.handle,true)
-    o.data=data
-    if not quiet then notice(('%d %s: x=%.3f y=%.3f z=%.3f heading=%.3f'):format(i,part.model,part.x,part.y,part.z,part.heading)) end
-end
-RegisterCommand('propertypart',function(_,args) adjustPart(tonumber(args[1]),args[2],tonumber(args[3])) end,false)
-RegisterCommand('propertyparts',function()
-    if not testAssembly then return notice('Spawn an assembly first.') end
-    for i,part in ipairs(testAssembly.parts) do
-        local msg=('%d %s: x=%.3f y=%.3f z=%.3f heading=%.3f'):format(i,part.model,part.x,part.y,part.z,part.heading)
-        print('[frontier_property] '..msg);notice(msg)
-    end
-end,false)
--- Recover local test entities removed by engine streaming/cleanup while nearby.
-CreateThread(function()
-    while true do
-        Wait(2000)
-        local generation=testGeneration
-        local pos=GetEntityCoords(PlayerPedId())
-        for i,o in ipairs(testObjects) do
-            if generation~=testGeneration then break end
-            if not DoesEntityExist(o.handle) and #(pos-vector3(o.data.x,o.data.y,o.data.z))<100 then
-                local h=spawn(o.data,false)
-                if generation~=testGeneration then if h then remove(h) end;break end
-                if h then
-                    o.handle=h
-                    if testEdit and testEdit.index==i then SetEntityAlpha(h,180,false) end
-                    print('[frontier_property] Restored test component '..o.data.model)
-                end
-            end
-        end
-    end
-end)
 local function clear()
     for _,o in pairs(objects) do remove(o.handle) end; objects={}
 end
@@ -206,7 +89,7 @@ end)
 RegisterNetEvent(E..'world',function(data) if source==65535 then world=data end end)
 RegisterNetEvent(E..'interior',function(data)
     if source~=65535 then return end
-    close(); clear(); clearTest(); cancel(false); world={claims={},objects={},markers={}}; interior=data or nil
+    close(); clear(); cancel(false); world={claims={},objects={},markers={}}; interior=data or nil
     if interior then
         local a=interior.anchor
         RequestCollisionAtCoord(a.x,a.y,a.z)
@@ -283,30 +166,6 @@ local function interact()
     for _,s in ipairs(C.Shops) do if #(p-vector3(s.x,s.y,s.z))<=5 then action('shop'); return end end
 end
 RegisterCommand('propertymenu',interact,false)
--- Diagnostic only: does not modify models or saved coordinates.
-RegisterCommand('propertycollision',function()
-    local pos=GetEntityCoords(PlayerPedId()); local nearestObject,dist
-    for _,o in pairs(objects) do
-        if DoesEntityExist(o.handle) then
-            local n=#(pos-GetEntityCoords(o.handle))
-            if not dist or n<dist then nearestObject,dist=o,n end
-        end
-    end
-    if testAssembly and #testObjects>0 then
-        for i,o in ipairs(testObjects) do if DoesEntityExist(o.handle) then reportTest(o,i) end end
-        return
-    end
-    for _,o in ipairs(testObjects) do
-        if DoesEntityExist(o.handle) then
-            local n=#(pos-GetEntityCoords(o.handle))
-            if not dist or n<dist then nearestObject,dist=o,n end
-        end
-    end
-    if not nearestObject or dist>30 then return notice('No property object within 30m.') end
-    local o=nearestObject; local hash=GetHashKey(o.data.model)
-    local msg=('Model %s | model collision loaded: %s | world collision loaded: %s'):format(o.data.model,tostring(HasCollisionForModelLoaded(hash)),tostring(HasCollisionLoadedAroundEntity(o.handle)))
-    print('[frontier_property] '..msg); notice(msg)
-end,false)
 local function hint(msg)
     local str=CreateVarString(10,'LITERAL_STRING',msg)
     SetTextScale(0.32,0.32); SetTextColor(255,255,255,255); SetTextCentre(true)
@@ -362,43 +221,7 @@ CreateThread(function()
 end)
 local keys={interact=0xCEFD9220,left=0xA65EBAB4,right=0xDEB34313,up=0x6319DB71,down=0x05CA7C52,
     raise=0x446258B6,lower=0x3C3DD371,rotateL=0xDE794E3E,rotateR=0xE30CD707,confirm=0xC7B5340A,cancel=0x156F7119}
--- Only operates on temporary assemblies received via the ACE-gated server command.
-local function endTestEdit()
-    if testEdit and testObjects[testEdit.index] then
-        local h=testObjects[testEdit.index].handle
-        if DoesEntityExist(h) then ResetEntityAlpha(h) end
-    end
-    testEdit=nil
-end
-local function selectTestPart(i)
-    if not testAssembly or not testAssembly.parts[i] then return end
-    endTestEdit()
-    local o=testObjects[i]
-    if not o or not DoesEntityExist(o.handle) then return notice('Test component is missing.') end
-    testEdit={index=i,step=0.05,nextTick=0}
-    SetEntityAlpha(o.handle,180,false)
-end
-RegisterCommand('propertyedit',function(_,args)
-    if not testAssembly then return notice('Spawn an assembly first.') end
-    if testEdit and not args[1] then endTestEdit();return end
-    if preview or focused or IsNuiFocused() then return notice('Close the property menu or preview first.') end
-    local i=tonumber(args[1]) or math.min(2,#testAssembly.parts)
-    if not testAssembly.parts[i] then return notice('Invalid component number.') end
-    selectTestPart(i)
-    notice('Edit: arrows X/Y, PageUp/Down Z, Q/R rotate, E next component, Enter/Esc exit. /propertystep <metres> changes precision.')
-end,false)
-RegisterCommand('propertystep',function(_,args)
-    local n=tonumber(args[1])
-    if not testEdit or not R.finite(n) or n<0.005 or n>1 then return notice('Edit a component first; step must be 0.005–1 metres.') end
-    testEdit.step=n
-end,false)
-local editAxes={left={'x',-1},right={'x',1},up={'y',1},down={'y',-1},raise={'z',1},lower={'z',-1},rotateL={'heading',-1},rotateR={'heading',1}}
 local function adjust(k)
-    if testEdit and not preview then
-        local a=editAxes[k]
-        if a then adjustPart(testEdit.index,a[1],a[2]*(a[1]=='heading' and 1 or testEdit.step),true) end
-        return
-    end
     local p=preview; if not p then return end
     local h=math.rad(GetEntityHeading(PlayerPedId()))
     local step=0.12
@@ -434,28 +257,7 @@ RegisterCommand('property_cancel',function() cancel(true) end,false)
 CreateThread(function()
     while true do
         Wait(0)
-        if testEdit and testAssembly and not preview and not focused and not IsNuiFocused() then
-            local e=testEdit
-            for k in pairs(editAxes) do
-                DisableControlAction(0,keys[k],true)
-                if IsDisabledControlPressed(0,keys[k]) and GetGameTimer()>=e.nextTick then
-                    adjust(k);e.nextTick=GetGameTimer()+75
-                end
-            end
-            for _,k in ipairs({'interact','confirm','cancel'}) do DisableControlAction(0,keys[k],true) end
-            if IsDisabledControlJustPressed(0,keys.interact) then
-                local step=e.step
-                selectTestPart(e.index%#testAssembly.parts+1)
-                if testEdit then testEdit.step=step end
-            elseif IsDisabledControlJustPressed(0,keys.confirm) or IsDisabledControlJustPressed(0,keys.cancel) then
-                endTestEdit()
-                ExecuteCommand('propertyparts')
-            end
-            if testEdit then
-                local part=testAssembly.parts[testEdit.index]
-                hint(('%d %s | X %.2f Y %.2f Z %.2f R %.1f | Step %.3f | E next | Enter exit'):format(testEdit.index,part.model,part.x,part.y,part.z,part.heading,testEdit.step))
-            end
-        elseif preview then
+        if preview then
             for _,k in ipairs({'up','down','left','right','raise','lower','rotateL','rotateR'}) do
                 DisableControlAction(0,keys[k],true)
                 if IsDisabledControlPressed(0,keys[k]) then adjust(k) end
@@ -475,16 +277,5 @@ CreateThread(function()
     end
 end)
 AddEventHandler('onClientResourceStop',function(r)
-    if r==GetCurrentResourceName() then close();cancel(false);clear();clearTest();for _,b in pairs(markers) do RemoveBlip(b) end end
+    if r==GetCurrentResourceName() then close();cancel(false);clear();for _,b in pairs(markers) do RemoveBlip(b) end end
 end)
-
--- Trusted admin can report model bounds from the temporary spawned components.
-RegisterCommand('propertybounds',function()
-    for _,o in ipairs(testObjects) do
-        if DoesEntityExist(o.handle) then
-            local lo,hi=GetModelDimensions(GetHashKey(o.data.model))
-            local msg=('%s min={x=%.3f,y=%.3f,z=%.3f},max={x=%.3f,y=%.3f,z=%.3f}'):format(o.data.model,lo.x,lo.y,lo.z,hi.x,hi.y,hi.z)
-            print('[frontier_property] '..msg);notice(msg)
-        end
-    end
-end,false)
