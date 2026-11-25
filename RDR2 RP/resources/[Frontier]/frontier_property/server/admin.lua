@@ -40,18 +40,16 @@ adminCommand('propertyfinish',function(src,args)
         TriggerClientEvent(E..'refresh',src)
     end)
 end)
-adminCommand('propertymodels',function(src)
+local assetCursor={}
+local function assetKeys()
     local keys={}
-    for key in pairs(C.Exteriors) do keys[#keys+1]=key end
+    for key in pairs(C.AdminTesting.AssetModels or {}) do keys[#keys+1]=key end
     table.sort(keys)
-    for _,key in ipairs(keys) do notice(src,key..' = '..C.Exteriors[key].model) end
-    for key in pairs(C.AdminTesting.AssetModels or {}) do notice(src,key..' (direct asset test)') end
-    notice(src,'Camp models: camp_fire, camp_tent, camp_chest, camp_site')
-end)
-adminCommand('propertyspawn',function(src,args)
+    return keys
+end
+local function testSpawn(src,key,distance)
     local pos=position(src)
-    if not pos or pos.bucket~=0 or not cid(src) then return notice(src,'Be outside on a loaded character.') end
-    local key=args[1]
+    if not pos or pos.bucket~=0 or not cid(src) then notice(src,'Be outside on a loaded character.'); return false end
     local def=key and C.Exteriors[key]
     local direct=key and (C.AdminTesting.AssetModels or {})[key]
     local model=def and def.model or (direct and key)
@@ -59,12 +57,46 @@ adminCommand('propertyspawn',function(src,args)
         local camp=key:match('^camp_(%a+)$')
         if camp then model=C.Camp[camp] end
     end
-    if not model then return notice(src,'Usage: /propertyspawn <catalogue key>. See /propertymodels.') end
-    local distance=tonumber(args[2]) or (def and def.radius+3 or direct or 5)
-    if not R.finite(distance) or distance<3 or distance>25 then return notice(src,'Distance must be between 3 and 25 metres.') end
+    if not model then notice(src,'Usage: /propertyspawn <model or catalogue key>. See /propertymodels.'); return false end
+    distance=distance or (def and def.radius+3 or direct or 5)
+    if not R.finite(distance) or distance<3 or distance>25 then notice(src,'Distance must be between 3 and 25 metres.'); return false end
     log(src,'temporary model test '..model)
     TriggerClientEvent(E..'adminSpawn',src,{model=model,distance=distance})
+    return true
+end
+adminCommand('propertymodels',function(src)
+    local keys=assetKeys()
+    for i,key in ipairs(keys) do
+        local msg=('%02d/%02d %s'):format(i,#keys,key)
+        notice(src,msg)
+    end
+    notice(src,'Use /propertyspawn <name>, /propertynext [number], /propertyprev, /propertyclear. Camp models: camp_fire, camp_tent, camp_chest, camp_site.')
 end)
+adminCommand('propertyspawn',function(src,args)
+    if args[2] and not tonumber(args[2]) then return notice(src,'Distance must be a number.') end
+    if testSpawn(src,args[1],tonumber(args[2])) then
+        for i,key in ipairs(assetKeys()) do if key==args[1] then assetCursor[src]=i;break end end
+    end
+end)
+local function cycle(src,step,args)
+    local keys=assetKeys()
+    if #keys==0 then return notice(src,'No test assets configured.') end
+    local index
+    if args[1] then
+        index=tonumber(args[1])
+        if not index or index%1~=0 or index<1 or index>#keys then return notice(src,'Asset number must be between 1 and '..#keys) end
+    else
+        local previous=assetCursor[src] or (step>0 and 0 or 1)
+        index=(previous-1+step)%#keys+1
+    end
+    if testSpawn(src,keys[index]) then
+        assetCursor[src]=index
+        notice(src,('Testing %d/%d: %s'):format(index,#keys,keys[index]))
+    end
+end
+adminCommand('propertynext',function(src,args) cycle(src,1,args) end)
+adminCommand('propertyprev',function(src,args) cycle(src,-1,args) end)
 adminCommand('propertyclear',function(src)
     TriggerClientEvent(E..'adminClear',src)
 end)
+AddEventHandler('playerDropped',function() assetCursor[tonumber(source)]=nil end)
