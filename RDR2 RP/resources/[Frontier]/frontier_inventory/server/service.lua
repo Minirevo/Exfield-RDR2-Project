@@ -154,177 +154,7 @@ local function commit(ctx, ...)
         return false, 'character'
     end
     if businessStorage and stockAction then
-        local fid=ctx.storage:match('^business_([a-f0-9]+)
-end
-
-local function moveBetween(from, to, slot, quantity, target, permission)
-    local ok, item = Inventory.Take(from, slot, quantity)
-    if not ok then return false, item end
-    if permission and not Inventory.items[item.item][permission] then return false, 'forbidden' end
-    return Inventory.Place(to, item, target)
-end
-
-local function revise(container, revision)
-    return revision == nil or container.revision == revision
-end
-
-local function use(ctx, container, slot)
-    local stack = container.slots[slot]
-    if not stack then return false, 'not_found' end
-    local def = Inventory.items[stack.item]
-    local handler = def.usable and Inventory.handlers[stack.item]
-    if not handler then return false, 'unusable' end
-    if Inventory.Generation(ctx.source) ~= ctx.generation or not latest(ctx.source, ctx.id, ctx.guard) then
-        return false, 'character'
-    end
-    local worker = coroutine.create(function()
-        return handler.callback(ctx.source, { item = stack.item, slot = slot, metadata = json.decode(stack.metadata),
-            instance = stack.instance, requestId = ctx.key })
-    end)
-    local ok, accepted = coroutine.resume(worker)
-    if coroutine.status(worker) ~= 'dead' then
-        coroutine.close(worker)
-        Inventory.Log('WARN', 'Usable inventory callback attempted to yield', { item = stack.item })
-        return false, 'use_failed'
-    end
-    if not ok or accepted ~= true then return false, 'use_failed' end
-    if handler.consume then Inventory.Take(container, slot, 1) end
-    local saved, result, replayed = commit(ctx, container)
-    if saved and not replayed then TriggerEvent('frontier:inventoryItemUsed', ctx.source, ctx.id, stack.item, ctx.key) end
-    return saved, result
-end
-
-function Inventory.Act(ctx, action, data)
-    ctx.businessAction=action;ctx.businessDetail=data
-    local id, position = Inventory.Session(ctx.source)
-    if not id or id ~= ctx.id then return false, id and 'character' or position end
-    ctx.generation = Inventory.Generation(ctx.source)
-    local checked, replay = Inventory.Replay(ctx.key, ctx.actor, ctx.fingerprint)
-    if not checked then return false, replay end
-    if replay then return true, ctx.key end
-    local ok, player = Inventory.Player(ctx.source, ctx.id)
-    if not ok then return false, player end
-    if not revise(player, data.revision) then return false, 'conflict' end
-
-    if action == 'sort' then
-        local sorted = Inventory.Present(player).slots
-        table.sort(sorted, function(a, b)
-            if a.item == b.item then return a.slot < b.slot end
-            return a.item < b.item
-        end)
-        local packed = {}
-        for i, item in ipairs(sorted) do packed[i] = player.slots[item.slot] end
-        player.slots = packed
-        return commit(ctx, player)
-    end
-
-    if action == 'move' or action == 'split' then
-        local moved, issue = Inventory.Move(player, data.slot, data.target, data.quantity, action == 'split')
-        if not moved then return false, issue end
-        return commit(ctx, player)
-    end
-    if action == 'use' then return use(ctx, player, data.slot) end
-
-    local other, moved, issue
-    if action == 'give' then
-        local recipient, targetPosition = Inventory.Session(data.recipient)
-        if not recipient or recipient == id then return false, 'recipient' end
-        if not Inventory.CloseEnough(position, targetPosition, Config.TransferDistance) then return false, 'distance' end
-        local generation = Inventory.Generation(data.recipient)
-        ok, other = Inventory.Player(data.recipient, recipient)
-        if not ok then return false, other end
-        moved, issue = moveBetween(player, other, data.slot, data.quantity, nil, 'transfer')
-        if not moved then return false, issue end
-        local current, where = Inventory.Session(data.recipient)
-        if current ~= recipient or Inventory.Generation(data.recipient) ~= generation
-            or not Inventory.CloseEnough(Inventory.Position(ctx.source), where, Config.TransferDistance) then
-            return false, 'distance'
-        end
-    elseif action == 'drop' then
-        local stack = player.slots[data.slot]
-        if not stack then return false, 'not_found' end
-        if not Inventory.items[stack.item].drop then return false, 'forbidden' end
-        if not Inventory.Int(data.quantity, stack.quantity) then return false, 'quantity' end
-        position = Inventory.Position(ctx.source)
-        if not position then return false, 'character' end
-        ok, other = newDrop(ctx.key, position)
-        if not ok then return false, other end
-        if next(other.slots) then return false, 'conflict' end
-        moved, issue = moveBetween(player, other, data.slot, data.quantity, 1, 'drop')
-        if not Inventory.CloseEnough(Inventory.Position(ctx.source), other, Config.PickupDistance) then return false, 'distance' end
-    elseif action == 'pickup' then
-        if type(data.drop) ~= 'string' or #data.drop > 80 or not data.drop:match('^g_[a-zA-Z0-9_%-:]+$') then
-            return false, 'invalid_request'
-        end
-        ok, other = Inventory.Load(data.drop)
-        if not ok then return false, other end
-        if other.kind ~= 'ground' or not Inventory.CloseEnough(Inventory.Position(ctx.source), other, Config.PickupDistance) then
-            return false, 'distance'
-        end
-        local stack = other.slots[1]
-        if not stack then return false, 'not_found' end
-        moved, issue = moveBetween(other, player, 1, stack.quantity)
-    elseif action == 'store' or action == 'retrieve' or action == 'storageMove' or action == 'storageSplit' then
-        ok, other = Inventory.Storage(ctx.source, ctx.storage)
-        if not ok then return false, other end
-        if not revise(other, data.storageRevision) then return false, 'conflict' end
-        if other.x and not Inventory.CloseEnough(Inventory.Position(ctx.source), other, other.distance_limit) then
-            return false, 'distance'
-        end
-        if ctx.storage:match('^business_') then
-            local origin=action=='store' and player or other;local stack=origin.slots[data.slot]
-            ctx.businessDetail={character=ctx.id,item=stack and stack.item,quantity=data.quantity or (stack and stack.quantity),slot=data.slot,target=data.target}
-        end
-        if action == 'store' then
-            moved, issue = moveBetween(player, other, data.slot, data.quantity, data.target, 'store')
-        elseif action == 'retrieve' then
-            moved, issue = moveBetween(other, player, data.slot, data.quantity, data.target)
-        else
-            moved, issue = Inventory.Move(other, data.slot, data.target, data.quantity, action == 'storageSplit')
-        end
-    else
-        return false, 'invalid_request'
-    end
-    if not moved then return false, issue end
-    return commit(ctx, player, other)
-end
-
-function Inventory.Change(ctx, container, add, item, quantity, metadata)
-    local def = Inventory.items[item]
-    if not def then return false, 'invalid_item' end
-    if not Inventory.Int(quantity, 10000) then return false, 'quantity' end
-    if metadata ~= nil and not Inventory.Metadata(metadata, def.condition) then return false, 'invalid_metadata' end
-    if add then
-        metadata = metadata or def.metadata
-        if container.kind == 'storage' and not def.store then return false, 'forbidden' end
-        if def.stackable then
-            local ok, err = Inventory.Place(container, { item = item, quantity = quantity, metadata = metadata })
-            if not ok then return false, err end
-        else
-            if quantity > container.slot_limit then return false, 'slots' end
-            for _ = 1, quantity do
-                local instance = Inventory.Uuid()
-                if not instance then return false, 'database_error' end
-                local ok, err = Inventory.Place(container,
-                    { item = item, quantity = 1, metadata = metadata, instance = instance })
-                if not ok then return false, err end
-            end
-        end
-    else
-        for slot = 1, container.slot_limit do
-            local entry = container.slots[slot]
-            if entry and entry.item == item and (not metadata or metadata == entry.metadata) then
-                local count = math.min(entry.quantity, quantity)
-                Inventory.Take(container, slot, count)
-                quantity = quantity - count
-                if quantity == 0 then break end
-            end
-        end
-        if quantity > 0 then return false, 'quantity' end
-    end
-    return commit(ctx, container)
-end
-)
+        local fid=ctx.storage:match('^business_([a-f0-9]+)$')
         local logged,result=Inventory.Db('update',[[INSERT IGNORE INTO fb_storage_audit(request_id,fixture_id,actor,action,detail,created,company_id)
           SELECT ?,id,?,?,?,UNIX_TIMESTAMP(),IF(owner_type='company',owner_id,NULL) FROM fb_fixtures WHERE id=?]],
           {ctx.key,ctx.actor,ctx.businessAction,json.encode(ctx.businessDetail or {}),fid})
@@ -446,6 +276,10 @@ function Inventory.Act(ctx, action, data)
         if not revise(other, data.storageRevision) then return false, 'conflict' end
         if other.x and not Inventory.CloseEnough(Inventory.Position(ctx.source), other, other.distance_limit) then
             return false, 'distance'
+        end
+        if ctx.storage:match('^business_') then
+            local origin=action=='store' and player or other;local stack=origin.slots[data.slot]
+            ctx.businessDetail={character=ctx.id,item=stack and stack.item,quantity=data.quantity or (stack and stack.quantity),slot=data.slot,target=data.target}
         end
         if action == 'store' then
             moved, issue = moveBetween(player, other, data.slot, data.quantity, data.target, 'store')
