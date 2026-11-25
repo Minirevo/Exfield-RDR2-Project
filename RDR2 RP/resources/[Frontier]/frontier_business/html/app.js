@@ -1,66 +1,111 @@
 'use strict';
-const $=id=>document.getElementById(id), vals=o=>Object.values(o||{});let state;
-function el(tag,text,parent){let n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(parent)parent.append(n);return n}
-function btn(p,t,f){let b=el('button',t,p);b.onclick=f;return b}
-function field(p,placeholder,type='text'){let i=el('input',undefined,p);i.placeholder=placeholder;i.type=type;return i}
-function select(p,items){let s=el('select',undefined,p);for(const [v,t] of items){let o=el('option',t,s);o.value=v}return s}
-function post(route,d={}){return fetch('https://'+GetParentResourceName()+'/'+route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})}
-function act(action,data){post('action',{action,data})}
-function section(p,t){let s=el('section',undefined,p);el('h2',t,s);return s}
-const cents=i=>Math.round(Number(i.value)*100),money=n=>'$'+(Number(n||0)/100).toFixed(2);
-function render(){let root=$('content');root.replaceChildren();if(state.fixture){renderFixture(root,state.fixture);return;}if(state.office){let s=section(root,'Government registry'),n=field(s,'Company name'),d=field(s,'Description');btn(s,'Register company',()=>act('register',{name:n.value,description:d.value}));let l=select(s,Object.entries(state.licenses).map(([k,v])=>[k,k+' '+money(v.fee)]));btn(s,'Buy personal license',()=>act('license',{category:l.value}))}
-for(const v of vals(state.invites)){let s=el('article','Employment invitation · '+money(v.wage)+' / 10 min',root);btn(s,'Accept',()=>act('accept',{id:v.id}))}
-for(const v of vals(state.offers)){let p=JSON.parse(v.payload),s=el('article','Share offer '+p.units/100+'% · '+money(p.amount),root);btn(s,'Accept',()=>act('vote',{company:v.company_id,id:v.id}))}
-for(const b of vals(state.companies)){let s=section(root,b.name+' · '+b.status),a=(action,d={})=>act(action,{company:b.id,...d});el('p','Balance '+(b.balance===undefined?'Private':money(b.balance))+' · Base tax debt '+money(b.debt),s);let amount=field(s,'Amount USD','number');
-if(b.owner)btn(s,'Deposit',()=>a('deposit',{amount:cents(amount)}));if(b.rights.withdraw)btn(s,'Withdraw',()=>a('withdraw',{amount:cents(amount)}));if(b.rights.finance)btn(s,'Pay tax',()=>a('payTax'));
-if(b.owner){btn(s,'Propose dividend',()=>a('dividend',{amount:cents(amount)}));let limit=field(s,'Withdrawal USD','number'),daily=field(s,'Daily count','number');btn(s,'Propose limits',()=>a('policy',{limit:cents(limit),daily:Number(daily.value)}));let mode=select(s,['disabled','manual','fixed','percentage'].map(x=>[x,x])),da=field(s,'USD or percent','number'),reserve=field(s,'Reserve USD','number');btn(s,'Propose dividend policy',()=>a('dividendPolicy',{mode:mode.value,amount:cents(da),reserve:cents(reserve)}));let target=field(s,'Buyer player ID','number'),share=field(s,'Ownership %','number');btn(s,'Offer shares',()=>a('share',{target:Number(target.value),units:cents(share),amount:cents(amount)}));btn(s,'Propose closure',()=>a('close'))}
-for(const v of vals(b.shares))el('p',v.character_id+' · '+v.units/100+'%',s);
-for(const v of vals(b.proposals)){let r=el('article',v.kind+' · '+v.payload,s);btn(r,'Approve',()=>a('vote',{id:v.id}))}
-if(b.rights.ranks){let name=field(s,'Rank name'),level=field(s,'Hierarchy level','number'),wage=field(s,'Paycheck USD','number'),checks={};let row=el('article','Rank permissions',s);for(const k of state.permissions){let l=el('label',k,row);checks[k]=el('input',undefined,l);checks[k].type='checkbox'}btn(s,'Create rank',()=>a('rank',{name:name.value,level:Number(level.value),wage:cents(wage),rights:Object.fromEntries(Object.entries(checks).map(([k,v])=>[k,v.checked]))}))}
-if(b.rights.hire){let target=field(s,'Player ID','number'),rank=select(s,vals(b.ranks).map(r=>[r.id,r.name]));btn(s,'Invite employee',()=>a('hire',{target:Number(target.value),rank:rank.value}));for(const e of vals(b.employees)){let r=el('article',e.character_id,s);btn(r,'Dismiss',()=>a('fire',{target:e.character_id}))}}
-if(state.office&&b.rights.licenses){let l=select(s,Object.entries(state.licenses).map(([k,v])=>[k,k+' '+money(v.fee)]));btn(s,'Buy company license',()=>a('license',{category:l.value}))}
-if(b.owner||b.rights.locations){let plot=select(s,vals(state.plots).map(p=>[p.id,p.name])),rights={};for(const k of ['stock','retail','farm','production']){let l=el('label',k,s);rights[k]=el('input',undefined,l);rights[k].type='checkbox'}btn(s,'Grant plot usage',()=>a('grant',{property:plot.value,rights:Object.fromEntries(Object.entries(rights).map(([k,v])=>[k,v.checked]))}));btn(s,'Revoke plot usage',()=>a('revoke',{property:plot.value}))}if(b.trade)renderTrade(s,b,a);if(b.stock)renderStock(s,b,a);for(const v of vals(b.receipts)){let r=el('article',v.detail,s);btn(r,'Hide receipt',()=>a('hideReceipt',{id:v.id}))}for(const v of vals(b.logs))el('p',v.action+' · '+v.actor+' · '+v.detail,s)
+const $=id=>document.getElementById(id),vals=o=>Object.values(o||{}),money=n=>'$'+(Number(n||0)/100).toFixed(2);
+let state=null,companyId='',tab='overview',tradeTab='market',fixtureTab='shop',pending=null,sequence=0,timeout=null,mode='management',propertySelection={};
+const decode=v=>{if(typeof v!=='string')return v||{};try{return JSON.parse(v)||{}}catch{return {}}};
+const names={stock:'Storage access',deposit:'Deposit stock',retrieve:'Withdraw stock',retail:'Retail sales',farm:'Farming',production:'Production',trade:'Trade contracts',hire:'Hire & dismiss',ranks:'Manage ranks',finance:'View finances',withdraw:'Withdraw funds',licenses:'Manage licenses',locations:'Manage locations',logs:'View logs'};
+const label=k=>names[k]||String(k).replace(/_/g,' ');
+const amount=i=>i.value.trim()===''?NaN:Math.round(Number(i.value)*100);
+const number=i=>i.value.trim()===''?NaN:Number(i.value);
+function el(tag,text,parent,cls){const n=document.createElement(tag);if(text!==undefined)n.textContent=String(text);if(cls)n.className=cls;if(parent)parent.append(n);return n}
+function button(p,t,fn,opts={}){const b=el('button',t,p,opts.cls);b.type='button';b.disabled=!!opts.disabled;b.onclick=fn;if(opts.action)b.dataset.action='true';return b}
+function field(p,title,type='text',value=''){const l=el('label',undefined,p,'field');el('span',title,l);const i=el('input',undefined,l);i.type=type;i.value=value;if(type==='number')i.step='any';return i}
+function select(p,title,items,value=''){const l=el('label',undefined,p,'field');el('span',title,l);const s=el('select',undefined,l);if(!items.length){let o=el('option','No options available',s);o.value='';s.disabled=true}else for(const [v,t] of items){let o=el('option',t,s);o.value=String(v)}if(items.some(([v])=>String(v)===String(value)))s.value=String(value);return s}
+function check(p,k,on=false){let l=el('label',undefined,p,'check'),i=el('input',undefined,l);i.type='checkbox';i.checked=!!on;el('span',label(k),l);return i}
+function actions(p){return el('div',undefined,p,'actions')}
+function panel(p,t){let n=el('section',undefined,p,'panel');if(t)el('h3',t,n);return n}
+function intro(p,t,d){el('h2',t,p);el('p',d,p,'intro')}
+function empty(p,t){el('div',t,p,'empty')}
+function hint(p,t){el('p',t,p,'hint')}
+function row(p,t,sub){let r=el('div',undefined,p,'row'),d=el('div',undefined,r);el('strong',t,d);if(sub)el('small',sub,d);return r}
+function detail(p,obj){el('div',typeof obj==='string'?obj:JSON.stringify(obj,null,2),p,'details')}
+function metric(p,t,v){let x=el('div',undefined,p,'metric');el('span',t,x);el('strong',v,x)}
+function status(msg,kind=''){let s=$('status');s.textContent=msg;s.className=kind}
+function post(route,d={}){return fetch('https://'+GetParentResourceName()+'/'+route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)}).then(r=>r.json())}
+function lock(){document.querySelectorAll('[data-action]').forEach(b=>{if(pending){if(!b.disabled)b.dataset.locked='1';b.disabled=true}else if(b.dataset.locked){b.disabled=false;delete b.dataset.locked}})}
+function release(){pending=null;clearTimeout(timeout);lock()}
+function act(action,data={}){
+ if(pending)return;
+ if(Object.values(data).some(v=>typeof v==='number'&&!Number.isFinite(v))){status('Complete all required fields first.','error');return}
+ const request=++sequence;pending={request,action};status('Submitting '+label(action)+'…','pending');lock();
+ timeout=setTimeout(()=>{if(pending?.request===request){release();status('No server response. Refresh before retrying; the request may already have been accepted.','error')}},12000);
+ post('action',{action,data,request}).then(r=>{if(!r.ok&&pending?.request===request){release();status('The menu is no longer active. Reopen it.','error')}}).catch(()=>{if(pending?.request===request){release();status('Unable to contact the game client.','error')}});
 }
-for(const v of vals(state.orders)){let r=el('article','Paid purchase: '+v.quantity+' '+v.item_id,root);btn(r,'Collect at counter',()=>act('claimRetail',{id:v.id}))}btn(root,'Resign from employment',()=>act('resign',{}));let l=section(root,'Personal licenses');for(const v of vals(state.personal))el('p',v.category+' · '+(Number(v.active)?'Active':'Inactive')+' · Debt '+money(v.debt),l);
-for(const v of vals(state.receipts)){let r=el('article',v.detail,root);btn(r,'Hide receipt',()=>act('hideReceipt',{id:v.id}))}
+function submit(p,t,a,d,opts={}){return button(p,t,()=>act(a,typeof d==='function'?d():d),{...opts,action:true})}
+function csubmit(p,t,b,a,d={},opts={}){return submit(p,t,a,()=>({company:b.id,...(typeof d==='function'?d():d)}),opts)}
+function tabs(p,items,current,change){let n=el('div',undefined,p,'subnav');for(const [k,t] of items)button(n,t,()=>change(k),{cls:k===current?'active':''});return n}
+function company(){return vals(state?.companies).find(b=>b.id===companyId)}
+function rights(b,k){return b.status==='active'&&(b.owner||!!b.rights?.[k])}
+function setTab(k){tab=k;render()}
+function render(){
+ if(!state)return;const root=$('content'),nav=$('nav'),ctx=$('context');root.replaceChildren();nav.replaceChildren();ctx.replaceChildren();
+ if(state.fixture){mode='fixture';renderFixture(root,state.fixture,nav,ctx);lock();return}
+ mode='management';const companies=vals(state.companies);
+ if(!companies.some(b=>b.id===companyId))companyId=companies[0]?.id||'';
+ const b=company();const options=[['','Personal'],...companies.map(c=>[c.id,c.name+(c.status==='active'?'':' · '+c.status)])];
+ const picker=select(ctx,'Working as',options,companyId);picker.onchange=()=>{companyId=picker.value;tab='overview';render()};
+ let pages=b?[['overview','Overview'],['finance','Finances'],['employees','Employees & ranks'],['ownership','Ownership & votes'],['property','Properties'],['stock','Storage'],['trade','Trade'],['licenses','Licenses'],['receipts','Receipts'],['history','Activity log']]:[['overview','Personal overview'],['licenses','Personal licenses'],['receipts','Personal receipts'],['orders','Purchases']];
+ pages.push(['inbox','Invitations'],['registry','Government registry']);
+ if(!pages.some(([k])=>k===tab))tab='overview';
+ for(const [k,t] of pages)button(nav,t,()=>setTab(k),{cls:k===tab?'active':''});
+ const handlers={overview:overview,finance:finance,employees:employees,ownership:ownership,property:property,stock:stock,trade:trade,licenses:licenses,receipts:receipts,history:history,orders:orders,inbox:inbox,registry:registry};
+ handlers[tab](root,b);lock();
 }
-window.addEventListener('message',e=>{let d=e.data;if(d.type==='view'){state=d.data;render();document.body.hidden=false}else if(d.type==='close')document.body.hidden=true;else if(d.type==='notice')$('status').textContent=d.message});
-function close(){document.body.hidden=true;post('close')}$('close').onclick=close;$('refresh').onclick=()=>post('refresh');document.addEventListener('keydown',e=>{if(e.key==='Escape')close()});
-
-function renderFixture(root,f){let s=section(root,f.registered?.name||'Configure '+f.kind);
- if(!f.registered&&f.setup){let name=field(s,'Storage / counter name'),co=select(s,[['','Personal'],...vals(f.companies).map(b=>[b.id,b.name])]);btn(s,'Register',()=>act('fixtureSetup',{name:name.value,company:co.value}))}
- if(f.access)btn(s,'Open stock',()=>act('fixtureStock',{}));
- if(f.manage&&f.kind==='counter'){let item=field(s,'Item ID'),price=field(s,'Price USD (0 removes)','number');btn(s,'Set price',()=>act('fixturePrice',{item:item.value,price:cents(price)}))}
- for(const v of vals(f.products)){let r=el('article',v.item+' · '+v.quantity+' available · '+money(v.price),s),q=field(r,'Quantity','number');q.value=1;btn(r,'Buy',()=>act('fixtureBuy',{item:v.item,quantity:Number(q.value)}))}
- if(f.unregister)btn(s,'Unregister empty fixture',()=>act('fixtureRemove',{}));
+function overview(p,b){
+ intro(p,b?b.name:'Personal ledger',b?b.description:'Manage your personal licenses, invitations and purchases.');
+ const m=el('div',undefined,p,'metrics');
+ if(b){metric(m,'Company status',b.status);metric(m,'Bank balance',b.balance===undefined?'Private':money(b.balance));metric(m,'Employees',vals(b.employees).length);metric(m,'Registered locations',vals(b.locations).length);
+ let s=panel(p,'Company shortcuts');for(const [k,t] of [['finance','Finances'],['property','Property rights'],['stock','Storage'],['employees','Employees'],['trade','Trade']])button(actions(s),t,()=>setTab(k));
+ hint(s,'Registration and licenses are available at a government registry. Property rights and stock ownership are separate.');
+ if(b.status==='liquidating')hint(s,'Recovery ends '+new Date(Number(b.liquidate_until)*1000).toLocaleString()+'.');}
+ else{metric(m,'Companies',vals(state.companies).length);metric(m,'Licenses',vals(state.personal).length);metric(m,'Invitations',vals(state.invites).length+vals(state.offers).length);metric(m,'Paid purchases',vals(state.orders).length)}
 }
-
-function renderTrade(parent,b,a){
- const s=section(parent,'Company Trade'),t=b.trade,send=(operation,d={})=>a('trade',{operation,...d});
- const locations=vals(b.tradeFixtures),src=select(s,locations.filter(x=>x.retrieve).map(x=>[x.id,x.name])),dst=select(s,locations.filter(x=>x.deposit).map(x=>[x.id,x.name]));
- el('p','First storage: source for deliveries/offers. Second storage: destination for purchases. Approach the designated storage for physical dispatch or collection.',s);
- if(b.status==='active'){
- const market=select(s,Object.entries(t.markets)),item=select(s,Object.entries(t.products)),q=field(s,'Quantity','number'),p=field(s,'Unit price USD','number'),cap=field(s,'Maximum price USD','number');
- btn(s,'Create purchase request',()=>send('request',{market:market.value,item:item.value,quantity:Number(q.value),price:cents(p),cap:cap.value?cents(cap):cents(p),fixture:dst.value}));
- btn(s,'Create sale offer',()=>send('offer',{market:market.value,item:item.value,quantity:Number(q.value),price:cents(p),fixture:src.value}));
- for(const r of vals(t.requests)){let row=el('article',r.market_id+' · '+r.remaining+' '+r.item_id+' · '+money(r.price)+' · '+r.state,s);
- if(r.state==='open'&&!r.active_contract){if(r.buyer_id===b.id)btn(row,'Cancel request',()=>send('cancelRequest',{id:r.id}));else btn(row,'Accept contract',()=>send('accept',{id:r.id}))}}
- for(const r of vals(t.offers)){let row=el('article',r.market_id+' · '+r.available+' '+r.item_id+' · '+money(r.price)+' · '+r.state,s);
- if(r.state==='open'&&!r.active_sale){if(r.seller_id===b.id)btn(row,'Cancel offer',()=>send('cancelOffer',{id:r.id}));else{let n=field(row,'Quantity','number');n.value=1;btn(row,'Buy',()=>send('buy',{id:r.id,quantity:Number(n.value),fixture:dst.value}))}}}
- for(const r of vals(t.contracts)){let row=el('article','Contract '+r.id+' · '+r.remaining+' '+r.item_id+' · '+r.state,s);
- if(r.state==='active'&&!r.active_delivery){btn(row,'Cancel contract',()=>send('cancelContract',{id:r.id}));if(r.seller_id===b.id){let n=field(row,'Quantity','number');n.value=1;btn(row,'Dispatch from source storage',()=>send('deliver',{id:r.id,quantity:Number(n.value),fixture:src.value}))}}}
- }
- for(const [rows,operation] of [[t.deliveries,'claimDelivery'],[t.sales,'claimSale']])for(const r of vals(rows)){let row=el('article',r.quantity+' '+r.item_id+' · '+r.state,s);if(r.buyer_id===b.id&&r.state==='complete'&&!r.claimed_at)btn(row,'Collect at designated storage',()=>send(operation,{id:r.id}))}
+function finance(p,b){intro(p,'Finances','Manage the company bank account, taxes and dividend policies.');const m=el('div',undefined,p,'metrics');metric(m,'Bank balance',b.balance===undefined?'Private':money(b.balance));metric(m,'Base tax debt',money(b.debt));metric(m,'Withdrawal limit',money(b.withdrawal_limit));metric(m,'Daily withdrawals allowed',b.daily_limit);
+ let c=el('div',undefined,p,'columns'),s=panel(c,'Transfer funds'),i=field(s,'Amount (USD)','number');if(rights(b,'withdraw'))csubmit(actions(s),'Withdraw',b,'withdraw',()=>({amount:amount(i)}));if(b.owner&&b.status==='active')csubmit(actions(s),'Deposit',b,'deposit',()=>({amount:amount(i)}));if(rights(b,'finance'))csubmit(actions(s),'Pay base tax',b,'payTax',{}, {disabled:Number(b.debt)<=0});
+ if(!b.owner||b.status!=='active')return;
+ s=panel(c,'Withdrawal rules');let limit=field(s,'Maximum withdrawal (USD)','number',Number(b.withdrawal_limit)/100),daily=field(s,'Daily count','number',b.daily_limit);csubmit(s,'Propose changes',b,'policy',()=>({limit:amount(limit),daily:number(daily)}));hint(s,'All owners must approve these changes.');
+ s=panel(c,'Dividend payout');let d=field(s,'Distribution amount (USD)','number');csubmit(s,'Propose distribution',b,'dividend',()=>({amount:amount(d)}));
+ s=panel(c,'Automatic dividend policy');let mode=select(s,'Policy',['disabled','manual','fixed','percentage'].map(k=>[k,k]),b.dividend_mode),value=field(s,'Amount (USD) or percentage','number',Number(b.dividend_amount)/100),reserve=field(s,'Minimum reserve (USD)','number',Number(b.reserve_minor)/100);csubmit(s,'Propose policy',b,'dividendPolicy',()=>({mode:mode.value,amount:amount(value),reserve:amount(reserve)}));hint(s,'Review and approve proposals in Ownership & votes.');
 }
-
-function renderStock(parent,b,a){
- const s=section(parent,'Physical stock');
- if(b.status==='liquidating')el('p','Shareholder recovery ends '+new Date(Number(b.liquidate_until)*1000).toLocaleString()+'. Remaining company goods are confiscated; paid customer purchases are preserved.',s);
- if(b.status==='archived')el('p','Final tax paid '+money(b.final_tax_paid),s);
- for(const f of vals(b.stock)){let row=el('article',f.name+' · '+f.kind,s);if(f.position)el('p','Location '+[f.position.x,f.position.y,f.position.z].map(n=>Number(n).toFixed(1)).join(', '),row);
- if(!f.available)el('p','Stock temporarily unavailable',row);
- for(const v of vals(f.items))el('p',v.quantity+' × '+(v.name||v.item),row);
- if(b.status==='active'||b.status==='liquidating')btn(row,'Open stock at this location',()=>a('recoverFixture',{id:f.id}));}
- for(const v of vals(b.storageAudit))el('p',v.action+' · '+v.detail,s);
- for(const v of vals(b.confiscations))el('p','Government confiscation '+v.fixture_id+' · '+v.status+' · '+v.snapshot,s)
+function employees(p,b){intro(p,'Employees & ranks','Employment is voluntary, and wages are determined by the assigned rank.');let c=el('div',undefined,p,'columns'),s=panel(c,'Employees');const ranks=vals(b.ranks);for(const e of vals(b.employees)){let r=row(s,e.character_id,ranks.find(x=>x.id===e.rank_id)?.name||'Unknown rank');if(rights(b,'hire'))csubmit(r,'Dismiss',b,'fire',{target:e.character_id},{cls:'danger'})}if(!vals(b.employees).length)empty(s,'No employees yet.');
+ if(rights(b,'hire')){s=panel(c,'Invite employee');let target=field(s,'Online player ID','number'),rank=select(s,'Rank',ranks.map(r=>[r.id,r.name+' · '+money(r.wage)]));csubmit(s,'Send invitation',b,'hire',()=>({target:number(target),rank:rank.value}),{disabled:!ranks.length});if(!ranks.length)hint(s,'Create a rank before hiring.')}
+ s=panel(p,'Existing ranks');for(const r of ranks)row(s,r.name,'Level '+r.level_no+' · '+money(r.wage)+' every 10 minutes · '+Object.keys(decode(r.rights)).filter(k=>decode(r.rights)[k]).map(label).join(', '));if(!ranks.length)empty(s,'No ranks configured.');
+ if(rights(b,'ranks')){s=panel(p,'Create rank');let n=field(s,'Rank name'),level=field(s,'Hierarchy level','number','1'),w=field(s,'Paycheck per 10 minutes (USD)','number','0'),grid=el('div',undefined,s,'checks'),checks={};for(const k of vals(state.permissions))checks[k]=check(grid,k);csubmit(s,'Create rank',b,'rank',()=>({name:n.value,level:number(level),wage:amount(w),rights:Object.fromEntries(Object.entries(checks).map(([k,v])=>[k,v.checked]))}))}
+ if(vals(b.employees).some(e=>e.character_id===state.characterId))submit(panel(p,'Your employment'),'Resign','resign',{}, {cls:'danger'});
 }
+function ownership(p,b){intro(p,'Ownership & votes','Company ownership is independent from employee ranks.');let s=panel(p,'Shareholders');for(const v of vals(b.shares))row(s,v.character_id,(Number(v.units)/100).toFixed(2)+'%');s=panel(p,'Open proposals');for(const v of vals(b.proposals)){let d=decode(v.payload),r=row(s,label(v.kind),Object.entries(d).filter(([k])=>['amount','limit','daily','mode','reserve','units','target'].includes(k)).map(([k,x])=>k+': '+(['amount','limit','reserve'].includes(k)?money(x):x)).join(' · '));if(b.owner&&b.status==='active'&&v.kind!=='share')csubmit(r,'Approve',b,'vote',{id:v.id})}if(!vals(b.proposals).length)empty(s,'No open proposals.');
+ if(b.owner&&b.status==='active'){s=panel(p,'Sell shares');let target=field(s,'Buyer player ID','number'),units=field(s,'Percentage to sell','number'),price=field(s,'Total sale price (USD)','number');csubmit(s,'Offer shares',b,'share',()=>({target:number(target),units:amount(units),amount:amount(price)}));s=panel(p,'Company closure');hint(s,'Closure requires shareholder approval. Operations stop and the recovery period begins.');button(s,'Propose closure',()=>{if(window.confirm('Propose closing this company?'))act('close',{company:b.id})},{cls:'danger',action:true})}
+}
+function property(p,b){
+ intro(p,'Properties','Grant the company usage rights on land you personally own. The company does not acquire the property.');
+ const plots=vals(state.plots),grants=vals(b.locations),keys=['stock','retail','farm','production'];let s=panel(p,'Existing property agreements');
+ for(const g of grants){const plot=plots.find(x=>x.id===g.property_id),r=row(s,plot?.name||g.property_name||g.property_id,keys.filter(k=>decode(g.rights)[k]).map(label).join(' · ')||'No rights');if(plot&&b.status==='active')csubmit(r,'Revoke',b,'revoke',{property:g.property_id},{cls:'danger'})}
+ if(!grants.length)empty(s,'No property agreements yet.');
+ s=panel(p,'Grant or edit usage rights');if(b.status!=='active'){empty(s,'This company is not active.');return}if(!plots.length){empty(s,'You do not own a settlement. Claim one through the Property system first.');return}
+ let selected=propertySelection[b.id]||plots[0].id,plot=select(s,'Your settlement',plots.map(x=>[x.id,x.name||x.id]),selected),grid=el('div',undefined,s,'checks'),checks={};
+ const fill=()=>{const g=grants.find(x=>x.property_id===plot.value),r=decode(g?.rights);grid.replaceChildren();for(const k of keys)checks[k]=check(grid,k,r[k]);propertySelection[b.id]=plot.value};plot.onchange=fill;fill();
+ hint(s,'Storage and retail enable physical furniture registration. Farming and production are integration permissions.');
+ button(s,'Save property usage rights',()=>{const r=Object.fromEntries(keys.map(k=>[k,checks[k].checked]));if(!plot.value||!Object.values(r).some(Boolean)){status('Select a settlement and at least one usage right.','error');return}act('grant',{company:b.id,property:plot.value,rights:r})},{action:true});
+}
+function stock(p,b){intro(p,'Storage','Physical stock is kept in individually registered furniture. You must approach the chest or counter to withdraw goods.');if(b.status==='liquidating')hint(p,'Recovery ends '+new Date(Number(b.liquidate_until)*1000).toLocaleString());let s=panel(p,'Registered storage');for(const f of vals(b.stock)){let r=row(s,f.name,f.kind+(f.position?' · '+[f.position.x,f.position.y,f.position.z].map(x=>Number(x).toFixed(1)).join(', '):''));if(f.available&&b.status!=='archived')csubmit(r,'Open nearby stock',b,'recoverFixture',{id:f.id});if(!f.available)hint(s,'Stock temporarily unavailable.');for(const v of vals(f.items))row(s,v.name||v.item,'Quantity: '+v.quantity)}if(!vals(b.stock).length)empty(s,'No registered storage. Place a functional chest on a granted plot and interact with it.')}
+function trade(p,b){intro(p,'Trade','Buy and sell through the existing Frontier market using company funds and physical stock.');const t=b.trade;if(!t){empty(p,'Trade is unavailable or your rank does not have access.');return}tabs(p,[['market','Market'],['contracts','Contracts'],['collections','Collections']],tradeTab,k=>{tradeTab=k;render()});let s=panel(p,'Stock locations'),fs=vals(b.tradeFixtures),src=select(s,'Source (for sales and deliveries)',fs.filter(x=>x.retrieve).map(x=>[x.id,x.name])),dst=select(s,'Destination (for purchases)',fs.filter(x=>x.deposit).map(x=>[x.id,x.name]));const send=(p,t,operation,d,opts={})=>csubmit(p,t,b,'trade',()=>({operation,...(typeof d==='function'?d():d)}),opts);
+ if(tradeTab==='market'&&b.status==='active'){s=panel(p,'Create request or offer');let m=select(s,'Market',Object.entries(t.markets)),item=select(s,'Product',Object.entries(t.products)),q=field(s,'Quantity','number','1'),price=field(s,'Unit price (USD)','number'),cap=field(s,'Maximum purchase price (optional)','number');send(actions(s),'Create purchase request','request',()=>({market:m.value,item:item.value,quantity:number(q),price:amount(price),cap:cap.value?amount(cap):amount(price),fixture:dst.value}),{disabled:dst.disabled});send(actions(s),'Create sale offer','offer',()=>({market:m.value,item:item.value,quantity:number(q),price:amount(price),fixture:src.value}),{disabled:src.disabled});
+ s=panel(p,'Purchase requests');for(const r of vals(t.requests)){let x=row(s,r.remaining+' × '+r.item_id,r.market_id+' · '+money(r.price)+' · '+r.state);if(r.state==='open'&&!r.active_contract)send(x,r.buyer_id===b.id?'Cancel request':'Accept contract',r.buyer_id===b.id?'cancelRequest':'accept',{id:r.id})}
+ s=panel(p,'Sales offers');for(const r of vals(t.offers)){let x=row(s,r.available+' × '+r.item_id,r.market_id+' · '+money(r.price)+' · '+r.state);if(r.state==='open'&&!r.active_sale){if(r.seller_id===b.id)send(x,'Cancel offer','cancelOffer',{id:r.id});else{let n=field(x,'Quantity','number','1');send(x,'Buy','buy',()=>({id:r.id,quantity:number(n),fixture:dst.value}),{disabled:dst.disabled})}}}}
+ if(tradeTab==='contracts'){s=panel(p,'Company contracts');for(const r of vals(t.contracts)){let x=row(s,r.remaining+' × '+r.item_id,r.state+' · '+money(r.price));if(b.status==='active'&&r.state==='active'&&!r.active_delivery){send(x,'Cancel','cancelContract',{id:r.id});if(r.seller_id===b.id){let n=field(x,'Quantity','number','1');send(x,'Dispatch','deliver',()=>({id:r.id,quantity:number(n),fixture:src.value}),{disabled:src.disabled})}}}if(!vals(t.contracts).length)empty(s,'No contracts.')}
+ if(tradeTab==='collections'){s=panel(p,'Deliveries and purchases');for(const [list,op] of [[t.deliveries,'claimDelivery'],[t.sales,'claimSale']])for(const r of vals(list)){let x=row(s,r.quantity+' × '+r.item_id,r.state+(r.claimed_at?' · Collected':''));if(r.buyer_id===b.id&&r.state==='complete'&&!r.claimed_at)send(x,'Collect',''+op,{id:r.id})}}
+}
+function licenses(p,b){intro(p,b?'Company licenses':'Personal licenses','Commercial licenses are purchased at a registry office and incur weekly taxes.');let s=panel(p,'Registered licenses');let list=vals(b?b.licenses:state.personal);for(const l of list)row(s,label(l.category),(Number(l.active)?'Active':'Inactive')+' · Tax debt '+money(l.debt));if(!list.length)empty(s,'No registered licenses.');s=panel(p,'Purchase license');if(!state.office){hint(s,'Visit a government registry to purchase licenses.');return}if(b&&!rights(b,'licenses')){hint(s,'Your rank cannot purchase company licenses.');return}const l=select(s,'License category',Object.entries(state.licenses).map(([k,v])=>[k,label(k)+' · '+money(v.fee)+' / '+money(v.tax)+' weekly']));submit(s,'Purchase license','license',()=>({category:l.value,...(b?{company:b.id}:{})}))}
+function receipts(p,b){intro(p,'Receipts','Completed purchases and sales. Hiding a receipt does not erase the underlying transaction.');let s=panel(p,'Receipt book'),list=vals(b?b.receipts:state.receipts);for(const v of list){let d=decode(v.detail),r=row(s,(d.quantity||'')+' × '+(d.item||'Transaction'),money(d.total)+' · '+v.reference_id);submit(r,'Hide','hideReceipt',{id:v.id,...(b?{company:b.id}:{})},{cls:'secondary'})}if(!list.length)empty(s,'No visible receipts.')}
+function history(p,b){intro(p,'Activity log','Company actions, storage movements and government confiscation records.');for(const [title,list] of [['Company activity',b.logs],['Stock movements',b.storageAudit],['Confiscations',b.confiscations]]){let s=panel(p,title);for(const v of vals(list)){let r=row(s,label(v.action||v.status),v.created?new Date(Number(v.created)*1000).toLocaleString():'');detail(r,decode(v.detail||v.snapshot))}if(!vals(list).length)empty(s,'No available records.')}}
+function orders(p){intro(p,'Paid purchases','Collect at the sales counter, or at the registry if it has closed.');let s=panel(p,'Awaiting collection');for(const v of vals(state.orders)){let r=row(s,v.quantity+' × '+v.item_id,money(v.price));submit(r,'Collect','claimRetail',{id:v.id})}if(!vals(state.orders).length)empty(s,'No purchases awaiting collection.')}
+function inbox(p){intro(p,'Invitations','Employment invitations and shareholder offers.');let s=panel(p,'Employment');for(const v of vals(state.invites)){let r=row(s,'Employment offer',money(v.wage)+' every 10 minutes');submit(r,'Accept','accept',{id:v.id})}if(!vals(state.invites).length)empty(s,'No employment invitations.');s=panel(p,'Share offers');for(const v of vals(state.offers)){let d=decode(v.payload),r=row(s,(Number(d.units)/100)+'% ownership',money(d.amount));submit(r,'Accept','vote',{company:v.company_id,id:v.id})}if(!vals(state.offers).length)empty(s,'No share offers.');if(state.employed)submit(panel(p,'Current employment'),'Resign','resign',{}, {cls:'danger'})}
+function registry(p){intro(p,'Government registry','Register companies and purchase personal or company licenses at the registry office.');let s=panel(p,'Company registration');if(!state.office){hint(s,'You must be within the registry office interaction radius.');return}let n=field(s,'Company name'),d=field(s,'Description');submit(s,'Register company','register',()=>({name:n.value,description:d.value}));button(actions(s),'Personal licenses',()=>{companyId='';tab='licenses';render()})}
+function renderFixture(p,f,nav,ctx){el('strong',f.registered?.name||f.kind,ctx);let tabsList=[['shop',f.kind==='counter'?'Shop':'Storage'],['manage','Manage fixture']];for(const [k,t] of tabsList)button(nav,t,()=>{fixtureTab=k;render()},{cls:fixtureTab===k?'active':''});button(nav,'Business ledger',()=>post('management'));intro(p,f.registered?.name||'Unregistered '+f.kind,'Physical property furniture · '+f.kind);
+ if(!f.registered){let s=panel(p,'Register fixture');if(!f.setup){hint(s,'The property owner must register this furniture first.');return}let n=field(s,'Fixture name'),co=select(s,'Stock ownership',[['','Personal'],...vals(f.companies).map(b=>[b.id,b.name])]);submit(s,'Register','fixtureSetup',()=>({name:n.value,company:co.value}));return}
+ if(fixtureTab==='shop'){let s=panel(p,f.kind==='counter'?'Products':'Stock access');if(f.access)submit(s,'Open stock inventory','fixtureStock',{});for(const v of vals(f.products)){let r=row(s,v.item,v.quantity+' available · '+money(v.price)),q=field(r,'Quantity','number','1');submit(r,'Buy','fixtureBuy',()=>({item:v.item,quantity:number(q)}),{disabled:Number(v.quantity)<=0})}if(f.kind==='counter'&&!vals(f.products).length)empty(s,'No products available.');}
+ else{let s=panel(p,'Stock and prices');if(f.access)submit(s,'Open stock inventory','fixtureStock',{});if(f.manage&&f.kind==='counter'){let i=field(s,'Item ID'),price=field(s,'Unit price (USD); zero removes listing','number');submit(s,'Save price','fixturePrice',()=>({item:i.value,price:amount(price)}))}if(f.unregister)submit(s,'Unregister empty fixture','fixtureRemove',{}, {cls:'danger'});}
+}
+window.addEventListener('message',e=>{let d=e.data;if(d.type==='view'){const wasHidden=document.body.hidden;const oldMode=mode;state=d.data;if(wasHidden||oldMode!==(state.fixture?'fixture':'management')){tab='overview';fixtureTab='shop'}document.body.hidden=false;render()}else if(d.type==='close'){document.body.hidden=true;release()}else if(d.type==='notice'){if(!pending)status(d.message)}else if(d.type==='result'){const r=d.data;if(pending?.request===r.request){release();status(r.message,r.ok?'ok':'error')}}});
+function close(){document.body.hidden=true;release();post('close').catch(()=>{})}
+$('close').onclick=close;$('refresh').onclick=()=>{if(!pending){status('Refreshing…','pending');post('refresh').then(r=>{if(!r.ok)status('Refresh unavailable.','error');else setTimeout(()=>{if($('status').textContent==='Refreshing…')status('Refresh requested.');},1500)}).catch(()=>status('Refresh unavailable.','error'))}};
+document.addEventListener('keydown',e=>{if(e.key==='Escape')close()});
