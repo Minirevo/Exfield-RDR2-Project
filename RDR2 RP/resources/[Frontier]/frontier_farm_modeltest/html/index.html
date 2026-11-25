@@ -13,13 +13,15 @@
 'use strict';
 const $=id=>document.getElementById(id);
 const groups = {
-	'Wheat extended test': [
+	'Animal pens and fencing': [
     'prop',
-    'crp_wheat_sap_aa_p',
-    'crp_wheat_stk_aa_p',
-    'crp_wheat_stk_ab_p',
-    'crp_wheat_dry_aa_sim'
+    'p_pen01x',
+    'p_fence_cattle01x',
+    'p_chickenfence01x',
+    'p_fence01dx',
+    'p_val_aucgate1m01x'
 ]
+
 };
 let last=null;
 const post=(route,data={})=>fetch('https://'+GetParentResourceName()+'/'+route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).then(r=>r.json()).catch(()=>{$('status').textContent='Request failed.'});

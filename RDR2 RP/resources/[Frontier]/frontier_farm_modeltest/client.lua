@@ -193,12 +193,14 @@ local function spawnPen()
             local min=GetModelDimensions(hash)
             local h
             local angle=(penHeading+p.heading)%360
-            if p.ped then
-                h=CreatePed(hash,x,y,z,angle,false,false,false,false)
-            else
-                z=z-min.z
-                h=CreateObject(hash,x,y,z,false,false,false,false,false)
-            end
+            -- Correct vertical model origin for both animals and props.
+			z=z-min.z
+
+			if p.ped then
+				h=CreatePed(hash,x,y,z,angle,false,false,false,false)
+			else
+				h=CreateObject(hash,x,y,z,false,false,false,false,false)
+			end
             if h and h~=0 and DoesEntityExist(h) then
                 pen[#pen+1]=h
                 SetEntityAsMissionEntity(h,true,true)
