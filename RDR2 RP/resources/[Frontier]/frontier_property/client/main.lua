@@ -236,7 +236,7 @@ RegisterNetEvent(E..'preview',function(d)
         handles[n]=handle
         if n==1 and q.ground then local actual=GetEntityCoords(handle);o.z=actual.z-(part.z or 0) end
     end
-    preview={handle=handles[1],handles=handles,parts=parts,x=o.x,y=o.y,z=o.z,heading=o.heading or 0,mode=d.mode,claim=d.claim,blockers=d.blockers,radius=d.radius,furniture=d.furniture,buildings=d.buildings}
+    preview={handle=handles[1],handles=handles,parts=parts,x=o.x,y=o.y,z=o.z,heading=o.heading or 0,mode=d.mode,claim=d.claim,blockers=d.blockers,radius=d.radius,furniture=d.furniture}
     notice('Placement: arrows move, PageUp/Down height, Q/R rotate, Enter confirm, Esc cancel.')
 end)
 RegisterNUICallback('menuReady',function(d,cb)
@@ -463,7 +463,7 @@ CreateThread(function()
             DisableControlAction(0,keys.confirm,true); DisableControlAction(0,keys.cancel,true)
             if IsDisabledControlJustPressed(0,keys.confirm) then confirm()
             elseif IsDisabledControlJustPressed(0,keys.cancel) then cancel(true) end
-            if preview then local area=preview.furniture and (R.buildingAt({buildings=preview.buildings},preview,C) and ' | INDOOR' or ' | OUTDOOR') or '';hint((validPreview(preview) and 'VALID' or 'INVALID')..area..' | Arrows move | Enter confirm | Esc cancel') end
+            if preview then hint((validPreview(preview) and 'VALID' or 'INVALID')..' | Arrows move | Enter confirm | Esc cancel') end
         elseif not focused and not IsNuiFocused() then
             local d=nearest(); local shop=false;local p=GetEntityCoords(PlayerPedId())
             if not d and not interior then for _,s in ipairs(C.Shops) do if #(p-vector3(s.x,s.y,s.z))<=5 then shop=true;break end end end
