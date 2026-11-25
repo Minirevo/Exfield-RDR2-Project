@@ -21,3 +21,6 @@ Production owns flour, meat, wood, iron_ore, coal, cooked_meat, wooden_planks an
 
 ## Height correction
 Camp props and unfinished construction markers independently resolve local terrain height before freezing; unavailable terrain is retried. New exterior previews start on terrain using model bounds; manual height adjustment remains available. Preview confirmation saves the actual entity origin, and completed buildings/furniture use SetEntityCoordsNoOffset to restore it without another model-dependent offset. Existing completed objects use their saved origin; if previously placed at a bad height, use Relocate to correct them. GroundModelOffsets allows per-model correction if a model's bounds include a buried foundation. No SQL changes. Live terrain and model pivots require in-game validation.
+
+## Collision diagnostics
+Completed objects explicitly request model collision and enable entity collision; nearby streamed objects re-request collision if needed. Ghosts remain non-solid. Use /propertycollision near a problematic object to print its model and collision readiness in F8. Some native map drawables may not include standalone collision geometry; if a model remains non-solid after loading, it needs a different asset or a custom collision mesh. No invisible generic wall is added. This revision also retains the ground placement fixes from PR #35.

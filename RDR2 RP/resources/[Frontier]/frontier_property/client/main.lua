@@ -26,6 +26,14 @@ local function groundAt(x,y,z)
     local ok,height=GetGroundZFor_3dCoord(x+0.0,y+0.0,z+5.0,false)
     if ok and R.finite(height) and math.abs(height-z)<=C.GroundSearchTolerance then return height end
 end
+local collisionWarnings={}
+local function collisionReady(h,d)
+    RequestCollisionAtCoord(d.x+0.0,d.y+0.0,d.z+0.0)
+    RequestCollisionForModel(h)
+    local deadline=GetGameTimer()+1500
+    while not HasCollisionForModelLoaded(h) and GetGameTimer()<deadline do Wait(25) end
+    return HasCollisionForModelLoaded(h)
+end
 local function spawn(d,ghost)
     local h=model(d.model); if not h then return end
     local z=d.z
@@ -35,6 +43,7 @@ local function spawn(d,ghost)
         local min=GetModelDimensions(h)
         z=ground-(min and min.z or 0)+(C.GroundModelOffsets[d.model] or 0)
     end
+    local loaded=ghost or collisionReady(h,d)
     local o=CreateObject(h,d.x+0.0,d.y+0.0,z+0.0,false,false,false,false,false)
     SetModelAsNoLongerNeeded(h)
     if o==0 then return end
@@ -42,7 +51,16 @@ local function spawn(d,ghost)
     -- for BOTH previews and completed models; saved coordinates are entity origins.
     SetEntityCoordsNoOffset(o,d.x+0.0,d.y+0.0,z+0.0,false,false,false)
     SetEntityHeading(o,(d.heading or 0)+0.0); FreezeEntityPosition(o,true)
-    if ghost then SetEntityAlpha(o,130,false); SetEntityCollision(o,false,false) end
+    if ghost then
+        SetEntityAlpha(o,130,false)
+        SetEntityCollision(o,false,false)
+    else
+        SetEntityCollision(o,true,true)
+        if not loaded and not collisionWarnings[d.model] then
+            collisionWarnings[d.model]=true
+            print(('[frontier_property] Model collision not ready: %s (%s)'):format(d.model,h))
+        end
+    end
     return o
 end
 local function clear()
@@ -143,6 +161,20 @@ local function interact()
     for _,s in ipairs(C.Shops) do if #(p-vector3(s.x,s.y,s.z))<=5 then action('shop'); return end end
 end
 RegisterCommand('propertymenu',interact,false)
+-- Diagnostic only: does not modify models or saved coordinates.
+RegisterCommand('propertycollision',function()
+    local pos=GetEntityCoords(PlayerPedId()); local nearestObject,dist
+    for _,o in pairs(objects) do
+        if DoesEntityExist(o.handle) then
+            local n=#(pos-GetEntityCoords(o.handle))
+            if not dist or n<dist then nearestObject,dist=o,n end
+        end
+    end
+    if not nearestObject or dist>30 then return notice('No property object within 30m.') end
+    local o=nearestObject; local hash=GetHashKey(o.data.model)
+    local msg=('Model %s | model collision loaded: %s | world collision loaded: %s'):format(o.data.model,tostring(HasCollisionForModelLoaded(hash)),tostring(HasCollisionLoadedAroundEntity(o.handle)))
+    print('[frontier_property] '..msg); notice(msg)
+end,false)
 local function hint(msg)
     local str=CreateVarString(10,'LITERAL_STRING',msg)
     SetTextScale(0.32,0.32); SetTextColor(255,255,255,255); SetTextCentre(true)
@@ -156,7 +188,16 @@ CreateThread(function()
         for _,d in pairs(world.objects or {}) do wanted[d.key]=d end
         for key,o in pairs(objects) do
             local d=wanted[key]
-            if not d or d.model~=o.data.model or d.x~=o.data.x or d.y~=o.data.y or d.z~=o.data.z or d.heading~=o.data.heading then remove(o.handle); objects[key]=nil end
+            if d and DoesEntityExist(o.handle) then
+                local pos=GetEntityCoords(PlayerPedId())
+                if #(pos-GetEntityCoords(o.handle))<60 then
+                    RequestCollisionAtCoord(d.x+0.0,d.y+0.0,d.z+0.0)
+                    local hash=GetHashKey(d.model)
+                    if not HasCollisionForModelLoaded(hash) then RequestCollisionForModel(hash) end
+                    SetEntityCollision(o.handle,true,true)
+                end
+            end
+            if not d or not DoesEntityExist(o.handle) or d.model~=o.data.model or d.x~=o.data.x or d.y~=o.data.y or d.z~=o.data.z or d.heading~=o.data.heading then remove(o.handle); objects[key]=nil end
         end
         for key,d in pairs(wanted) do
             if not objects[key] and (not retry[key] or GetGameTimer()>retry[key]) then
