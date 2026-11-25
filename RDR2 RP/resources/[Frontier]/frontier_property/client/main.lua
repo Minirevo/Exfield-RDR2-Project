@@ -11,6 +11,9 @@ local function close()
     SendNUIMessage({type='close'})
 end
 local function action(a,d) TriggerServerEvent(E..'action',a,d or {}) end
+local function atShop(pos,s)
+    return (pos.x-s.x)^2+(pos.y-s.y)^2<=C.ShopDistance^2 and math.abs(pos.z-s.z)<=C.ShopHeightTolerance
+end
 local function remove(o) if o and DoesEntityExist(o) then DeleteEntity(o) end end
 local function model(name)
     local h=GetHashKey(name)
@@ -163,7 +166,7 @@ local function interact()
     local d=nearest()
     if d then action(d.action,{sid=d.sid,bid=d.bid}); return end
     local p=GetEntityCoords(PlayerPedId())
-    for _,s in ipairs(C.Shops) do if #(p-vector3(s.x,s.y,s.z))<=5 then action('shop'); return end end
+    for _,s in ipairs(C.Shops) do if atShop(p,s) then action('shop'); return end end
 end
 RegisterCommand('propertymenu',interact,false)
 local function hint(msg)
@@ -268,7 +271,7 @@ CreateThread(function()
             if preview then hint((validPreview(preview) and 'VALID' or 'INVALID')..' | Arrows move | Enter confirm | Esc cancel') end
         elseif not focused and not IsNuiFocused() then
             local d=nearest(); local shop=false;local p=GetEntityCoords(PlayerPedId())
-            if not d and not interior then for _,s in ipairs(C.Shops) do if #(p-vector3(s.x,s.y,s.z))<=5 then shop=true;break end end end
+            if not d and not interior then for _,s in ipairs(C.Shops) do if atShop(p,s) then shop=true;break end end end
             if d or interior or shop then
                 hint(interior and '[E] Interior / exit' or '[E] '..(d and d.action or 'General store'))
                 if IsControlJustPressed(0,keys.interact) then interact() end

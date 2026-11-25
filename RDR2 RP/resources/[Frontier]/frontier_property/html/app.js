@@ -10,7 +10,7 @@ function input(parent,type,value,placeholder){const el=node('input',undefined,pa
 function select(parent,options){const el=node('select',undefined,parent);for(const [key,label] of options){const o=node('option',label,el);o.value=key}return el}
 function section(parent,title){const el=node('section',undefined,parent);node('h2',title,el);return el}
 async function post(route,data){const r=await fetch('https://'+GetParentResourceName()+'/'+route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data||{})});return r.json()}
-function act(action,data={}){post('action',{action,data}).catch(()=>{$('status').textContent='Request failed.'})}
+function act(action,data={}){post('action',{action,data}).then(r=>{if(!r.ok)$('status').textContent='Menu not active. Reopen and try again.'}).catch(()=>{$('status').textContent='Request failed.'})}
 function args(data={}){return {sid:state.settlement?.id,bid:state.building?.id,...data}}
 function refresh(){if(!state)return;act(state.kind,args())}
 function confirmInline(parent,label,fn){const b=button(parent,label,()=>{b.textContent='Confirm '+label; b.onclick=()=>{b.disabled=true;fn()}})}
@@ -18,7 +18,7 @@ function render(){
  const root=$('content');root.replaceChildren();const s=state.settlement,b=state.building;
  $('title').textContent=s?.name||({shop:'General store',market:'Global settlement market'}[state.kind]||'Frontier Property');
  button(root,'Refresh',refresh);
- if(state.kind==='shop'){for(const item of vals(state.shop)){const r=node('article',item.name+' · '+money(item.price)+' · '+item.grams/1000+' kg',root);button(r,'Buy',()=>act('buyItem',{item:item.id}))}return}
+ if(state.kind==='shop'){node('p','Purchases are paid from your bank and delivered to your inventory.',root);for(const item of vals(state.shop)){const r=node('article',item.name+' · '+money(item.price)+' · '+item.grams/1000+' kg',root);const b=button(r,'Buy',()=>{b.disabled=true;$('status').textContent='Submitting purchase…';act('buyItem',{item:item.id});setTimeout(()=>{b.disabled=false},2500)})}return}
  if(state.kind==='market'){for(const offer of vals(state.market)){const r=node('article',offer.name+' · '+offer.radius+'m · '+offer.buildings+' buildings · '+money(offer.price),root);confirmInline(r,'Buy entire settlement',()=>act('buySettlement',{sid:offer.id,price:offer.price}))}return}
  if(!s)return;
  if(state.kind==='site'&&b){

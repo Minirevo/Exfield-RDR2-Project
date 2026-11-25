@@ -27,7 +27,8 @@ function debit(j)
     if j.paid then return true end
     local ok,err=eco:DebitAccount(j.account,j.amount,opts(j,'debit'))
     if ok then j.paid=true; save(); return true end
-    if definite(err) then failJob(j,err) end
+    if definite(err) or err=='invalid_account' or err=='invalid_amount' or err=='forbidden' then failJob(j,err)
+    elseif j.lastIssue~=tostring(err) then j.lastIssue=tostring(err);save();print('[frontier_property] Payment pending '..j.id..': '..j.lastIssue) end
     return false
 end
 function take(j)
@@ -69,10 +70,15 @@ function process(j)
         if not j.refund then
             local ok,err=item(j,true,'grant',j.item,1)
             if ok then finishJob(j,'Item purchased.'); return end
-            if not definite(err) then return end
-            j.refund=true; save()
+            -- Configuration/validation failures are terminal, while ambiguous
+            -- database outcomes must replay the same grant before refunding.
+            if not definite(err) and err~='invalid_item' and err~='invalid_request' and err~='forbidden' and err~='invalid_metadata' then
+                if j.lastIssue~=tostring(err) then j.lastIssue=tostring(err);save();print('[frontier_property] Shop grant pending '..j.id..': '..j.lastIssue) end
+                return
+            end
+            j.refund=true;j.refundReason=tostring(err);save()
         end
-        if eco:CreditAccount(j.account,j.amount,opts(j,'refund')) then finishJob(j,'Inventory full; payment refunded.') end
+        if eco:CreditAccount(j.account,j.amount,opts(j,'refund')) then finishJob(j,'Item could not be delivered ('..(j.refundReason or 'inventory full')..'); payment refunded.') end
     elseif j.kind=='expand' then
         if not debit(j) then return end
         s.radius=j.radius; finishJob(j,'Territory expanded.')
