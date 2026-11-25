@@ -1,7 +1,8 @@
 local C,R=PropertyConfig,PropertyRules
 local E='frontier_property:'
 local objects,markers={},{}
-local testObject,testGeneration=nil,0
+local testObjects,testGeneration={},0
+local testAssembly=nil
 local world={claims={},objects={},markers={}}
 local interior,preview,inside,focused=nil,nil,nil,false
 local pendingMenu,menuSequence=nil,0
@@ -66,7 +67,8 @@ local function spawn(d,ghost)
 end
 local function clearTest()
     testGeneration=testGeneration+1
-    if testObject then remove(testObject.handle);testObject=nil end
+    for _,o in ipairs(testObjects) do remove(o.handle) end
+    testObjects={};testAssembly=nil
 end
 RegisterNetEvent(E..'adminClear',function()
     if source~=65535 then return end
@@ -82,11 +84,79 @@ RegisterNetEvent(E..'adminSpawn',function(d)
     local h,reason=spawn(data,false)
     if generation~=testGeneration then if h then remove(h) end;return end
     if not h then return notice('Test spawn failed: '..tostring(reason or 'model unavailable')) end
-    testObject={handle=h,data=data}
+    testObjects={{handle=h,data=data}}
     local msg=('Test model %s | model collision loaded: %s | world collision loaded: %s'):format(d.model,tostring(HasCollisionForModelLoaded(GetHashKey(d.model))),tostring(HasCollisionLoadedAroundEntity(h)))
     print('[frontier_property] '..msg);notice(msg)
     SetTimeout(300000,function() if generation==testGeneration then clearTest() end end)
 end)
+local function componentTransform(origin,part)
+    local a=math.rad(origin.heading)
+    return {model=part.model,
+        x=origin.x+(part.x or 0)*math.cos(a)-(part.y or 0)*math.sin(a),
+        y=origin.y+(part.x or 0)*math.sin(a)+(part.y or 0)*math.cos(a),
+        z=origin.z+(part.z or 0),
+        heading=(origin.heading+(part.heading or 0))%360}
+end
+local function reportTest(o,i)
+    local hash=GetHashKey(o.data.model)
+    local msg=('Part %d %s | model collision loaded: %s | world collision loaded: %s'):format(i,o.data.model,tostring(HasCollisionForModelLoaded(hash)),tostring(HasCollisionLoadedAroundEntity(o.handle)))
+    print('[frontier_property] '..msg);notice(msg)
+end
+RegisterNetEvent(E..'adminAssembly',function(d)
+    if source~=65535 or type(d)~='table' then return end
+    local def=C.TestAssemblies[d.key]
+    if not def or not R.finite(d.distance) then return end
+    clearTest()
+    local generation=testGeneration
+    local ped=PlayerPedId()
+    local pos=GetOffsetFromEntityInWorldCoords(ped,0.0,d.distance+0.0,0.0)
+    local origin={x=pos.x,y=pos.y,z=pos.z,heading=GetEntityHeading(ped)}
+    local parts={}
+    for i,part in ipairs(def.parts) do
+        local data=componentTransform(origin,part)
+        data.ground=i==1
+        local h,reason=spawn(data,false)
+        if generation~=testGeneration then if h then remove(h) end;return end
+        if not h then clearTest();return notice('Assembly failed at '..part.model..': '..tostring(reason or 'model unavailable')) end
+        if i==1 then
+            local actual=GetEntityCoords(h)
+            origin.z=actual.z-(part.z or 0)
+        end
+        local offset={model=part.model,x=part.x or 0,y=part.y or 0,z=part.z or 0,heading=part.heading or 0}
+        parts[i]=offset
+        testObjects[i]={handle=h,data=data}
+    end
+    testAssembly={key=d.key,origin=origin,parts=parts}
+    notice('Assembled '..d.key..' ('..#parts..' parts). /propertycollision lists each part.')
+    for i,o in ipairs(testObjects) do reportTest(o,i) end
+    SetTimeout(300000,function() if generation==testGeneration then clearTest() end end)
+end)
+-- Adjust one test component in assembly-local coordinates. No database writes.
+RegisterCommand('propertypart',function(_,args)
+    if not testAssembly then return notice('Spawn an assembly first.') end
+    local i=tonumber(args[1]);local axis=args[2];local delta=tonumber(args[3])
+    local part=i and testAssembly.parts[i]
+    if not part or (axis~='x' and axis~='y' and axis~='z' and axis~='heading') or not R.finite(delta) or math.abs(delta)> (axis=='heading' and 360 or 20) then
+        return notice('Usage: /propertypart <part number> <x|y|z|heading> <delta>')
+    end
+    local o=testObjects[i]
+    if not o or not DoesEntityExist(o.handle) then return notice('Test component is missing.') end
+    part[axis]=part[axis]+delta
+    local data=componentTransform(testAssembly.origin,part)
+    FreezeEntityPosition(o.handle,false)
+    SetEntityCoordsNoOffset(o.handle,data.x+0.0,data.y+0.0,data.z+0.0,false,false,false)
+    SetEntityRotation(o.handle,0.0,0.0,data.heading+0.0,2,false)
+    FreezeEntityPosition(o.handle,true)
+    o.data=data
+    notice(('%d %s: x=%.3f y=%.3f z=%.3f heading=%.3f'):format(i,part.model,part.x,part.y,part.z,part.heading))
+end,false)
+RegisterCommand('propertyparts',function()
+    if not testAssembly then return notice('Spawn an assembly first.') end
+    for i,part in ipairs(testAssembly.parts) do
+        local msg=('%d %s: x=%.3f y=%.3f z=%.3f heading=%.3f'):format(i,part.model,part.x,part.y,part.z,part.heading)
+        print('[frontier_property] '..msg);notice(msg)
+    end
+end,false)
 local function clear()
     for _,o in pairs(objects) do remove(o.handle) end; objects={}
 end
@@ -194,9 +264,15 @@ RegisterCommand('propertycollision',function()
             if not dist or n<dist then nearestObject,dist=o,n end
         end
     end
-    if testObject and DoesEntityExist(testObject.handle) then
-        local n=#(pos-GetEntityCoords(testObject.handle))
-        if not dist or n<dist then nearestObject,dist=testObject,n end
+    if testAssembly and #testObjects>0 then
+        for i,o in ipairs(testObjects) do if DoesEntityExist(o.handle) then reportTest(o,i) end end
+        return
+    end
+    for _,o in ipairs(testObjects) do
+        if DoesEntityExist(o.handle) then
+            local n=#(pos-GetEntityCoords(o.handle))
+            if not dist or n<dist then nearestObject,dist=o,n end
+        end
     end
     if not nearestObject or dist>30 then return notice('No property object within 30m.') end
     local o=nearestObject; local hash=GetHashKey(o.data.model)

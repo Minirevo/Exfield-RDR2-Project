@@ -50,6 +50,14 @@ end
 local function testSpawn(src,key,distance)
     local pos=position(src)
     if not pos or pos.bucket~=0 or not cid(src) then notice(src,'Be outside on a loaded character.'); return false end
+    local assembly=key and C.TestAssemblies[key]
+    if assembly then
+        distance=distance or assembly.distance
+        if not R.finite(distance) or distance<3 or distance>25 then notice(src,'Distance must be between 3 and 25 metres.'); return false end
+        log(src,'temporary assembly test '..key)
+        TriggerClientEvent(E..'adminAssembly',src,{key=key,distance=distance})
+        return true
+    end
     local def=key and C.Exteriors[key]
     local direct=key and (C.AdminTesting.AssetModels or {})[key]
     local model=def and def.model or (direct and key)
@@ -70,6 +78,10 @@ adminCommand('propertymodels',function(src)
         local msg=('%02d/%02d %s'):format(i,#keys,key)
         notice(src,msg)
     end
+    local assemblies={}
+    for key in pairs(C.TestAssemblies) do assemblies[#assemblies+1]=key end
+    table.sort(assemblies)
+    notice(src,'Assembly tests: '..table.concat(assemblies,', '))
     notice(src,'Use /propertyspawn <name>, /propertynext [number], /propertyprev, /propertyclear. Camp models: camp_fire, camp_tent, camp_chest, camp_site.')
 end)
 adminCommand('propertyspawn',function(src,args)

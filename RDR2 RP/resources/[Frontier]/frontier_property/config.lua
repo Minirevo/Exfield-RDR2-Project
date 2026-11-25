@@ -34,6 +34,24 @@ PropertyConfig = {
         free_house02=12,
         free_house03=15
     }},
+    -- Test assemblies: first part is the ground anchor, remaining parts use its exact
+    -- origin plus local-space offsets. Zero offsets are initial test assumptions.
+    TestAssemblies={
+        bee_stable={distance=18,parts={
+            {model='bee_stableext',x=0,y=0,z=0,heading=0},
+            {model='bee_stableint',x=0,y=0,z=0,heading=0}}},
+        bee_mainhouse={distance=20,parts={
+            {model='bee_mainhouse_foundext',x=0,y=0,z=0,heading=0},
+            {model='bee_mainhouse_wallext',x=0,y=0,z=0,heading=0},
+            {model='bee_mainhouse_int',x=0,y=0,z=0,heading=0}}},
+        bee_workerhouse={distance=16,parts={
+            {model='bee_workerexterior',x=0,y=0,z=0,heading=0},
+            {model='bee_workerinterior',x=0,y=0,z=0,heading=0}}},
+        caligahall={distance=25,parts={
+            {model='caligahall_ext',x=0,y=0,z=0,heading=0},
+            {model='caligahall_int',x=0,y=0,z=0,heading=0},
+            {model='caligahall_roofext',x=0,y=0,z=0,heading=0}}},
+    },
     Kit={id='settlement_kit',name='Settlement kit',grams=15000,price=25000},
     Camp={fire='p_campfiredirt01x',tent='mp001_p_mp_tent_leento03x',chest='p_chest01x',site='p_cs_woodpile01x'},
     Towns={
