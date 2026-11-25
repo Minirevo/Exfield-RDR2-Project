@@ -123,3 +123,113 @@ CreateThread(function()
 end)
 RegisterCommand('farmmodelclose',function() if active then close() end end,false)
 AddEventHandler('onClientResourceStop',function(r) if r==GetCurrentResourceName() then close() end end)
+
+-- Independent assembly preview; does not modify the model browser or its candidates.
+local pen,penGeneration={},0
+local penOrigin,penHeading
+local function penNote(msg) TriggerEvent('chat:addMessage',{args={'Farm pen',msg}}) end
+local function clearPen()
+    penGeneration=penGeneration+1
+    for _,h in ipairs(pen) do if DoesEntityExist(h) then SetEntityAsMissionEntity(h,true,true);DeleteEntity(h) end end
+    pen={}
+end
+local function layout()
+    local parts={}
+    local function add(model,x,y,heading,ped)
+        parts[#parts+1]={model=model,x=x,y=y,heading=heading,ped=ped}
+    end
+    -- 12 x 16 m; verified fence length 2.01 m along local X.
+    -- 4 m open entrance on the south side; no unverified gate model.
+    for x=-5,5,2 do
+        add('p_fence02x',x,8,0)
+        if math.abs(x)>2 then add('p_fence02x',x,-8,0) end
+    end
+    for y=-7,7,2 do
+        add('p_fence02x',-6,y,90)
+        add('p_fence02x',6,y,90)
+    end
+    add('p_watertrough03x',3.8,5.8,0)
+    add('p_haybalestack03x',-2.8,5.8,0)
+    add('p_troughtable01x',-3.4,3.6,0)
+    add('p_haybale03x',4.5,-5.8,0)
+    add('a_c_cow',-2.5,-2,25,true)
+    add('a_c_cow',2.5,0,160,true)
+    add('a_c_bull_01',-1,2,90,true)
+    return parts
+end
+local function spawnPen()
+    clearPen()
+    local ticket=penGeneration
+    local rad=math.rad(penHeading)
+    local parts=layout()
+    local hashes={}
+    local function releaseModels()
+        for _,hash in pairs(hashes) do SetModelAsNoLongerNeeded(hash) end
+    end
+    -- Load each unique model once, with cancellation during every wait.
+    for _,p in ipairs(parts) do
+        if not hashes[p.model] then
+            local hash=GetHashKey(p.model)
+            if not IsModelValid(hash) then releaseModels();penNote('Invalid model: '..p.model);return end
+            hashes[p.model]=hash
+            RequestModel(hash)
+            local deadline=GetGameTimer()+5000
+            while ticket==penGeneration and not HasModelLoaded(hash) and GetGameTimer()<deadline do Wait(20) end
+            if ticket~=penGeneration then releaseModels();return end
+            if not HasModelLoaded(hash) then releaseModels();penNote('Load timeout: '..p.model);return end
+        end
+    end
+    local misses=0
+    for _,p in ipairs(parts) do
+        if ticket~=penGeneration then releaseModels();return end
+        local x=penOrigin.x+p.x*math.cos(rad)-p.y*math.sin(rad)
+        local y=penOrigin.y+p.x*math.sin(rad)+p.y*math.cos(rad)
+        local hash=hashes[p.model]
+        RequestCollisionAtCoord(x,y,penOrigin.z)
+        local ok,z=GetGroundZFor_3dCoord(x,y,penOrigin.z+8.0,false)
+        if not ok or math.abs(z-penOrigin.z)>4 then
+            misses=misses+1
+        else
+            local min=GetModelDimensions(hash)
+            local h
+            local angle=(penHeading+p.heading)%360
+            if p.ped then
+                h=CreatePed(hash,x,y,z,angle,false,false,false,false)
+            else
+                z=z-min.z
+                h=CreateObject(hash,x,y,z,false,false,false,false,false)
+            end
+            if h and h~=0 and DoesEntityExist(h) then
+                pen[#pen+1]=h
+                SetEntityAsMissionEntity(h,true,true)
+                if p.ped then
+                    pcall(function() Citizen.InvokeNative(0x283978A15512B2FE,h,true) end)
+                    SetBlockingOfNonTemporaryEvents(h,true)
+                end
+                SetEntityCoordsNoOffset(h,x,y,z,false,false,false)
+                SetEntityHeading(h,angle)
+                SetEntityInvincible(h,true)
+                FreezeEntityPosition(h,true)
+            else misses=misses+1 end
+        end
+    end
+    releaseModels()
+    penNote(('Medium cattle pen: %d/%d parts spawned. %d skipped. /farmpen rotate or /farmpen clear.'):format(#pen,#parts,misses))
+end
+RegisterNetEvent(E..'pen',function(action)
+    if source~=65535 then return end
+    if action=='clear' then clearPen();penOrigin=nil;penNote('Preview removed.');return end
+    if action=='spawn' or not penOrigin then
+        local ped=PlayerPedId()
+        local pos=GetOffsetFromEntityInWorldCoords(ped,0.0,14.0,0.0)
+        penOrigin={x=pos.x,y=pos.y,z=pos.z}
+        penHeading=GetEntityHeading(ped)
+    else penHeading=(penHeading+90)%360 end
+    CreateThread(function()
+        local ok,err=pcall(spawnPen)
+        if not ok then clearPen();penNote('Assembly failed: '..tostring(err)) end
+    end)
+end)
+AddEventHandler('onClientResourceStop',function(r)
+    if r==GetCurrentResourceName() then clearPen() end
+end)

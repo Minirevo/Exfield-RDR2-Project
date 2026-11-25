@@ -14,3 +14,6 @@ Test on flat terrain and inspect several crop models, fences, troughs, wells and
 
 ## Removal
 Run stop frontier_farm_modeltest, remove the ensure and temporary ACE from server.cfg, then delete this folder. No database cleanup needed. Closing the UI or stopping the resource deletes its preview. No production resources have been modified.
+
+## Medium cattle pen preview
+On flat terrain, stand facing a clear area at least 12 x 16 m and run /farmpen. The assembly is centered 14 m ahead. /farmpen rotate rotates it 90 degrees around its center, /farmpen clear removes all parts. Same ACE as the model lab. Local frozen previews only. 26 fence segments, four furnishing props and three representative cattle (33 entities). Open 4 m entrance; no gate or shelter until suitable models are verified. Each part samples terrain separately; sloped ground may cause fence gaps. No changes to the HTML candidate list.
