@@ -463,22 +463,41 @@ fixtureAction=function(src,who,a,d)
   local r=S('SELECT * FROM fb_prices WHERE fixture_id=? AND item_id=?',{id,d.item});requireThat(r and (stock(f)[d.item] or 0)>=d.quantity,'Stock unavailable')
   local from=bank(who);local to=f.owner_type=='company' and account(company(f.owner_id)) or bank(f.owner_id)
   requireThat(from and to and from~=to,'Invalid accounts')
-  Q("INSERT INTO fb_retail(id,fixture_id,buyer,buyer_bank,seller_type,seller_id,seller_bank,item_id,quantity,price,state,created) VALUES(?,?,?,?,?,?,?,?,?,?,'reserve',?)",{uuid(),id,who,from,f.owner_type,f.owner_id,to,d.item,d.quantity,tonumber(r.price)*d.quantity,now()})
+  local sale=uuid();local total=tonumber(r.price)*d.quantity
+  local fits,issue=inv:BusinessMoveStock(id,sale,who,d.item,d.quantity,'check')
+  requireThat(fits,({weight='Your inventory is too heavy',slots='Your inventory has no free slots',capacity='Your inventory is full',insufficient_stock='Stock unavailable'})[issue] or tostring(issue))
+  local checked,balance=eco:GetAccountBalance(from);requireThat(checked,'Bank unavailable')
+  requireThat(tonumber(balance.balance_minor)>=total,'Insufficient funds')
+  Q("INSERT INTO fb_retail(id,fixture_id,buyer,buyer_bank,seller_type,seller_id,seller_bank,item_id,quantity,price,state,created) VALUES(?,?,?,?,?,?,?,?,?,?,'reserve',?)",{sale,id,who,from,f.owner_type,f.owner_id,to,d.item,d.quantity,total,now()})
  end
  return true
+end
+local function retailNotice(r,message)
+ for _,player in pairs(core:GetPlayers()) do
+  if player.frontierCharacterId==r.buyer and cid(player.source)==r.buyer then tell(player.source,message);return end
+ end
 end
 retailStep=function(r)
  local quantity=tonumber(r.quantity)
  if r.state=='reserve' then
   local ok,e=inv:BusinessMoveStock(r.fixture_id,r.id,r.buyer,r.item_id,quantity,'reserve')
-  if ok then U("UPDATE fb_retail SET state='payment' WHERE id=?",{r.id}) elseif e=='insufficient_stock' then U("UPDATE fb_retail SET state='failed' WHERE id=?",{r.id}) end
+  if ok then U("UPDATE fb_retail SET state='payment' WHERE id=?",{r.id}) elseif e=='insufficient_stock' then U("UPDATE fb_retail SET state='failed' WHERE id=?",{r.id});retailNotice(r,'Purchase rejected: stock unavailable. No payment taken.') end
  elseif r.state=='payment' then
   local ok,e=transfer(r.id,tonumber(r.buyer_bank),tonumber(r.seller_bank),tonumber(r.price))
   if ok then
    local detail={item=r.item_id,quantity=quantity,total=tonumber(r.price),buyer=r.buyer,seller=r.seller_id}
    receipt('character',r.buyer,'retail:'..r.id,detail);receipt(r.seller_type,r.seller_id,'retail:'..r.id,detail)
+   -- Persist paid state before attempting delivery. The existing claim receipt
+   -- is shared by automatic and manual delivery, including after a restart.
    U("UPDATE fb_retail SET state='paid' WHERE id=?",{r.id})
-  elseif definite(e) or e=='balance_limit' then U("UPDATE fb_retail SET state='return' WHERE id=?",{r.id}) end
+   local delivered,issue=inv:BusinessMoveStock(r.fixture_id,r.id,r.buyer,r.item_id,quantity,'claim')
+   if delivered then
+    U("UPDATE fb_retail SET state='complete' WHERE id=? AND state='paid'",{r.id})
+    retailNotice(r,('Purchased %d × %s. Items delivered to your inventory.'):format(quantity,r.item_id))
+   else
+    retailNotice(r,'Payment received, but delivery could not finish ('..tostring(issue)..'). Collect your paid items under Personal > Purchases.')
+   end
+  elseif definite(e) or e=='balance_limit' then U("UPDATE fb_retail SET state='return' WHERE id=?",{r.id});retailNotice(r,'Purchase rejected: '..tostring(e)..'. No payment taken.') end
  elseif r.state=='return' then
   if inv:BusinessMoveStock(r.fixture_id,r.id,r.buyer,r.item_id,quantity,'return') then U("UPDATE fb_retail SET state='failed' WHERE id=?",{r.id}) end
  end

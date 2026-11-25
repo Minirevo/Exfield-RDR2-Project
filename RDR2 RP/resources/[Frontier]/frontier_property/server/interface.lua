@@ -37,5 +37,10 @@ function view(src,kind,s,b)
 end
 function nearCamp(src,s) return s and s.status=='active' and close(src,s) end
 function nearShop(src)
-    for _,p in ipairs(C.Shops) do if close(src,p,5) then return true end end
+    local pos=position(src)
+    if not pos or pos.bucket~=0 then return false end
+    for _,p in ipairs(C.Shops) do
+        if R.distance(pos,p)<=C.ShopDistance and math.abs(pos.z-p.z)<=C.ShopHeightTolerance then return true end
+    end
+    return false
 end

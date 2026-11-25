@@ -734,7 +734,24 @@ end)
 
 trusted('BusinessMoveStock',function(owner,fixture,sale,character,item,quantity,mode)
     if owner~='frontier_business' or not Inventory.Id(fixture,32) or not Inventory.Id(sale,32) or not Inventory.Id(character,64) or not Inventory.Id(item,48) or not Inventory.Int(quantity,1000) then return false,'invalid_request' end
-    if mode~='reserve' and mode~='claim' and mode~='return' then return false,'invalid_request' end
+    if mode~='reserve' and mode~='claim' and mode~='return' and mode~='check' then return false,'invalid_request' end
+    -- Dry-run against freshly loaded containers. No receipt or inventory mutation.
+    if mode=='check' then
+        local ok,from=Inventory.Load('s_business_'..fixture);if not ok then return false,from end
+        local made,err=Inventory.Ensure('p_'..character,'player',Config.Slots,Config.WeightGrams);if not made then return false,err end
+        local loaded,to=Inventory.Load('p_'..character);if not loaded then return false,to end
+        local left=quantity
+        for slot=1,from.slot_limit do
+            local stack=from.slots[slot]
+            if stack and stack.item==item then
+                local n=math.min(left,stack.quantity)
+                local taken,entry=Inventory.Take(from,slot,n);if not taken then return false,entry end
+                local placed,issue=Inventory.Place(to,entry);if not placed then return false,issue end
+                left=left-n;if left==0 then return true end
+            end
+        end
+        return false,'insufficient_stock'
+    end
     local key='business:'..sale..':'..mode;local actor='resource:'..owner
     local fingerprint=json.encode({fixture,sale,character,item,quantity,mode})
     local ok,replay=Inventory.Replay(key,actor,fingerprint);if not ok then return false,replay end;if replay then return true,key end

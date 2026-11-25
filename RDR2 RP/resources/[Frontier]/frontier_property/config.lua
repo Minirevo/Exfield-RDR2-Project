@@ -2,7 +2,7 @@ PropertyConfig = {
     InitialRadius=100, ExpansionStep=25, MaxRadius=500, ExpansionBase=15000, ExpansionMultiplier=1.5,
     TownClearance=100, TaxBase=1000, TaxPeriod=604800, TaxGrace=604800,
     ForeclosureDeduction=30, ForeclosurePenalty=50, StreamDistance=350, InteractionDistance=5,
-    PlacementDistance=30, MaxHeightOffset=5, TickMs=1000, StorageSlots=60, StorageGrams=100000,
+    PlacementDistance=30, MaxHeightOffset=5, ShopDistance=12, ShopHeightTolerance=6, TickMs=1000, StorageSlots=60, StorageGrams=100000,
     -- Ground probing is for camp props, construction markers and initial previews only.
     -- Completed structures and furniture use exact saved entity origins.
     GroundSearchTolerance=12, GroundModelOffsets={},
