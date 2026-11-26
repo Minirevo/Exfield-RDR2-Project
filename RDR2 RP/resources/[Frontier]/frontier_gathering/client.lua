@@ -153,7 +153,7 @@ CreateThread(function()
 end)
 CreateThread(function()
  while true do
-  if candidate and not work and usable() and IsControlJustPressed(0,0x760A9C6F) then begin() end
+  if candidate and not work and usable() and (IsControlJustPressed(0,C.interactControl) or IsDisabledControlJustPressed(0,C.interactControl)) then begin() end
   Wait(candidate and 0 or 150)
  end
 end)
@@ -167,7 +167,15 @@ CreateThread(function()
     local d=DataView.ArrayBuffer(24)
     if Citizen.InvokeNative(0x57EC5FA4D4D6AFCA,0,i,d:Buffer(),3) and d:GetInt32(0)==PlayerPedId() and d:GetInt32(16)==1 then
      local ped=d:GetInt32(8)
-     if DoesEntityExist(ped) and wildlife[GetEntityModel(ped)&0xffffffff] and NetworkGetEntityIsNetworked(ped) then TriggerServerEvent(E..'skin',NetworkGetNetworkIdFromEntity(ped)) end
+     if DoesEntityExist(ped) and wildlife[GetEntityModel(ped)&0xffffffff] then
+      local model=GetEntityModel(ped)&0xffffffff
+      local dead=IsEntityDead(ped) or IsPedDeadOrDying(ped,true)
+      if NetworkGetEntityIsNetworked(ped) then
+       TriggerServerEvent(E..'skin',NetworkGetNetworkIdFromEntity(ped),model,dead==true or dead==1)
+      else
+       notice('This animal is not networked; its reward cannot be verified.')
+      end
+     end
     end
    end
   end end

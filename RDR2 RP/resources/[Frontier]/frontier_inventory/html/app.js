@@ -2,7 +2,7 @@
 
 const el = (id) => document.getElementById(id);
 const labels = ['player', 'storage', 'belt'];
-let drag=null;
+let drag=null, suppressClick=false;
 const buttons = [...document.querySelectorAll('[data-action]')];
 const kg = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 3 });
 const weight = (grams) => kg.format(grams / 1000) + ' kg';
@@ -35,7 +35,7 @@ async function nuicall(action, body = {}) {
 }
 
 const rows = (list) => Object.values(list || {});
-const itemAt = (box, slot) => rows(box.slots).find((entry) => entry.slot === slot);
+const itemAt = (box, slot) => rows(box?.slots).find((entry) => Number(entry.slot) === Number(slot));
 
 function makeButton(text, fn, disabled = false) {
     const button = document.createElement('button');
@@ -48,10 +48,16 @@ function makeButton(text, fn, disabled = false) {
 
 function meta(item){try{return typeof item.metadata==='string'?JSON.parse(item.metadata):item.metadata||{}}catch{return {}}}
 function glyph(item){const id=item.item||'',s=(item.category||'').toLowerCase();if(item.beltEligible)return /pickaxe/.test(id)?'⛏':/axe/.test(id)?'🪓':/knife/.test(id)?'🔪':'⚒';if(/wood|plank/.test(id))return '🪵';if(/ore|coal|stone|clay|sand/.test(id))return '◆';if(/gold/.test(id))return '◈';if(/bread|meat|food|nahrung/.test(id+' '+s))return '🍞';if(/water|getränke/.test(id+' '+s))return '💧';if(/seed|herb|crop/.test(id))return '🌿';return '◉'}
-function targetFor(side,item,qty,skip){
+function stackCompatible(a,b){
+ return Boolean(a&&b&&!a.instance&&!b.instance&&a.item===b.item&&a.metadata===b.metadata&&Number(a.maxStack)>1);
+}
+function targetFor(side,item,qty,skip,emptyOnly=false){
  const box=data[side];if(!box)return null;
- const entries=rows(box.slots);const same=entries.find(e=>e.slot!==skip&&!item.instance&&!e.instance&&e.item===item.item&&e.metadata===item.metadata&&e.quantity+qty<=(item.maxStack||1));
- if(same)return same.slot;
+ const entries=rows(box.slots);
+ if(!emptyOnly){
+  const same=entries.find(e=>Number(e.slot)!==skip&&stackCompatible(item,e)&&e.quantity+qty<=Number(item.maxStack));
+  if(same)return Number(same.slot);
+ }
  for(let i=1;i<=box.capacity;i++)if(i!==skip&&!itemAt(box,i))return i;
  return null;
 }
@@ -65,11 +71,65 @@ function transfer(from,to,target,qty,split=false){
  if(to==='belt'&&!item.beltEligible){el('message').textContent='Only tools can be placed on the belt.';return}
  if(action==='store'&&!item.store){el('message').textContent='This item cannot be stored.';return}
  if(!Number.isInteger(qty)||qty<1||qty>item.quantity){el('message').textContent=text.invalidQuantity;return}
- const dest=target||targetFor(to,item,qty,from.side===to?from.slot:null);
+ const dest=target||targetFor(to,item,qty,from.side===to?from.slot:null,split);
  if(!dest){el('message').textContent='No compatible destination slot available.';return}
+ const existing=itemAt(data[to],dest);
+ if(existing){
+  if(split||!stackCompatible(item,existing)){el('message').textContent='These items cannot be stacked.';return}
+  qty=Math.min(qty,Number(item.maxStack)-existing.quantity);
+  if(qty<=0){el('message').textContent='Destination stack is already full.';return}
+ }
  submit(action,{slot:from.slot,target:dest,quantity:qty});
 }
-function choose(side,slot){selection={side,slot};el('quantity').value='1';el('target').value='';render()}
+function choose(side,slot){
+ selection={side,slot};el('quantity').value=String(itemAt(data[side],slot)?.quantity||1);el('target').value='';
+ el('message').textContent='';
+ for(const node of document.querySelectorAll('.slot'))node.setAttribute('aria-pressed',String(node.dataset.side===side&&Number(node.dataset.slot)===slot));
+ renderSelection();
+}
+function slotClick(ev,side,slot,item){
+ if(suppressClick||waiting||retry)return;
+ hideContext();
+ if(item&&(ev.shiftKey||ev.ctrlKey)){quick(side,slot,ev.ctrlKey?1:item.quantity);return}
+ const from=selection&&itemAt(data[selection.side],selection.slot);
+ if(from&&(selection.side!==side||selection.slot!==slot)&&(!item||stackCompatible(from,item))){
+  transfer(selection,side,slot,Number(el('quantity').value));return;
+ }
+ if(item)choose(side,slot);
+ else {selection=null;render();}
+}
+function clearDrag(){
+ if(drag?.ghost)drag.ghost.remove();
+ drag=null;
+ document.querySelectorAll('.over,.drag-source').forEach(e=>e.classList.remove('over','drag-source'));
+}
+function slotUnder(x,y){
+ const node=document.elementFromPoint(x,y)?.closest('.slot');
+ return node&&!node.disabled?node:null;
+}
+function beginDrag(ev,side,slot,item,node){
+ if(ev.button!==0||waiting||retry||ev.ctrlKey||ev.shiftKey)return;
+ clearDrag();suppressClick=false;
+ drag={side,slot,quantity:item.quantity,x:ev.clientX,y:ev.clientY,node,item,active:false};
+}
+document.addEventListener('mousemove',ev=>{
+ if(!drag)return;
+ if(!drag.active&&Math.hypot(ev.clientX-drag.x,ev.clientY-drag.y)<5)return;
+ if(!drag.active){
+  drag.active=true;drag.node.classList.add('drag-source');const ghost=document.createElement('div');ghost.className='drag-ghost';
+  ghost.textContent=glyph(drag.item)+' '+drag.item.name+' ×'+drag.quantity;document.body.append(ghost);drag.ghost=ghost;
+ }
+ drag.ghost.style.left=(ev.clientX+12)+'px';drag.ghost.style.top=(ev.clientY+12)+'px';
+ document.querySelectorAll('.over').forEach(e=>e.classList.remove('over'));slotUnder(ev.clientX,ev.clientY)?.classList.add('over');
+});
+document.addEventListener('mouseup',ev=>{
+ if(!drag||ev.button!==0)return;
+ const d=drag,target=slotUnder(ev.clientX,ev.clientY);clearDrag();
+ if(!d.active)return;
+ suppressClick=true;setTimeout(()=>{suppressClick=false},250);
+ if(target)transfer(d,target.dataset.side,Number(target.dataset.slot),d.quantity);
+});
+window.addEventListener('blur',clearDrag);
 function quick(side,slot,qty){const to=side==='player'?(data.storage?'storage':'belt'):'player';transfer({side,slot},to,null,qty)}
 function hideContext(){el('contextMenu').hidden=true}
 function showContext(ev,side,slot,item){
@@ -96,7 +156,7 @@ function showSlots(side, box) {
         const button=makeButton('',()=>{},Boolean(waiting||retry));
         button.setAttribute('aria-label',slot+' · '+heading);
         button.setAttribute('aria-pressed',String(selection?.side===side&&selection.slot===slot));
-        button.className='slot '+(item?'filled':'empty');
+        button.className='slot '+(item?'filled':'empty');button.dataset.side=side;button.dataset.slot=String(slot);
         const number=document.createElement('small');number.className='slot-number';number.textContent=slot;button.append(number);
         if(item){
             const icon=document.createElement('span');icon.className='item-icon';icon.textContent=glyph(item);
@@ -105,16 +165,11 @@ function showSlots(side, box) {
             button.append(icon,name,count);const m=meta(item);
             if(Number.isFinite(m.condition)){const bar=document.createElement('progress');bar.max=100;bar.value=m.condition;button.append(bar)}
             button.title=item.name+' · '+weight(item.grams*item.quantity)+(m.quality!=null?' · Quality '+m.quality+'/100':'')+(m.condition!=null?' · Condition '+m.condition+'%':'');
-            button.draggable=!waiting&&!retry;
-            button.addEventListener('dragstart',ev=>{drag={side,slot,quantity:ev.shiftKey?1:item.quantity};ev.dataTransfer.effectAllowed='move';ev.dataTransfer.setData('text/plain',side+':'+slot)});
-            button.addEventListener('dragend',()=>{drag=null;document.querySelectorAll('.over').forEach(e=>e.classList.remove('over'))});
-            button.addEventListener('click',ev=>{hideContext();if(ev.shiftKey||ev.ctrlKey){quick(side,slot,ev.ctrlKey?1:item.quantity);return}choose(side,slot)});
-            button.addEventListener('dblclick',()=>{if(item.usable&&(side==='player'||side==='belt')){selection={side,slot};itemAction('use')}});
-            button.addEventListener('contextmenu',ev=>{ev.preventDefault();if(!waiting&&!retry)showContext(ev,side,slot,item)});
-        }else button.addEventListener('click',()=>{if(selection)el('target').value=String(slot)});
-        button.addEventListener('dragover',ev=>{if(drag&&!waiting&&!retry){ev.preventDefault();button.classList.add('over')}});
-        button.addEventListener('dragleave',()=>button.classList.remove('over'));
-        button.addEventListener('drop',ev=>{ev.preventDefault();button.classList.remove('over');if(drag){const d=drag;drag=null;transfer(d,side,slot,d.quantity)}});
+            button.addEventListener('mousedown',ev=>beginDrag(ev,side,slot,item,button));
+            button.addEventListener('dblclick',()=>{if(!suppressClick&&item.usable&&(side==='player'||side==='belt')){selection={side,slot};itemAction('use')}});
+            button.addEventListener('contextmenu',ev=>{ev.preventDefault();clearDrag();if(!waiting&&!retry)showContext(ev,side,slot,item)});
+        }
+        button.addEventListener('click',ev=>slotClick(ev,side,slot,item));
         list.append(button);
     }
 }
@@ -128,6 +183,14 @@ function render() {
     if (data.storage) el('storage-label').textContent = data.storage.label || 'Lager';
     for (const side of labels) if (data[side]) showSlots(side, data[side]);
 
+    renderSelection();
+    const drops = rows(data.drops);
+    el('ground').hidden = !drops.length;
+    el('drops').replaceChildren(...drops.map((item) => makeButton(item.name + ' × ' + item.quantity + ' aufheben', () => submit('pickup', { drop: item.id }), disabled)));
+    el('retry').hidden = !retry;el('retry').disabled = Boolean(waiting);el('refresh').disabled = disabled;el('sort').disabled = disabled;
+}
+function renderSelection(){
+    const disabled=Boolean(waiting||retry);
     const box = selection && data[selection.side];
     const item = box && itemAt(box, selection.slot);
     el('selection').hidden = !item;
@@ -152,15 +215,7 @@ function render() {
             button.disabled = disabled;
         }
     }
-    const drops = rows(data.drops);
-    el('ground').hidden = !drops.length;
-    el('drops').replaceChildren(...drops.map((item) => makeButton(
-        item.name + ' × ' + item.quantity + ' aufheben', () => submit('pickup', { drop: item.id }), disabled,
-    )));
-    el('retry').hidden = !retry;
-    el('retry').disabled = Boolean(waiting);
-    el('refresh').disabled = disabled;
-    el('sort').disabled = disabled;
+
 }
 
 async function send(order) {
@@ -195,7 +250,7 @@ function submit(action, payload) {
 }
 
 function itemAction(action) {
-    if (!selection) return;
+    if (!selection || waiting || retry) return;
     const item = itemAt(data[selection.side], selection.slot);
     if (!item) return;
     const payload = { slot: selection.slot };
@@ -209,11 +264,16 @@ function itemAction(action) {
     if (['move', 'split', 'store', 'retrieve','beltStore','beltRetrieve'].includes(action)) {
         payload.target = Number(el('target').value);
         const side = action === 'store' ? 'storage' : action === 'retrieve'||action==='beltRetrieve' ? 'player' : action==='beltStore'?'belt':selection.side;
-        if(!payload.target)payload.target=targetFor(side,item,payload.quantity,side===selection.side?selection.slot:null);
+        if(action==='split'&&payload.quantity>=item.quantity){payload.quantity=Math.floor(item.quantity/2);el('quantity').value=String(payload.quantity)}
+        if(!payload.target)payload.target=targetFor(side,item,payload.quantity,side===selection.side?selection.slot:null,action==='split');
         if (!Number.isInteger(payload.target) || payload.target < 1 || payload.target > data[side].capacity) {
             el('message').textContent = text.invalidTarget;
             return;
         }
+    }
+    if (['move','split','store','retrieve','beltStore','beltRetrieve'].includes(action)){
+        const side=action==='store'?'storage':action==='retrieve'||action==='beltRetrieve'?'player':action==='beltStore'?'belt':selection.side;
+        transfer(selection,side,payload.target,payload.quantity,action==='split');return;
     }
     if (action === 'give') payload.recipient = Number(el('recipient').value);
     if (selection.side === 'storage' && action === 'move') action = 'storageMove';
@@ -230,14 +290,14 @@ function close() {
 window.addEventListener('message', ({ data: event }) => {
     if (event?.type === 'open') {
         data = event.data;
-        selection = waiting = retry = null;hideContext();el('search').value='';el('category').value='';
+        clearDrag();suppressClick=false;selection = waiting = retry = null;hideContext();el('search').value='';el('category').value='';
         el('message').textContent = '';
         document.body.hidden = false;
         render();
         el('close').focus();
     } else if (event?.type === 'close') {
         document.body.hidden = true;
-        data = selection = waiting = retry = null;hideContext();drag=null;
+        clearDrag();suppressClick=false;data = selection = waiting = retry = null;hideContext();
         for (const side of labels) el(side + '-slots').replaceChildren();
     } else if (event?.type === 'result' && waiting && event.sequence === waiting.sequence) {
         retry = event.retry ? waiting : null;
@@ -259,6 +319,8 @@ el('retry').addEventListener('click', () => { if (retry) send(retry); });
 for (const button of buttons) button.addEventListener('click', () => itemAction(button.dataset.action));
 document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && !document.body.hidden) {
+        if(drag?.active){clearDrag();return}
+        if(!el('contextMenu').hidden){hideContext();return}
         event.preventDefault();
         close();
     }

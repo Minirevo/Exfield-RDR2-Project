@@ -1,6 +1,9 @@
 GatherConfig={
  -- Static world props are client-visible only. Enable strict survey mode for untrusted public servers.
- strictSurvey=false,reach=10,workMs=5000,herbMs=2500,stream=100,cell=3,
+ strictSurvey=false,reach=4.5,workMs=5000,herbMs=2500,stream=100,cell=3,
+ interactControl=0xCEFD9220, -- E (INPUT_ENTER), not G
+ -- Private-server compatibility: accept RDR's health floor only with a locally confirmed dead animal and matching network owner.
+ allowHuntingHealthFloor=true, nativeDebug=true,
  adminAce='frontier.gathering.admin',nativeFishing=true,nativeHunting=true,
  tools={axe={name='Axe',grams=1800,price=1200},pickaxe={name='Pickaxe',grams=2500,price=1500},shovel={name='Shovel',grams=1700,price=1000},pan={name='Gold pan',grams=500,price=700},knife={name='Hunting knife',grams=350,price=900},rod={name='Fishing rod',grams=600,price=1000}},
  materials={crude={label='Crude iron',uses=60,yield=.85,price=.65},iron={label='Iron',uses=120,yield=1,price=1},steel={label='Steel',uses=220,yield=1.2,price=2},hardened={label='Hardened steel',uses=350,yield=1.4,price=3.5}},
