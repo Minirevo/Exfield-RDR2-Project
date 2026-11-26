@@ -224,3 +224,29 @@ PropertyConfig.Exteriors.farm_field_large={label='large crop field',category='Ag
 PropertyConfig.Exteriors.farm_well={label='Farm well',category='Agriculture',model='p_well02x',radius=3,slots=0,materials={wood=12,wooden_planks=8,iron_ingot=2},seconds=120,value=4000,interior=false,farm='well',size='small',width=2,length=2}
 PropertyConfig.Assemblies.farm_well={parts={{model='p_well02x',x=0,y=0,z=0,heading=0,terrain='ground'}}}
 PropertyConfig.Exteriors.farm_well.assembly='farm_well'
+
+-- Crop fields reuse the proven cattle fence geometry. Keep the existing exterior IDs
+-- and economy; only the visual footprint and safe placement radius change.
+PropertyConfig.FarmSignModel='p_sandwichboard01x'
+local fieldEntranceParts={small={[5]=true,[6]=true},medium={[10]=true,[11]=true},large={[15]=true,[16]=true}}
+for _,size in ipairs({'small','medium','large'}) do
+    local source=PropertyConfig.Exteriors['farm_livestock_'..size]
+    local field=PropertyConfig.Exteriors['farm_field_'..size]
+    local parts={}
+    for i,p in ipairs(PropertyConfig.Assemblies[source.assembly].parts) do
+        if p.model=='p_fence_cattle01x' and not fieldEntranceParts[size][i] then
+            parts[#parts+1]={model=p.model,x=p.x,y=p.y,z=p.z,heading=p.heading,terrain=p.terrain}
+        end
+    end
+    local key='farm_field_'..size
+    PropertyConfig.Assemblies[key]={parts=parts}
+    field.assembly=key;field.model='p_fence_cattle01x'
+    field.width=source.width;field.length=source.length;field.radius=source.radius
+end
+-- Put signs at the front edge, outside the entrance / enclosure.
+for _,e in pairs(PropertyConfig.Exteriors) do
+    if e.farm=='field' or e.farm=='livestock' or e.farm=='chicken' then
+        local parts=PropertyConfig.Assemblies[e.assembly].parts
+        parts[#parts+1]={model=PropertyConfig.FarmSignModel,x=e.width/2-0.8,y=-e.length/2-0.8,z=0,heading=0,terrain='ground',farmSign=true}
+    end
+end

@@ -121,6 +121,7 @@ window.addEventListener('message', e => {
 
     if (d.type === 'menu') {
         data = d.data;
+        if (data.selected) selected = data.selected;
         document.body.hidden = false;
         document.querySelector('main').hidden = false;
         render();
