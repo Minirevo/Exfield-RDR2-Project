@@ -381,7 +381,25 @@ local function action(src,a,d,score)
    while (not ped or ped==0 or not DoesEntityExist(ped)) and GetGameTimer()<deadline do Wait(50);ped=NetworkGetEntityFromNetworkId(id) end
    check(sessions[src]==w,'Animal spawn cancelled')
    check(ped and ped~=0 and DoesEntityExist(ped),'Network animal did not replicate to server (check OneSync and entity lockdown)')
-   check(not w.existing[ped] and GetEntityType(ped)==1 and NetworkGetEntityOwner(ped)==src and GetEntityModel(ped)==joaat(w.model) and GetEntityHealth(ped)>0,'Invalid newly spawned animal')
+   local validationDeadline = GetGameTimer() + 3000
+
+while GetGameTimer() < validationDeadline do
+    check(sessions[src] == w, 'Animal spawn cancelled')
+
+    if GetEntityType(ped) == 1
+        and NetworkGetEntityOwner(ped) == src
+        and GetEntityModel(ped) == joaat(w.model)
+        and GetEntityHealth(ped) > 0 then
+        break
+    end
+
+    Wait(50)
+end
+
+check(not w.existing[ped], 'Animal already existed')
+check(GetEntityType(ped) == 1, 'Invalid animal entity type')
+check(NetworkGetEntityOwner(ped) == src, 'Invalid animal network owner')
+check(GetEntityModel(ped) == joaat(w.model), 'Animal model mismatch')
    check(GetEntityRoutingBucket(ped)==GetPlayerRoutingBucket(src),'Animal is in the wrong routing bucket')
    local pos=GetEntityCoords(ped);local p=w.points[i]
    check((pos.x-p.x)^2+(pos.y-p.y)^2<=9 and math.abs(pos.z-p.z)<5,'Animal spawned outside the assigned position')
@@ -390,14 +408,80 @@ local function action(src,a,d,score)
   w.phase='slaughter';w.expires=GetGameTimer()+300000;w.existing=nil;w.points=nil
   TriggerClientEvent(E..'slaughter',src,{token=w.token,ids=d.ids,count=#w.animals});return
  end
- if a=='slaughterFinish' then
-  local w=sessions[src];check(w and w.actor==who and w.phase=='slaughter' and d.token==w.token and GetGameTimer()<=w.expires,'No active slaughter session')
-  local f=row(w.id);local b=f and current(src,f);check(b and not pending(w.id),'Facility unavailable')
-  tool(src,'knife')
-  for _,ped in ipairs(w.animals) do check(DoesEntityExist(ped) and GetEntityHealth(ped)<=0,'All selected physical animals must be slaughtered first') end
-  local payload=w.data;local hits=w.hits;unlock(src)
-  return action(src,'slaughter',payload,hits+10)
- end
+ if a == 'slaughterFinish' then
+    local w = sessions[src]
+
+    check(
+        w and w.actor == who
+        and w.phase == 'slaughter'
+        and d.token == w.token
+        and GetGameTimer() <= w.expires,
+        'No active slaughter session'
+    )
+
+    local f = row(w.id)
+    local b = f and current(src, f)
+
+    check(b and not pending(w.id), 'Facility unavailable')
+    check(near(src, b), 'Return to the slaughter facility')
+
+    tool(src, 'knife')
+
+    check(
+        type(d.deadIds) == 'table'
+        and #d.deadIds == #w.animals,
+        'All selected animals must be slaughtered first'
+    )
+
+    local reported = {}
+
+    for _, id in ipairs(d.deadIds) do
+        check(
+            type(id) == 'number'
+            and id > 0
+            and id % 1 == 0
+            and not reported[id],
+            'Invalid or duplicate animal network ID'
+        )
+
+        reported[id] = true
+    end
+
+    for _, ped in ipairs(w.animals) do
+        check(
+            DoesEntityExist(ped),
+            'Slaughter animal no longer exists'
+        )
+
+        local id = NetworkGetNetworkIdFromEntity(ped)
+
+        check(reported[id], 'Animal not reported as slaughtered')
+        check(GetEntityType(ped) == 1, 'Invalid animal entity')
+        check(GetEntityModel(ped) == joaat(w.model), 'Animal model mismatch')
+        check(NetworkGetEntityOwner(ped) == src, 'Invalid animal owner')
+
+        check(
+            GetEntityRoutingBucket(ped) == GetPlayerRoutingBucket(src),
+            'Invalid animal routing bucket'
+        )
+
+        local pos = GetEntityCoords(ped)
+        local playerPos = GetEntityCoords(GetPlayerPed(src))
+
+        local distance = (pos.x - playerPos.x)^2
+            + (pos.y - playerPos.y)^2
+            + (pos.z - playerPos.z)^2
+
+        check(distance <= 625, 'Animal is too far away')
+    end
+
+    local payload = w.data
+    local hits = w.hits
+
+    unlock(src)
+
+    return action(src, 'slaughter', payload, hits + 10)
+end
  if a=='workHit' then
   local w=sessions[src];check(w and w.phase==nil and w.actor==who and w.token==d.token,'Work session expired')
   local now=GetGameTimer();check(now<=w.expires,'Work session expired')

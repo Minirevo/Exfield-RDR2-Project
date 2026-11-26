@@ -162,7 +162,19 @@ RegisterNetEvent(E..'slaughterSpawn',function(d)
    if not ped or ped==0 or not DoesEntityExist(ped) then return fail('CreatePed failed for animal '..i) end
    job.peds[#job.peds+1]=ped
    SetEntityAsMissionEntity(ped,true,true)
-   pcall(function() Citizen.InvokeNative(0x283978A15512B2FE,ped,true) end)
+pcall(function() Citizen.InvokeNative(0x283978A15512B2FE,ped,true) end)
+
+Wait(100)
+
+local maxHealth = GetEntityMaxHealth(ped)
+
+if maxHealth > 0 then
+    SetEntityHealth(ped, maxHealth, 0)
+end
+
+print(("[frontier_farming] Animal health: %s/%s"):format(
+    GetEntityHealth(ped), maxHealth
+))
    SetEntityCoordsNoOffset(ped,p.x,p.y,z,false,false,false)
    FreezeEntityPosition(ped,true);SetEntityInvincible(ped,true)
    SetBlockingOfNonTemporaryEvents(ped,true)
@@ -193,7 +205,51 @@ RegisterNetEvent(E..'slaughter',function(d)
   end
  end)
 end)
-RegisterCommand('farmfinish',function() if slaughterToken then TriggerServerEvent(E..'action','slaughterFinish',{token=slaughterToken}) end end,false)
+RegisterCommand('farmfinish', function()
+    local job = pendingSlaughter
+
+    if not slaughterToken or not job then
+        notice('No active slaughter session.')
+        return
+    end
+
+    if job.token ~= slaughterToken then
+        return
+    end
+
+    local deadIds = {}
+    local remaining = 0
+
+    for _, ped in ipairs(job.peds) do
+        if not DoesEntityExist(ped) then
+            notice('A slaughter animal is missing.')
+            return
+        end
+
+        if IsEntityDead(ped) or GetEntityHealth(ped) <= 0 then
+            local id = NetworkGetNetworkIdFromEntity(ped)
+
+            if not id or id == 0 then
+                notice('Invalid animal network ID.')
+                return
+            end
+
+            deadIds[#deadIds + 1] = id
+        else
+            remaining = remaining + 1
+        end
+    end
+
+    if remaining > 0 then
+        notice(remaining .. ' animal(s) still need to be slaughtered.')
+        return
+    end
+
+    TriggerServerEvent(E..'action', 'slaughterFinish', {
+        token = slaughterToken,
+        deadIds = deadIds
+    })
+end, false)
 RegisterCommand('farmcancel',function() endWork();clearSlaughterSpawn();slaughterToken=nil;TriggerServerEvent(E..'action','cancelWork',{}) end,false)
 
 RegisterNetEvent(E..'horseMarket',function(d) if source~=65535 then return end;focused=true;SetNuiFocus(true,true);SendNUIMessage({type='horseMarket',data=d}) end)
