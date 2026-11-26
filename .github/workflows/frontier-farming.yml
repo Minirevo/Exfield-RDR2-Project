@@ -1,0 +1,23 @@
+name: Frontier farming checks
+on:
+  pull_request:
+  push:
+    branches: [feature/frontier-farming-v1]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  farming:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Lua
+        run: sudo apt-get update && sudo apt-get install -y lua5.4
+      - name: Parse changed resources
+        working-directory: RDR2 RP/resources/[Frontier]
+        run: |
+          find frontier_farming frontier_property frontier_business frontier_inventory frontier_trade frontier_economy frontier_production -name '*.lua' -print0 | xargs -0 -n1 luac5.4 -p
+          node --check frontier_farming/html/app.js
+      - name: Farming rule tests
+        working-directory: RDR2 RP/resources/[Frontier]/frontier_farming
+        run: lua5.4 tests/rules.lua
