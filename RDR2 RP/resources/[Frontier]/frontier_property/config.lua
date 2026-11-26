@@ -250,3 +250,12 @@ for _,e in pairs(PropertyConfig.Exteriors) do
         parts[#parts+1]={model=PropertyConfig.FarmSignModel,x=e.width/2-0.8,y=-e.length/2-0.8,z=0,heading=0,terrain='ground',farmSign=true}
     end
 end
+
+-- Gathering supplies use the existing, idempotent general-store purchase flow.
+local gatheringTools={axe={'Axe',1800,1200},pickaxe={'Pickaxe',2500,1500},shovel={'Shovel',1700,1000},pan={'Gold pan',500,700},knife={'Hunting knife',350,900},rod={'Fishing rod',600,1000}}
+for kind,t in pairs(gatheringTools) do
+ for material,m in pairs({crude={'Crude iron',.65},iron={'Iron',1},steel={'Steel',2},hardened={'Hardened steel',3.5}}) do
+  PropertyConfig.Tools['gather_'..kind..'_'..material]={name=m[1]..' '..t[1],grams=t[2],price=math.floor(t[3]*m[2])}
+ end
+end
+PropertyConfig.Tools.gather_bait={name='Fishing bait',grams=20,price=5}

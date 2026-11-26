@@ -39,6 +39,7 @@ CreateThread(function()
     for _, item in ipairs(Baits) do
         exports.vorp_inventory:registerUsableItem(item, function(data)
             local _source = data.source
+            if GetResourceState('frontier_gathering')=='started' then return VORPcore.NotifyObjective(_source,'Use /fish with Frontier bait and a fishing rod.',4000) end
             
             playersFishing[_source] = true
             exports.vorp_inventory:closeInventory(_source)
@@ -57,6 +58,7 @@ CreateThread(function()
 end)
 
 RegisterServerEvent("vorp_fishing:stopFishing", function()
+    if GetResourceState("frontier_gathering")=="started" then exports.frontier_gathering:StopFishing(source) end
     if playersFishing[source] then
         playersFishing[source] = nil
     end
@@ -64,6 +66,7 @@ end)
 
 RegisterServerEvent("vorp_fishing:FishToInventory", function(netid, fishModel, fishWeight, status)
     local _source = source
+    if GetResourceState("frontier_gathering")=="started" and exports.frontier_gathering:NativeFish(_source,netid,status) then return end
     if not playersFishing[_source] then
         return print("Player is not fishing and tried to give item to inventory", GetPlayerName(_source))
     end

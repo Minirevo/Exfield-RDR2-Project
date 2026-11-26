@@ -34,3 +34,6 @@ ProductionConfig = {
 
 ProductionConfig.Recipes.mill_wheat={name='Mill wheat',description='Process farm wheat into flour.',seconds=300,inputs={farm_wheat=3},output='flour',quantity=2,player=true,npc=true}
 ProductionConfig.Recipes.cook_farm_meat={name='Cook farm meat',description='Cook harvested farm meat.',seconds=240,inputs={farm_meat=1},output='cooked_meat',quantity=1,player=true,npc=true}
+
+-- Steel is registered by frontier_gathering, which owns the material definition.
+ProductionConfig.Recipes.refine_steel={name='Refine steel',description='Refine iron with coal into steel.',seconds=180,inputs={iron_ingot=1,coal=2},output='gather_steel',quantity=1,player=true,npc=true}

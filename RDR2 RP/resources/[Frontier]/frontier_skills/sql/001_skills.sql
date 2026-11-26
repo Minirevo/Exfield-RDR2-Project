@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS frontier_skill_events (
+ operation VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
+ character_id VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+ skill VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+ xp INT UNSIGNED NOT NULL,
+ created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ INDEX ix_skill_character(character_id,skill)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -66,7 +66,9 @@ end
 local function snapshot(source, id, storageId)
     local ok, player = Inventory.Player(source, id)
     if not ok then return false, player end
-    local state = { player = Inventory.Present(player, true) }
+    local loaded,belt=Inventory.Belt(source,id)
+    if not loaded then return false,belt end
+    local state = { player = Inventory.Present(player, true), belt=Inventory.Present(belt,true) }
     if storageId then
         local loaded, storage = Inventory.Storage(source, storageId)
         if not loaded then return false, storage end
@@ -110,12 +112,12 @@ local function normalize(action, data)
         return
     end
     local needsDestination = action == 'move' or action == 'split' or action == 'storageMove'
-        or action == 'storageSplit' or action == 'store' or action == 'retrieve'
-    if not needsDestination and action ~= 'use' and action ~= 'give' and action ~= 'drop' then return end
-    if not Inventory.Int(data.slot, 200) or (action ~= 'use' and not Inventory.Int(data.quantity, 10000))
+        or action == 'storageSplit' or action == 'store' or action == 'retrieve' or action=='beltStore' or action=='beltRetrieve' or action=='beltMove'
+    if not needsDestination and action ~= 'beltUse' and action ~= 'use' and action ~= 'give' and action ~= 'drop' then return end
+    if not Inventory.Int(data.slot, 200) or (action ~= 'use' and action~='beltUse' and not Inventory.Int(data.quantity, 10000))
         or (needsDestination and not Inventory.Int(data.target, 200))
         or (action == 'give' and not Inventory.Int(data.recipient, 2147483647)) then return end
-    return { slot = data.slot, quantity = action ~= 'use' and data.quantity or nil,
+    return { slot = data.slot, quantity = action ~= 'use' and action~='beltUse' and data.quantity or nil,
         target = needsDestination and data.target or nil, recipient = action == 'give' and data.recipient or nil }
 end
 
@@ -124,8 +126,10 @@ local function revision(value)
 end
 
 local function fingerprint(action, data, storage)
-    return json.encode({ action, data.slot or false, data.target or false, data.quantity or false,
-        data.recipient or false, data.drop or false, data.revision or false, data.storageRevision or false, storage or false })
+    local parts={ action, data.slot or false, data.target or false, data.quantity or false,
+        data.recipient or false, data.drop or false, data.revision or false, data.storageRevision or false, storage or false }
+    if action:sub(1,4)=='belt' then parts[#parts+1]=data.beltRevision or false end
+    return json.encode(parts)
 end
 
 RegisterNetEvent(events .. 'open', function(viewId)
@@ -161,6 +165,8 @@ RegisterNetEvent(events .. 'request', function(ticket, seq, action, payload)
             Inventory.Log('DEBUG', 'Rejected malformed inventory browser action')
             return false, 'invalid_request'
         end
+        if action:sub(1,4)=='belt' and not revision(payload.beltRevision) then return false,'invalid_request' end
+        data.beltRevision=payload.beltRevision
         data.revision = payload.revision
         data.storageRevision = view.storage and payload.storageRevision or nil
         local applied, issue = Inventory.Act({ id = view.id, source = source, storage = view.storage,
@@ -286,6 +292,17 @@ trusted('HasItem', function(_, source, item, quantity)
     local ok, count = itemCount(source, item)
     if not ok then return false, count end
     return true, count >= quantity
+end)
+-- Tools in either personal container; ordinary consumable counts remain bag-only.
+trusted('HasTool',function(_,source,item)
+    if not Inventory.BeltEligible(item) then return false,'invalid_item' end
+    local id,issue=Inventory.Session(source);if not id then return false,issue end
+    local ok,bag=Inventory.Player(source,id);if not ok then return false,bag end
+    local loaded,belt=Inventory.Belt(source,id);if not loaded then return false,belt end
+    for _,box in ipairs({belt,bag}) do for _,entry in pairs(box.slots) do
+        if entry.item==item then local m=json.decode(entry.metadata);if not m or m.condition~=0 then return true,true end end
+    end end
+    return true,false
 end)
 trusted('RegisterItem', Inventory.Register)
 trusted('RegisterUsableItem', function(owner, item, callback, policy)
@@ -855,4 +872,118 @@ trusted('CheckFarmBatch',function(resource,storage,changes)
  end
  for _,v in ipairs(changes) do if v.count>0 then local put,err=Inventory.Place(box,{item=v.item,quantity=v.count,metadata=Inventory.items[v.item].metadata});if not put then return false,err,{item=v.item,required=v.count} end end end
  return true
+end)
+
+
+-- Only the gathering resource may consume condition and award materials in a single inventory commit.
+local selectedBelt={}
+RegisterNetEvent(events..'selectBelt',function(slot)
+ local src=source
+ if not Inventory.Int(slot,Config.BeltSlots) then return end
+ local now=GetGameTimer();local prior=selectedBelt[src]
+ if prior and now-prior.time<300 then return end
+ local id=Inventory.Session(src);if not id then return end
+ local ok,belt=Inventory.Belt(src,id);if not ok then return end
+ local entry=belt.slots[slot]
+ if not entry then selectedBelt[src]=nil;TriggerClientEvent(events..'notice',src,'Toolbelt slot empty.');return end
+ if prior and prior.id==id and prior.instance==entry.instance then
+  selectedBelt[src]=nil;TriggerClientEvent(events..'notice',src,'Tool put away.');return
+ end
+ selectedBelt[src]={id=id,instance=entry.instance,time=now}
+ TriggerClientEvent(events..'notice',src,'Selected '..Inventory.items[entry.item].name)
+end)
+AddEventHandler('playerDropped',function() selectedBelt[source]=nil end)
+local function findGatherTool(source,id,bag,belt,kind,instance,repair)
+ local preferred=selectedBelt[source];local best,bestBox,bestSlot,bestScore
+ for _,box in ipairs({belt,bag}) do for slot,e in pairs(box.slots) do
+  local def=Inventory.items[e.item]
+  if def and def.classification=='tool' and e.instance and e.item:match('^gather_'..kind..'_') and (not instance or e.instance==instance) then
+   local m=json.decode(e.metadata)
+   if m and type(m.uses)=='number' and (m.uses>0 or repair and m.uses>=0) and type(m.maxUses)=='number' and m.maxUses>=m.uses and type(m.quality)=='number' and m.quality>=0 and m.quality<=100 and type(m.yield)=='number' and m.yield>=.5 and m.yield<=2.2 then
+    local score=(preferred and preferred.id==id and preferred.instance==e.instance) and 10000 or (box==belt and 1000 or 0)+(repair and (1-m.uses/m.maxUses)*100 or m.yield*100+m.uses/m.maxUses)
+    if not bestScore or score>bestScore then best,bestBox,bestSlot,bestScore=e,box,slot,score end
+   end
+  end
+ end end
+ return best,bestBox,bestSlot
+end
+local function gatheringBoxes(source)
+ local id,err=Inventory.Session(source);if not id then return nil,err end
+ local ok,bag=Inventory.Player(source,id);if not ok then return nil,bag end
+ local loaded,belt=Inventory.Belt(source,id);if not loaded then return nil,belt end
+ return id,bag,belt
+end
+trusted('GetGatheringTool',function(owner,source,kind,repair)
+ if owner~='frontier_gathering' or not Inventory.Id(kind,24) then return false,'forbidden' end
+ local id,bag,belt=gatheringBoxes(source);if not id then return false,bag end
+ local e=findGatherTool(source,id,bag,belt,kind,nil,repair==true)
+ if not e then return false,'tool_missing' end
+ return true,{item=e.item,instance=e.instance,metadata=json.decode(e.metadata)}
+end)
+trusted('GatheringCommit',function(owner,source,character,kind,instance,item,count,wear,key,preview,extra,metadata)
+ if owner~='frontier_gathering' or not requestKey(key) or (kind~=nil and (not Inventory.Id(kind,24) or type(instance)~='string')) or type(count)~='number' or count%1~=0 or count<0 or count>100 or type(wear)~='number' or wear<0 or wear>1 then return false,'invalid_request' end
+ if count>0 and (not Inventory.items[item] or not Inventory.items[item].stackable) then return false,'invalid_item' end
+ local actor='resource:'..owner
+ local fingerprint=json.encode({'gather',character,kind or false,instance or false,item or false,count,wear,extra and extra.item or false,extra and extra.count or false,metadata or false})
+ if not preview then
+  local ok,replay=Inventory.Replay(key,actor,fingerprint);if not ok then return false,replay end;if replay then return true,key end
+ end
+ local generation=Inventory.Generation(source)
+ local id,bag,belt=gatheringBoxes(source);if not id then return false,bag end
+ if id~=character then return false,'character' end
+ local changed=bag
+ if kind then
+  local e,box,slot=findGatherTool(source,id,bag,belt,kind,instance)
+  if not e then return false,'tool_missing' end
+  local m=json.decode(e.metadata)
+  if wear>0 then
+   m.uses=math.max(0,m.uses-wear);m.condition=math.ceil(m.uses/m.maxUses*100)
+   e.metadata=json.encode(m);box.slots[slot]=e;changed=box
+  end
+ end
+ if count>0 then
+  local def=Inventory.items[item];if metadata and not Inventory.Metadata(metadata,def.condition) then return false,'invalid_metadata' end
+  local ok,err=Inventory.Place(bag,{item=item,quantity=count,metadata=metadata or def.metadata})
+  if not ok then return false,err end
+ end
+ if extra then
+  local def=Inventory.items[extra.item];if not def or not def.stackable or not Inventory.Int(extra.count,100) then return false,'invalid_item' end
+  local ok,err=Inventory.Place(bag,{item=extra.item,quantity=extra.count,metadata=def.metadata});if not ok then return false,err end
+ end
+ if preview then return true end
+ if Inventory.Session(source)~=id or Inventory.Generation(source)~=generation then return false,'character' end
+ if changed==belt then return Inventory.Commit(key,actor,fingerprint,bag,belt) end
+ return Inventory.Commit(key,actor,fingerprint,bag)
+end)
+
+-- Material consumption, unique tool creation or repair, and receipt are one commit.
+trusted('GatheringSmith',function(owner,source,character,job,key,preview)
+ if owner~='frontier_gathering' or type(job)~='table' or not requestKey(key) or not Inventory.Id(job.kind,24) or not Inventory.Id(job.item,48) then return false,'invalid_request' end
+ local def=Inventory.items[job.item]
+ if not def or def.owner~=owner or def.classification~='tool' or not job.item:match('^gather_'..job.kind..'_') then return false,'invalid_item' end
+ local actor='resource:'..owner
+ local fingerprint=json.encode({'smith',character,job.item,job.instance or false,job.metal,job.cost,job.wood,job.metadata or false})
+ if not preview then
+  local ok,replay=Inventory.Replay(key,actor,fingerprint);if not ok then return false,replay end;if replay then return true,key end
+ end
+ local generation=Inventory.Generation(source)
+ local id,bag,belt=gatheringBoxes(source);if not id then return false,bag end;if id~=character then return false,'character' end
+ if (job.metal~='iron_ingot' and job.metal~='gather_steel') or not Inventory.Int(job.cost,10) or not Inventory.Int(job.wood,10) then return false,'invalid_request' end
+ for _,req in ipairs({{job.metal,job.cost},{'wood',job.wood}}) do
+  local left=req[2];for slot=1,bag.slot_limit do local e=bag.slots[slot];if e and e.item==req[1] then local count=math.min(left,e.quantity);Inventory.Take(bag,slot,count);left=left-count;if left==0 then break end end end
+  if left>0 then return false,'insufficient_stock' end
+ end
+ local changed=bag
+ if job.instance then
+  local e,box=findGatherTool(source,id,bag,belt,job.kind,job.instance,true);if not e or e.item~=job.item then return false,'tool_missing' end
+  local m=json.decode(e.metadata);m.uses=m.maxUses;m.condition=100;e.metadata=json.encode(m);changed=box
+ else
+  if not Inventory.Metadata(job.metadata,true) then return false,'invalid_metadata' end
+  local instance=Inventory.Uuid();if not instance then return false,'database_error' end
+  local ok,err=Inventory.Place(bag,{item=job.item,quantity=1,metadata=job.metadata,instance=instance});if not ok then return false,err end
+ end
+ if preview then return true end
+ if Inventory.Session(source)~=id or Inventory.Generation(source)~=generation then return false,'character' end
+ if changed==belt then return Inventory.Commit(key,actor,fingerprint,bag,belt) end
+ return Inventory.Commit(key,actor,fingerprint,bag)
 end)

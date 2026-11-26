@@ -7,7 +7,7 @@ function tick()
         if valid then
             local stage=b.stages[b.stage]
             for k,n in pairs(stage.materials) do if (b.delivered[k] or 0)<n then valid=false end end
-            if valid then for _,tool in ipairs(stage.tools) do local ok,has=inv:HasItem(src,tool,1); if not ok or not has then valid=false; break end end end
+            if valid then for _,tool in ipairs(stage.tools) do local ok,has=inv:HasTool(src,tool); if not ok or not has then valid=false; break end end end
             if valid and cid(src)==w.actor and close(src,b) and not worked[b.id] then
                 worked[b.id]=true; b.progress=b.progress+1; changed=true
                 if b.progress>=stage.seconds then
