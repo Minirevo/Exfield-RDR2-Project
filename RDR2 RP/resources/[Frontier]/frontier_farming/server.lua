@@ -33,6 +33,26 @@ local function current(src,f)
  local b=prop:FarmBuilding(f.plot,f.id,cid(src));check(b and near(src,b) and authorized(src,f,b),'Approach an authorized farm facility');return b
 end
 local function stockValid(f) return biz:FarmStockValid(f.plot,f.owner_type,f.owner_id,f.storage) end
+
+local function itemName(id) return C.items[id] and C.items[id].name or tostring(id) end
+local function stockError(err,detail)
+ if err=='insufficient_stock' and detail then return ('Not enough %s in linked chest: %d / %d (missing %d)'):format(itemName(detail.item),detail.available,detail.required,detail.required-detail.available) end
+ if err=='weight' or err=='slots' or err=='stack_conflict' then return 'Linked chest has insufficient space for '..(detail and itemName(detail.item) or 'the output')..'. Empty it or link a larger chest.' end
+ return 'Stock operation: '..tostring(err)
+end
+local function preflight(f,changes)
+ check(stockValid(f),'Link a valid same-owner stock chest first')
+ local ok,e,d=inv:CheckFarmBatch(f.storage,changes)
+ check(ok,stockError(e,d))
+end
+local function stockSnapshot(f)
+ if not stockValid(f) then return {},false end
+ local ok,v=inv:GetStorageContents(f.storage)
+ if not ok then return {},false end
+ local out={};for _,slot in pairs(v.slots or {}) do out[slot.item]=(out[slot.item] or 0)+slot.quantity end
+ return out,true
+end
+
 local function pending(id) return MySQL.single.await('SELECT * FROM ff_operations WHERE facility=?',{id}) end
 local function finish(j)
  local changes=json.decode(j.changes)
@@ -45,7 +65,7 @@ local function finish(j)
  check(committed,'Farm journal commit failed; replay required');return true
 end
 local function batch(f,s,changes)
- check(stockValid(f),'Link a valid same-owner stock chest')
+ preflight(f,changes)
  local j={id=uuid(),facility=f.id,storage=f.storage,changes=json.encode(changes),after_state=json.encode(s)}
  MySQL.insert.await('INSERT INTO ff_operations(id,facility,storage,changes,after_state) VALUES(?,?,?,?,?)',{j.id,j.facility,j.storage,j.changes,j.after_state})
  local ok,err=finish(j)
@@ -53,10 +73,11 @@ local function batch(f,s,changes)
  if not ok and ({insufficient_stock=true,weight=true,slots=true,stack_conflict=true,conflict=true,invalid_item=true})[err] then
   MySQL.update.await('DELETE FROM ff_operations WHERE id=?',{j.id})
  end
- check(ok,'Stock operation: '..tostring(err))
+ if not ok and err=='insufficient_stock' then preflight(f,changes) end
+ check(ok,stockError(err))
 end
 local function tool(src,key)
- local ok,has=inv:HasItem(src,C.tools[key],1);check(ok and has,'Required tool: '..key)
+ local ok,has=inv:HasItem(src,C.tools[key],1);check(ok and has,'Required in personal inventory: '..itemName(C.tools[key]))
 end
 
 local function horsePending(id)
@@ -130,10 +151,12 @@ local function view(src)
   local f=row(b.id);local detail=prop:FarmBuilding(b.plot,b.id,cid(src))
   if f and authorized(src,f,detail) then
    local s=state(f);if not locked(f.id) then R.advance(s,os.time(),b.size);save(f,s) end
-   result[#result+1]={building=b,owner=f.owner_id,ownerType=f.owner_type,storage=f.storage,state=s,stocks=biz:FarmStock(cid(src),f.plot,f.owner_type,f.owner_id),pending=not not locked(f.id)}
+   local counts,available=stockSnapshot(f)
+   result[#result+1]={building=b,owner=f.owner_id,ownerType=f.owner_type,storage=f.storage,state=s,stocks=biz:FarmStock(cid(src),f.plot,f.owner_type,f.owner_id),counts=counts,stockAvailable=available,pending=not not locked(f.id)}
   elseif not f and detail and detail.owned then result[#result+1]={building=b,unbound=true} end
  end end
- TriggerClientEvent(E..'menu',src,{facilities=result,crops=C.crops,species=C.species,capacity=C.fieldCapacity})
+ local tools={};for k,id in pairs(C.tools) do local ok,has=inv:HasItem(src,id,1);tools[k]=ok and has or false end
+ TriggerClientEvent(E..'menu',src,{facilities=result,crops=C.crops,species=C.species,capacity=C.fieldCapacity,tools=tools,items=C.items,trainingInterval=C.horseTrainingInterval,now=os.time()})
 end
 
 local eco=exports.frontier_economy
@@ -280,6 +303,54 @@ local function finishWater(src,d)
  check(ok,e);waterWork[src]=nil;notice(src,'Filled 10 water units. Carry them back to your farm stock.')
 end
 
+
+local function validateWork(src,f,b,s,a,d)
+ local changes={}
+ local key=C.work[a]
+ if a=='collect' then
+  check(s.species and C.species[s.species] and C.species[s.species].product and s.products>=1,'No products ready to collect')
+  key=s.species=='chicken' and nil or s.species=='sheep' and 'shear' or 'milk'
+  if s.species=='chicken' then key=nil end
+  changes={{item=C.species[s.species].product,count=math.floor(s.products*(s.species=='chicken' and 1 or 1.25))}}
+ elseif a=='plant' then
+  check(b.kind=='field' and not s.crop and C.crops[d.crop],'Choose a crop for an empty field')
+  changes={{item='farm_seed_'..d.crop,count=-C.fieldCapacity[b.size]}}
+ elseif a=='water' or a=='feed' then
+  local plan,err=R.supply(s,b,a,d.quantity);check(plan,err)
+  local item='farm_water'
+  if a=='feed' then item=C.species[s.species].feed;if s.species=='pig' and C.pigFeed[d.food] then item=d.food end end
+  changes={{item=item,count=-plan.units}}
+ elseif a=='fertilize' then
+  check(b.kind=='field' and s.crop and not s.dead and not s.fertilized and s.growth<1,'Only an unfertilized growing crop can be fertilized')
+  changes={{item='farm_fertilizer',count=-math.ceil(C.fieldCapacity[b.size]/25)}}
+ elseif a=='clearCrop' then check(b.kind=='field' and s.crop and s.dead,'No dead crops to clear')
+ elseif a=='harvest' then
+  check(b.kind=='field' and s.crop and not s.dead and s.growth>=1,'Crop not ready to harvest')
+  local output,seeds=R.harvest(s,b.size,5)
+  changes={{item='farm_'..s.crop,count=output}}
+  if seeds>0 then changes[#changes+1]={item='farm_seed_'..s.crop,count=seeds} end
+ elseif a=='manure' then
+  check(math.floor(s.manure)>0,'No manure ready to collect')
+  changes={{item='farm_manure',count=math.floor(s.manure)}}
+ elseif a=='slaughter' then
+  check(s.species and s.species~='horse','No eligible livestock')
+  local n,sex=tonumber(d.count),d.sex
+  check((sex=='male' or sex=='female') and n and n%1==0 and n>=1 and n<=s[sex],'Choose a valid number of adult animals')
+  changes={{item='farm_meat',count=math.floor(n*({chicken=1,pig=4,sheep=3,cattle=8})[s.species]*1.25)}}
+  if s.species~='chicken' then changes[#changes+1]={item='farm_hide',count=n} end
+ elseif a=='trainHorse' then
+  local h=horseById(s,d.horse)
+  check(s.species=='horse' and h and not h.listed and h.health>=60 and h.training<100 and h.age>=C.species.horse.mature*3600 and os.time()-(h.trainedAt or 0)>=C.horseTrainingInterval,'Horse not eligible for training (adult, healthy, unlisted, cooldown complete, training below 100)')
+  key=nil
+ elseif a=='fill' then
+  check(b.kind=='well','Approach a constructed well');key='bucket';changes={{item='farm_water',count=10}}
+ elseif a=='fertilizer' then
+  check(b.kind=='field','Use at a field');changes={{item='farm_manure',count=-5},{item='farm_fertilizer',count=1}}
+ end
+ if key then tool(src,key) end
+ if #changes>0 then preflight(f,changes) end
+end
+
 local function action(src,a,d,score)
  local who=cid(src);check(who,'Select a character first')
  if a=='open' then return view(src) end
@@ -350,9 +421,9 @@ local function action(src,a,d,score)
  check(not locked(f.id),'Facility busy or pending transaction')
  local s=state(f);R.advance(s,os.time(),b.size);save(f,s)
  if workLocks[f.id] then error('Facility is being worked',0) end
- if C.work[a] and score==nil then
-  local key=C.work[a];if a=='collect' and s.species=='sheep' then key='shear' end
-  if a~='trainHorse' then tool(src,key) end;check(not sessions[src],'Finish your current work first')
+ if score==nil and (C.work[a] or a=='fill' or a=='fertilizer') then validateWork(src,f,b,s,a,d) end
+ if C.work[a] and score==nil and not (a=='collect' and s.species=='chicken') then
+  check(not sessions[src],'Finish your current work first')
   local w={id=f.id,plot=f.plot,actor=who,token=uuid(),action=a,data=d,hits=0,round=1,started=GetGameTimer(),expires=GetGameTimer()+60000,target=math.random(25,75)/100}
   sessions[src]=w;workLocks[f.id]=src
   TriggerClientEvent(E..'workRound',src,{token=w.token,target=w.target,round=1,action=a})
@@ -372,9 +443,10 @@ local function action(src,a,d,score)
   batch(f,s,{{item='farm_seed_'..d.crop,count=-C.fieldCapacity[b.size]}})
  elseif a=='water' then
   check(s.crop and not s.dead or R.count(s)>0,'Nothing to water');tool(src,'water')
-  local units=b.kind=='field' and math.ceil(C.fieldCapacity[b.size]/25) or math.ceil(R.count(s)/4)
-  s.water=math.min(172800*(b.kind=='field' and 1 or R.count(s)),s.water+43200*(b.kind=='field' and 1 or R.count(s))*(1+(score or 0)*.05))
-  batch(f,s,{{item='farm_water',count=-units}})
+  local plan,e=R.supply(s,b,'water',d.quantity);check(plan,e)
+  s.water=math.min(plan.maximum,s.water+plan.perUnit*plan.units*(1+(score or 0)*.05))
+  batch(f,s,{{item='farm_water',count=-plan.units}})
+  notice(src,('Added %d water units.'):format(plan.units))
  elseif a=='fertilize' then
   check(s.crop and not s.dead and not s.fertilized,'No eligible crop');tool(src,'fork');s.fertilized=true
   batch(f,s,{{item='farm_fertilizer',count=-math.ceil(C.fieldCapacity[b.size]/25)}})
@@ -382,18 +454,12 @@ local function action(src,a,d,score)
   check(s.crop and s.dead,'Only dead crops can be cleared');tool(src,'hoe');s.crop=nil;s.dead=false;s.growth=0;s.water=0;save(f,s)
  elseif a=='harvest' then
   check(s.crop and not s.dead and s.growth>=1,'Crop not ready');tool(src,'sickle')
-  local n=C.fieldCapacity[b.size];local crop=s.crop
-  if not s.harvestRemaining then
-   s.harvestRemaining=math.floor(n*(s.fertilized and 2.5 or 2)*s.soil/100*(1+(score or 0)*.05))
-   s.seedRemaining=n+math.floor(n/10)
-  end
-  local output=math.min(C.harvestBatch,s.harvestRemaining)
-  local seeds=output==s.harvestRemaining and s.seedRemaining or math.floor(s.seedRemaining*output/s.harvestRemaining)
-  s.harvestRemaining=s.harvestRemaining-output;s.seedRemaining=s.seedRemaining-seeds
-  if s.harvestRemaining==0 then s.crop=nil;s.growth=0;s.water=0;s.soil=math.max(60,s.soil-1);s.harvestRemaining=nil;s.seedRemaining=nil end
+  local crop=s.crop;local output,seeds=R.harvest(s,b.size,score)
   local changes={{item='farm_'..crop,count=output}}
   if seeds>0 then changes[#changes+1]={item='farm_seed_'..crop,count=seeds} end
+  s.crop=nil;s.growth=0;s.water=0;s.soil=math.max(60,s.soil-1);s.harvestRemaining=nil;s.seedRemaining=nil;s.fertilized=false
   batch(f,s,changes)
+  notice(src,('Harvest complete: %d %s and %d seeds deposited into linked chest.'):format(output,itemName('farm_'..crop),seeds))
  elseif a=='animal' then
   local c=C.species[d.species]
   check(c and (b.kind=='chicken' and d.species=='chicken' or b.kind=='livestock' and d.species~='chicken'),'Species not supported in this facility')
@@ -422,14 +488,16 @@ local function action(src,a,d,score)
   h.training=math.min(100,h.training+2+(score or 0));h.trainedAt=os.time();save(f,s)
  elseif a=='feed' then
   check(s.species and R.count(s)>0,'No animals');tool(src,'fork')
-  local n=R.count(s);s.feed=math.min(n*172800,s.feed+n*43200*(1+(score or 0)*.05))
+  local plan,e=R.supply(s,b,'feed',d.quantity);check(plan,e)
+  s.feed=math.min(plan.maximum,s.feed+plan.units*plan.perUnit*(1+(score or 0)*.05))
   local food=C.species[s.species].feed;if s.species=='pig' and C.pigFeed[d.food] then food=d.food end
-  batch(f,s,{{item=food,count=-n}})
+  batch(f,s,{{item=food,count=-plan.units}})
+  notice(src,('Added %d %s.'):format(plan.units,itemName(food)))
  elseif a=='collect' then
   check(s.species and C.species[s.species].product and s.products>=1,'No products available')
-  check(s.species~='chicken','Eggs are automatically deposited')
-  tool(src,s.species=='sheep' and 'shear' or 'milk')
-  local n=s.products;s.products=0;batch(f,s,{{item=C.species[s.species].product,count=math.floor(n*(1+(score or 0)*.05))}})
+  if s.species~='chicken' then tool(src,s.species=='sheep' and 'shear' or 'milk') end
+  local n=math.floor(s.products*(s.species=='chicken' and 1 or (1+(score or 0)*.05)));s.products=0
+  local item=C.species[s.species].product;batch(f,s,{{item=item,count=n}});notice(src,('Collected %d %s into linked chest.'):format(n,itemName(item)))
  elseif a=='manure' then
   tool(src,'fork');local n=math.floor(s.manure);check(n>0,'No manure available');s.manure=s.manure-n;batch(f,s,{{item='farm_manure',count=n}})
  elseif a=='slaughter' then
@@ -452,7 +520,7 @@ end
 local function run(src,fn)
  if not ready or busy then if src then notice(src,'Farming busy or unavailable') end;return end
  busy=true;local ok,err=pcall(fn);busy=false
- if not ok then if src then notice(src,err) else print('[frontier_farming] '..tostring(err)) end end
+ if not ok then if src then notice(src,err);if sessions[src] and sessions[src].phase~='slaughter' then unlock(src);TriggerClientEvent(E..'workEnd',src) end else print('[frontier_farming] '..tostring(err)) end end
 end
 RegisterNetEvent(E..'action',function(a,d)
  local src=source;if type(a)~='string' or type(d)~='table' then return end
@@ -499,9 +567,7 @@ MySQL.ready(function()
    for _,f in ipairs(MySQL.query.await('SELECT * FROM ff_facilities')) do if not locked(f.id) then
     local s=state(f);local b=prop:FarmBuilding(f.plot,f.id,f.owner_id)
     if b then R.advance(s,os.time(),f.size);save(f,s)
-     if s.species=='chicken' and s.products>=1 and stockValid(f) then
-      local n=s.products;s.products=0;local ok,err=pcall(batch,f,s,{{item='farm_egg',count=n}});if not ok then print('[frontier_farming] eggs: '..tostring(err)) end
-     end
+     -- Eggs remain in the enclosure until the player selects Collect eggs.
     end
    end end
   end)

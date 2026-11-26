@@ -835,3 +835,24 @@ trusted('FarmSupplyDelivery',function(resource,character,item,count,key)
  end
  return Inventory.Commit(key,actor,fingerprint,box)
 end)
+
+-- Read-only simulation against a fresh stock snapshot. No receipt, no mutation.
+trusted('CheckFarmBatch',function(resource,storage,changes)
+ if resource~='frontier_farming' or type(storage)~='string' or not storage:match('^business_[a-f0-9]+$') or type(changes)~='table' or #changes>16 then return false,'invalid_request' end
+ local ok,box=Inventory.Load('s_'..storage);if not ok then return false,box end
+ local seen={}
+ for _,v in ipairs(changes) do
+  if type(v)~='table' or not Inventory.items[v.item] or not Inventory.items[v.item].stackable or seen[v.item] or type(v.count)~='number' or v.count%1~=0 or v.count==0 or math.abs(v.count)>10000 then return false,'invalid_item' end
+  seen[v.item]=true
+  if v.count<0 then
+   local available=countEntries(box,v.item)
+   if available < -v.count then return false,'insufficient_stock',{item=v.item,available=available,required=-v.count} end
+   local left=-v.count
+   for slot=1,box.slot_limit do local e=box.slots[slot];if e and e.item==v.item then
+    local n=math.min(left,e.quantity);local took,err=Inventory.Take(box,slot,n);if not took then return false,err end;left=left-n;if left==0 then break end
+   end end
+  end
+ end
+ for _,v in ipairs(changes) do if v.count>0 then local put,err=Inventory.Place(box,{item=v.item,quantity=v.count,metadata=Inventory.items[v.item].metadata});if not put then return false,err,{item=v.item,required=v.count} end end end
+ return true
+end)
