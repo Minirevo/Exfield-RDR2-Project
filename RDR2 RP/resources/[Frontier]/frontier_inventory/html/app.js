@@ -47,6 +47,8 @@ function makeButton(text, fn, disabled = false) {
 }
 
 function meta(item){try{return typeof item.metadata==='string'?JSON.parse(item.metadata):item.metadata||{}}catch{return {}}}
+function canEquip(item){return Boolean(item?.instance&&/^gather_(axe|pickaxe|shovel|pan|knife|rod)_/.test(item.item)&&Number(meta(item).uses)>0)}
+function isEquipped(item){return !!item?.instance&&data?.equipped?.instance===item.instance}
 function glyph(item){const id=item.item||'',s=(item.category||'').toLowerCase();if(item.beltEligible)return /pickaxe/.test(id)?'⛏':/axe/.test(id)?'🪓':/knife/.test(id)?'🔪':'⚒';if(/wood|plank/.test(id))return '🪵';if(/ore|coal|stone|clay|sand/.test(id))return '◆';if(/gold/.test(id))return '◈';if(/bread|meat|food|nahrung/.test(id+' '+s))return '🍞';if(/water|getränke/.test(id+' '+s))return '💧';if(/seed|herb|crop/.test(id))return '🌿';return '◉'}
 function stackCompatible(a,b){
  return Boolean(a&&b&&!a.instance&&!b.instance&&a.item===b.item&&a.metadata===b.metadata&&Number(a.maxStack)>1);
@@ -137,7 +139,8 @@ function showContext(ev,side,slot,item){
  menu.style.left=Math.min(ev.clientX,window.innerWidth-220)+'px';menu.style.top=Math.min(ev.clientY,window.innerHeight-190)+'px';
  if(side==='player'&&item.usable||side==='belt'&&item.usable)menu.append(makeButton('Use',()=>{hideContext();itemAction('use')}));
  if(side==='player'&&data.storage&&item.store)menu.append(makeButton('Store full stack',()=>{hideContext();transfer({side,slot},'storage',null,item.quantity)}));
- if(side==='player'&&item.beltEligible&&data.belt)menu.append(makeButton('Equip on toolbelt',()=>{hideContext();transfer({side,slot},'belt',null,1)}));
+ if(side!=='storage'&&canEquip(item))menu.append(makeButton(isEquipped(item)?'Put away':'Equip tool',()=>{hideContext();submit('equip',{side,slot})}));
+ if(side==='player'&&item.beltEligible&&data.belt)menu.append(makeButton('Move to toolbelt',()=>{hideContext();transfer({side,slot},'belt',null,1)}));
  if(side!=='player')menu.append(makeButton('Return to satchel',()=>{hideContext();transfer({side,slot},'player',null,item.quantity)}));
  if(item.quantity>1&&side!=='belt')menu.append(makeButton('Split stack',()=>{hideContext();el('quantity').value=String(Math.floor(item.quantity/2));itemAction('split')}));
  if(side==='player'&&item.drop)menu.append(makeButton('Drop selected quantity',()=>{hideContext();itemAction('drop')}));
@@ -159,6 +162,7 @@ function showSlots(side, box) {
         button.className='slot '+(item?'filled':'empty');button.dataset.side=side;button.dataset.slot=String(slot);
         const number=document.createElement('small');number.className='slot-number';number.textContent=slot;button.append(number);
         if(item){
+            if(isEquipped(item)){button.classList.add('equipped');const active=document.createElement('small');active.className='equipped-label';active.textContent='Equipped';button.append(active)}
             const icon=document.createElement('span');icon.className='item-icon';icon.textContent=glyph(item);
             const name=document.createElement('span');name.className='item-name';name.textContent=item.name;
             const count=document.createElement('span');count.className='item-count';count.textContent='×'+item.quantity;
@@ -166,7 +170,7 @@ function showSlots(side, box) {
             if(Number.isFinite(m.condition)){const bar=document.createElement('progress');bar.max=100;bar.value=m.condition;button.append(bar)}
             button.title=item.name+' · '+weight(item.grams*item.quantity)+(m.quality!=null?' · Quality '+m.quality+'/100':'')+(m.condition!=null?' · Condition '+m.condition+'%':'');
             button.addEventListener('mousedown',ev=>beginDrag(ev,side,slot,item,button));
-            button.addEventListener('dblclick',()=>{if(!suppressClick&&item.usable&&(side==='player'||side==='belt')){selection={side,slot};itemAction('use')}});
+            button.addEventListener('dblclick',()=>{if(!suppressClick&&(side==='player'||side==='belt')){if(canEquip(item))submit('equip',{side,slot});else if(item.usable){selection={side,slot};itemAction('use')}}});
             button.addEventListener('contextmenu',ev=>{ev.preventDefault();clearDrag();if(!waiting&&!retry)showContext(ev,side,slot,item)});
         }
         button.addEventListener('click',ev=>slotClick(ev,side,slot,item));
@@ -205,7 +209,7 @@ function renderSelection(){
         el('recipient').replaceChildren();
         for (const player of rows(data.nearby)) el('recipient').append(new Option(player.name + ' (' + player.source + ')', player.source));
         const allowed = {
-            move: true, split: item.quantity > 1 && selection.side!=='belt', use: (personal||selection.side==='belt') && item.usable,
+            equip: selection.side!=='storage'&&canEquip(item), move: true, split: item.quantity > 1 && selection.side!=='belt', use: (personal||selection.side==='belt') && item.usable,
             give: personal && item.transfer && el('recipient').options.length > 0,
             drop: personal && item.drop, store: personal && Boolean(data.storage) && item.store,
             retrieve: selection.side==='storage', beltStore: personal&&item.beltEligible&&Boolean(data.belt), beltRetrieve: selection.side==='belt',
@@ -213,6 +217,7 @@ function renderSelection(){
         for (const button of buttons) {
             button.hidden = !allowed[button.dataset.action];
             button.disabled = disabled;
+            if(button.dataset.action==='equip')button.textContent=isEquipped(item)?'Put away':'Equip tool';
         }
     }
 
@@ -253,6 +258,7 @@ function itemAction(action) {
     if (!selection || waiting || retry) return;
     const item = itemAt(data[selection.side], selection.slot);
     if (!item) return;
+    if(action==='equip'){submit('equip',{side:selection.side,slot:selection.slot});return}
     const payload = { slot: selection.slot };
     if (action !== 'use') {
         payload.quantity = Number(el('quantity').value);

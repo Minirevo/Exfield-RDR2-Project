@@ -8,6 +8,8 @@ local wildlife={}
 for s in pairs(C.animals) do wildlife[GetHashKey(s)&0xffffffff]=true end
 local candidate,work,prop,waterMode,waiting=nil,nil,nil,'prospecting',0
 local hidden={}
+local equippedTool,heldProp,heldPed,heldKind=nil,nil,nil,nil
+local carryModels={axe='p_hatchet01x',pickaxe='p_pickaxe01x',shovel='p_shovel01x',pan='p_goldpan01x'}
 local function notice(s)TriggerEvent('chat:addMessage',{args={'Gathering',s}})end
 local function ui(d)SendNUIMessage(d)end
 local function usable()
@@ -57,6 +59,10 @@ local function waterNearby(ped,p)
  local ok,z=pcall(GetWaterMapZoneAtCoords,p.x,p.y,p.z)
  return ok and z and z~=0
 end
+local function permitted(a)
+ local tool=C.actions[a].tool
+ return not tool or (equippedTool and equippedTool.kind==tool)
+end
 local function scan(mode,debugScan)
  local ped=PlayerPedId();local p=GetEntityCoords(ped)
  local best,distance=nil,math.huge
@@ -67,7 +73,7 @@ local function scan(mode,debugScan)
   if not ok or not h or h==0 or not v then return end
   local a=models[h];local d=#(p-v)
   if debugScan and d<15 then nearby[#nearby+1]={hash=h,kind=a or 'unknown',distance=d} end
-  if not a or (mode and mode~=a) or not R.inReach(a,p,v) then return end
+  if not a or (mode and mode~=a) or (not debugScan and not permitted(a)) or not R.inReach(a,p,v) then return end
   if d>=distance or (a=='logging' and R.protected(v.x,v.y)) or hidden[R.key(a,v.x,v.y,v.z)] then return end
   best={action=a,model=h,x=v.x,y=v.y,z=v.z};distance=d
  end
@@ -93,8 +99,9 @@ local function scan(mode,debugScan)
   print('[frontier_gathering] selected '..(best and best.action or 'none'))
  end
  if best then return best end
- if (not mode or mode==waterMode) and R.region(p.x,p.y) and waterNearby(ped,p) and not hidden[R.key(waterMode,p.x,p.y,p.z)] then
-  return {action=waterMode,model=0,x=p.x,y=p.y,z=p.z}
+ local river=mode or (equippedTool and equippedTool.kind=='pan' and 'prospecting' or (waterMode=='sand' and 'sand' or 'clay'))
+ if (river=='prospecting' or river=='clay' or river=='sand') and permitted(river) and R.region(p.x,p.y) and waterNearby(ped,p) and not hidden[R.key(river,p.x,p.y,p.z)] then
+  return {action=river,model=0,x=p.x,y=p.y,z=p.z}
  end
 end
 local function clear()
@@ -104,7 +111,35 @@ local function clear()
 end
 RegisterNetEvent(E..'notice',function(s)if source==65535 then waiting=0;notice(s) end end)
 RegisterNetEvent(E..'end',function()if source==65535 then clear() end end)
+local function removeHeld()
+ if heldProp and DoesEntityExist(heldProp) then DetachEntity(heldProp,true,true);DeleteEntity(heldProp) end
+ heldProp,heldPed,heldKind=nil,nil,nil
+end
+RegisterNetEvent('frontier_inventory:equipped',function(state)
+ if source~=65535 then return end
+ equippedTool=type(state)=='table' and state or nil
+ candidate=nil;ui({type='hint'});removeHeld()
+end)
+CreateThread(function()
+ while true do
+  Wait(300)
+  local ped=PlayerPedId();local kind=equippedTool and equippedTool.kind;local name=kind and carryModels[kind]
+  if not name or work or IsPedDeadOrDying(ped,true) or IsPedOnMount(ped) or IsPedSwimming(ped) or IsPedInAnyVehicle(ped,false) then removeHeld()
+  elseif not heldProp or not DoesEntityExist(heldProp) or heldPed~=ped or heldKind~=kind then
+   removeHeld();local h=GetHashKey(name);if IsModelValid(h) then
+    RequestModel(h);local deadline=GetGameTimer()+1000
+    while not HasModelLoaded(h) and GetGameTimer()<deadline do Wait(20) end
+    if HasModelLoaded(h) and equippedTool and equippedTool.kind==kind and not work then
+     local p=GetEntityCoords(ped);local obj=CreateObject(h,p.x,p.y,p.z,false,false,false,false,false)
+     if obj and obj~=0 then AttachEntityToEntity(obj,ped,GetPedBoneIndex(ped,7966),0.0,0.0,0.0,0.0,0.0,0.0,false,false,false,false,2,true,false,false);heldProp,heldPed,heldKind=obj,ped,kind end
+    end
+    SetModelAsNoLongerNeeded(h)
+   end
+  end
+ end
+end)
 local function startAnim(d)
+ removeHeld()
  local ped=PlayerPedId();local a=C.actions[d.action] or {scenario='WORLD_HUMAN_HAMMER'}
  if a.prop then
   local h=GetHashKey(a.prop)
@@ -147,6 +182,7 @@ RegisterNetEvent(E..'work',function(d)
 end)
 local function begin(mode)
  if work or not usable() or GetGameTimer()<waiting then return end
+ if mode and not permitted(mode) then return notice('Equip the required '..C.actions[mode].tool..' first') end
  local n=scan(mode)
  if not n then return notice('No compatible '..(mode or 'natural')..' resource nearby. /gatherdebug for diagnostics.') end
  waiting=GetGameTimer()+5000;TriggerServerEvent(E..'begin',n)
@@ -160,12 +196,13 @@ RegisterCommand('gatherdebug',function()
 end,false)
 RegisterCommand('gatherwater',function(_,args)
  local mode=args[1];if mode~='prospecting' and mode~='clay' and mode~='sand' then return notice('Use /gatherwater prospecting, clay or sand') end
- waterMode=mode;notice('River activity: '..C.actions[mode].name)
+ waterMode=mode;candidate=nil;notice('River activity: '..C.actions[mode].name)
 end,false)
 RegisterCommand('gatherrecover',function()TriggerServerEvent(E..'recover')end,false)
 RegisterCommand('gathersurvey',function()local n=scan();if n then TriggerServerEvent(E..'survey',n) else notice('No compatible resource nearby') end end,false)
 RegisterCommand('fish',function()
  if not C.nativeFishing or not usable() or work then return end
+ if not equippedTool or equippedTool.kind~='rod' then return notice('Equip the Frontier fishing rod first') end
  local ped=PlayerPedId();local _,weapon=GetCurrentPedWeapon(ped,true,0,false)
  if weapon~=GetHashKey('WEAPON_FISHINGROD') or not waterNearby(ped,GetEntityCoords(ped)) then return notice('Equip your native fishing rod and stand at the water edge') end
  TriggerServerEvent(E..'fishStart')
@@ -208,7 +245,7 @@ CreateThread(function()
 end)
 AddEventHandler('onResourceStop',function(name)
  if name~=GetCurrentResourceName() then return end
- clear();for id in pairs(hidden) do restore(id) end
+ clear();removeHeld();for id in pairs(hidden) do restore(id) end
 end)
 
 RegisterCommand('smith',function(_,args)

@@ -197,3 +197,5 @@ for i=1,6 do
  end,false)
  if type(RegisterKeyMapping)=='function' then pcall(RegisterKeyMapping,name,'Select toolbelt slot '..slot,'keyboard','') end
 end
+
+RegisterCommand('toolholster',function()if not active then TriggerServerEvent(E..'holsterTool') end end,false)

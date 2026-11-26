@@ -46,4 +46,4 @@ TradeConfig.Products.farm_seed_broccoli='broccoli seeds';TradeConfig.Agricultura
 TradeConfig.Products.farm_seed_artichoke='artichoke seeds';TradeConfig.Agricultural.farm_seed_artichoke=true
 
 -- Raw materials registered by frontier_gathering. Existing production materials retain their IDs.
-for id,label in pairs({gather_stone='Stone',gather_copper_ore='Copper ore',gather_gold_ore='Gold ore',gather_clay='Clay',gather_sand='Sand',gather_gold_dust='Gold dust',gather_gold_flakes='Gold flakes',gather_gold_nugget='Gold nugget',gather_herbs='Wild herbs',gather_berries='Wild berries',gather_hide='Wild animal hide',gather_fish='Fresh fish',gather_steel='Steel ingot'}) do TradeConfig.Products[id]=label end
+for id,label in pairs({gather_stone='Stone',gather_copper_ore='Copper ore',gather_gold_ore='Gold ore',gather_clay='Clay',gather_sand='Sand',gather_gold_dust='Gold dust',gather_gold_flakes='Gold flakes',gather_gold_nugget='Gold nugget',gather_herbs='Wild herbs',gather_berries='Wild berries',gather_hide='Wild animal hide',gather_pelt='Animal pelt',gather_fish='Fresh fish',gather_steel='Steel ingot'}) do TradeConfig.Products[id]=label end
