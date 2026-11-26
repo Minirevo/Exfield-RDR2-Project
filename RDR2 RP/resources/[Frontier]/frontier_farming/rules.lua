@@ -85,3 +85,27 @@ end
 function R.world(b,x,y)
  local a=math.rad(b.heading);return b.x+x*math.cos(a)-y*math.sin(a),b.y+x*math.sin(a)+y*math.cos(a)
 end
+
+-- Supply amounts are in actual item units; capacity is expressed in reserve seconds.
+function R.supply(s,b,action,quantity)
+ local n=R.count(s)
+ local field=b.kind=='field'
+ if action=='water' and field then
+  if not s.crop or s.dead or s.growth>=1 then return nil,'Only living, growing crops need water' end
+ elseif not s.species or n<1 then return nil,'No animals to supply' end
+ local base=action=='feed' and n or (field and math.ceil(C.fieldCapacity[b.size]/25) or math.ceil(n/4))
+ local factor=field and 1 or n
+ local reserve=action=='feed' and s.feed or s.water
+ local perUnit=43200*factor/base
+ local maximum=172800*factor
+ local maxUnits=math.max(0,math.ceil((maximum-reserve)/perUnit-0.0000001))
+ local units=quantity==nil and math.min(base,maxUnits) or tonumber(quantity)
+ if maxUnits==0 then return nil,'Reserve is already full' end
+ if not units or units%1~=0 or units<1 or units>maxUnits then return nil,'Choose 1 to '..maxUnits..' units' end
+ return {units=units,perUnit=perUnit,maximum=maximum,base=base,maxUnits=maxUnits}
+end
+function R.harvest(s,size,score)
+ local n=C.fieldCapacity[size]
+ return s.harvestRemaining or math.floor(n*(s.fertilized and 2.5 or 2)*s.soil/100*(1+(score or 0)*.05)),
+        s.seedRemaining or n+math.floor(n/10)
+end

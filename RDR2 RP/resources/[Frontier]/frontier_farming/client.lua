@@ -2,15 +2,47 @@ local E='frontier_farming:'
 local C,R=FarmConfig,FarmRules
 local focused=false
 local world,entities={},{}
+
+local working=false
+local previousProps={}
+local workPropModels={}
+for _,name in ipairs({'p_hoe01x','p_pitchfork01x','p_bucket01x','p_wateringcan01x','p_rake01x','p_sickle01x','p_hoe02x'}) do workPropModels[GetHashKey(name)]=true end
+local function attachedProps(ped)
+ local out={}
+ for _,obj in ipairs(GetGamePool('CObject')) do
+  if DoesEntityExist(obj) and IsEntityAttachedToEntity(obj,ped) then out[obj]=true end
+ end
+ return out
+end
+local function endWork()
+ if not working then return end
+ working=false
+ local ped=PlayerPedId();local props=attachedProps(ped)
+ ClearPedTasksImmediately(ped)
+ -- Only clean locally owned farm scenario props that were not attached before work.
+ for obj in pairs(props) do
+  if not previousProps[obj] and DoesEntityExist(obj) and workPropModels[GetEntityModel(obj)] and not NetworkGetEntityIsNetworked(obj) then
+   DetachEntity(obj,true,true);SetEntityAsMissionEntity(obj,true,true);DeleteEntity(obj)
+  end
+ end
+ previousProps={}
+end
+local function startWork(action)
+ endWork()
+ local scenario=C.scenarios[action];if not scenario then return end
+ local ped=PlayerPedId();previousProps=attachedProps(ped);working=true
+ pcall(function() TaskStartScenarioInPlace(ped,GetHashKey(scenario),-1,true,false,false,false) end)
+end
+
 local function notice(s) TriggerEvent('chat:addMessage',{args={'Farming',s}}) end
 RegisterCommand('farm',function() TriggerServerEvent(E..'action','open',{}) end,false)
 RegisterNetEvent(E..'notice',function(s) if source~=65535 then return end;notice(s);SendNUIMessage({type='notice',message=s}) end)
-RegisterNetEvent(E..'menu',function(d) if source~=65535 then return end;ClearPedTasks(PlayerPedId());focused=true;SetNuiFocus(true,true);SendNUIMessage({type='menu',data=d}) end)
-RegisterNetEvent(E..'workRound',function(d) if source==65535 then if d.round==1 and C.scenarios[d.action] then pcall(function() TaskStartScenarioInPlace(PlayerPedId(),GetHashKey(C.scenarios[d.action]),-1,true,false,false,false) end) end;SendNUIMessage({type='workRound',data=d}) end end)
-RegisterNetEvent(E..'workEnd',function() if source==65535 then ClearPedTasks(PlayerPedId());SendNUIMessage({type='workEnd'}) end end)
+RegisterNetEvent(E..'menu',function(d) if source~=65535 then return end;endWork();focused=true;SetNuiFocus(true,true);SendNUIMessage({type='menu',data=d}) end)
+RegisterNetEvent(E..'workRound',function(d) if source==65535 then if d.round==1 then startWork(d.action) end;SendNUIMessage({type='workRound',data=d}) end end)
+RegisterNetEvent(E..'workEnd',function() if source==65535 then endWork();SendNUIMessage({type='workEnd'}) end end)
 RegisterNetEvent(E..'world',function(d) if source==65535 then world=d end end)
 RegisterNUICallback('farmAction',function(d,cb) if focused then TriggerServerEvent(E..'action',d.action,d.data or {}) end;cb({ok=true}) end)
-RegisterNUICallback('close',function(_,cb) focused=false;TriggerServerEvent(E..'action','cancelWork',{});SetNuiFocus(false,false);SendNUIMessage({type='close'});cb({ok=true}) end)
+RegisterNUICallback('close',function(_,cb) endWork();focused=false;TriggerServerEvent(E..'action','cancelWork',{});SetNuiFocus(false,false);SendNUIMessage({type='close'});cb({ok=true}) end)
 local function spawn(d)
  local h=GetHashKey(d.model);if not IsModelValid(h) then return end
  RequestModel(h);local untilTime=GetGameTimer()+1500
@@ -36,12 +68,25 @@ local function desired()
  local want={};local pos=GetEntityCoords(PlayerPedId())
  for _,v in ipairs(world) do local b=v.b
   if #(pos-vector3(b.x,b.y,b.z))<C.stream then
-   if v.crop and not v.dead and v.growth>0 then
-    local c=C.crops[v.crop];local stage=math.min(#c.models,math.max(1,math.ceil(v.growth*#c.models)))
-    local n=math.max(1,math.floor(b.width/c.spacing));local total=n*n;local visible=math.max(1,math.floor(total*(#c.models>1 and 1 or math.max(.15,v.growth))))
-    for i=0,visible-1 do
-     local col=i%n;local line=math.floor(i/n);local x,y=R.world(b,(col+.5)*b.width/n-b.width/2,(line+.5)*b.length/n-b.length/2)
-     want[b.id..':crop:'..i]={model=c.models[stage],x=x,y=y,z=b.z,heading=b.heading}
+   if v.crop and not v.dead then
+    local c=C.crops[v.crop];local stage=math.min(#c.models,math.max(1,math.floor(v.growth*(#c.models-1)+1.000001)))
+    local spacing=C.cropRows[v.crop] or {x=c.spacing,y=c.spacing}
+    local cols=math.max(1,math.floor(b.width/spacing.x))
+    local rows=math.max(1,math.floor(b.length/spacing.y))
+    local total=cols*rows
+    local density=#c.models>1 and 1 or math.max(.22,v.growth)
+    local visible=math.max(1,math.floor(total*density+.5))
+    for i=0,total-1 do
+     -- Deterministic, distributed early growth, then fill the rows as the crop matures.
+     local rank=((i%cols)*rows+math.floor(i/cols))
+     if math.floor((rank+1)*visible/total)>math.floor(rank*visible/total) then
+      local col=i%cols;local line=math.floor(i/cols)
+      local x,y=R.world(b,(col+.5)*b.width/cols-b.width/2,(line+.5)*b.length/rows-b.length/2)
+      local models=c.models
+      local model=models[stage]
+      if v.crop=='corn' and stage==#models then model=C.cornMatureModels[(i%#C.cornMatureModels)+1] end
+      want[b.id..':crop:'..i]={model=model,x=x,y=y,z=b.z,heading=b.heading}
+     end
     end
    end
    if v.species then
@@ -66,7 +111,7 @@ CreateThread(function()
   end end
  end
 end)
-AddEventHandler('onClientResourceStop',function(r) if r==GetCurrentResourceName() then for _,e in pairs(entities) do DeleteEntity(e.handle) end;if focused then SetNuiFocus(false,false) end end end)
+AddEventHandler('onClientResourceStop',function(r) if r==GetCurrentResourceName() then endWork();for _,e in pairs(entities) do DeleteEntity(e.handle) end;if focused then SetNuiFocus(false,false) end end end)
 
 RegisterCommand('farmshop',function() TriggerServerEvent(E..'action','shop',{}) end,false)
 RegisterNetEvent(E..'shop',function(d) if source~=65535 then return end;focused=true;SetNuiFocus(true,true);SendNUIMessage({type='shop',data=d}) end)
@@ -74,7 +119,7 @@ RegisterNetEvent(E..'shop',function(d) if source~=65535 then return end;focused=
 local slaughterToken
 RegisterNetEvent(E..'slaughter',function(d)
  if source~=65535 then return end
- slaughterToken=d.token;ClearPedTasks(PlayerPedId());focused=false;SetNuiFocus(false,false);SendNUIMessage({type='slaughter',data=d})
+ slaughterToken=d.token;endWork();focused=false;SetNuiFocus(false,false);SendNUIMessage({type='slaughter',data=d})
  notice('Slaughter the '..d.count..' marked animals, then /farmfinish. /farmcancel cancels without rewards.')
  CreateThread(function()
   for _,id in ipairs(d.ids) do
@@ -85,7 +130,7 @@ RegisterNetEvent(E..'slaughter',function(d)
  end)
 end)
 RegisterCommand('farmfinish',function() if slaughterToken then TriggerServerEvent(E..'action','slaughterFinish',{token=slaughterToken}) end end,false)
-RegisterCommand('farmcancel',function() slaughterToken=nil;TriggerServerEvent(E..'action','cancelWork',{}) end,false)
+RegisterCommand('farmcancel',function() endWork();slaughterToken=nil;TriggerServerEvent(E..'action','cancelWork',{}) end,false)
 
 RegisterNetEvent(E..'horseMarket',function(d) if source~=65535 then return end;focused=true;SetNuiFocus(true,true);SendNUIMessage({type='horseMarket',data=d}) end)
 RegisterCommand('farmhorses',function() TriggerServerEvent(E..'action','horseMarket',{}) end,false)
