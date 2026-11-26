@@ -87,7 +87,7 @@ function breeding(parent,v,b){
  el('small','Timers show the last server snapshot. Refresh for current progress. Animals need food and water throughout the care time.',parent);
 }
 function render(){
- const list=data.facilities||[];const tabs=$('tabs'),root=$('content');tabs.replaceChildren();root.replaceChildren();$('pages').replaceChildren();$('pages').hidden=true;
+ const list=data.facilities||[];const tabs=$('tabs'),root=$('content');tabs.hidden=false;tabs.replaceChildren();root.replaceChildren();$('pages').replaceChildren();$('pages').hidden=true;
  if(!list.some(v=>v.building.id===selected))selected=list[0]?.building.id;
  for(const f of list){const b=el('button',f.building.size+' '+f.building.kind,tabs);b.onclick=()=>{selected=f.building.id;render()};if(f.building.id===selected)b.style.borderColor='#ddd0a0'}
  const f=list.find(v=>v.building.id===selected);if(!f){el('p','No authorized completed farm facilities nearby.',root);return}
@@ -98,7 +98,7 @@ function render(){
  const labels=field?['Overview','Cultivation','Supplies','Harvest','Settings']:animals?['Overview','Animals','Supplies','Breeding','Production',...(horse?['Training','Sales']:[]),'Settings']:['Overview','Work','Settings'];
  const pgs=pages(root,b.id,labels);const overview=pgs.Overview,settings=pgs.Settings;
  const storage=el('section',null,settings);el('h2','Linked storage',storage);const s=select(storage,(f.stocks||[]).map(v=>[v.id,v.name]));s.value=f.storage||'';button(storage,'Link chest','link',()=>({storage:s.value}));if(f.storage)button(storage,'Unlink chest','unlink');el('p',(f.stocks||[]).find(x=>x.id===f.storage)?.name||f.storage||'No chest linked',storage);el('small','Tools go in personal inventory. Supplies and harvested goods use this chest.',storage);
- if(f.pending){el('p','Pending transaction recovery. Actions disabled.',overview);return}
+ if(f.pending){$('notice').textContent='Pending transaction recovery. Actions disabled.';button(overview,'Refresh snapshot','open');return}
  let work=pgs.Work||pgs.Cultivation||pgs.Animals;
  const stats=el('div',null,overview);stats.className='metrics';
  if(field){metric(stats,'Crop',v.crop||'Empty');metric(stats,'Soil',Math.round(v.soil)+'%',v.soil/100);metric(stats,'Growth',Math.round(v.growth*100)+'%',v.growth);metric(stats,'Water reserve',(v.water/3600).toFixed(1)+'h',v.water/172800)}
@@ -187,7 +187,7 @@ $('close').onclick=close;document.addEventListener('keydown',e=>{if(e.key==='Esc
 
 function workRound(d){
  cancelAnimationFrame(workFrame);workToken=d.token;
- $('pages').hidden=true;const root=$('content');root.replaceChildren();el('h2',({harvest:'Harvesting field',plant:'Planting field',water:'Watering',feed:'Feeding animals',fertilize:'Fertilizing',collect:'Collecting products',manure:'Collecting manure',slaughter:'Preparing slaughter',trainHorse:'Training horse',clearCrop:'Clearing field'})[d.action]||'Physical work',root);el('p','Round '+d.round+' of 5 · Stop the marker in the green zone.',root);
+ $('pages').hidden=true;$('tabs').hidden=true;const root=$('content');root.replaceChildren();el('h2',({harvest:'Harvesting field',plant:'Planting field',water:'Watering',feed:'Feeding animals',fertilize:'Fertilizing',collect:'Collecting products',manure:'Collecting manure',slaughter:'Preparing slaughter',trainHorse:'Training horse',clearCrop:'Clearing field'})[d.action]||'Physical work',root);el('p','Round '+d.round+' of 5 · Stop the marker in the green zone.',root);
  const bar=el('div',null,root);bar.style.cssText='height:30px;background:#554533;position:relative;margin:20px 0';
  const target=el('div',null,bar);target.style.cssText='position:absolute;height:100%;background:#73915c;left:'+((d.target-.13)*100)+'%;width:26%';
  const marker=el('div',null,bar);marker.style.cssText='position:absolute;height:100%;width:4px;background:white';
@@ -199,20 +199,27 @@ window.addEventListener('message',e=>{const d=e.data;if(d.type==='workRound')wor
 
 window.addEventListener('message',e=>{
  if(e.data.type!=='shop')return;
- document.body.hidden=false;document.querySelector('main').hidden=false;$('tabs').replaceChildren();$('pages').hidden=true;const root=$('content');root.replaceChildren();
+ document.body.hidden=false;document.querySelector('main').hidden=false;$('tabs').hidden=true;$('tabs').replaceChildren();$('pages').hidden=true;const root=$('content');root.replaceChildren();
  el('h2','Agricultural supplier',root);const d=e.data.data;
- const item=select(root,d.items.map(v=>[v.id,v.name+' · $'+(v.price/100).toFixed(2)]));
- const qty=el('input',null,root);qty.type='number';qty.min=1;qty.max=1000;qty.value=1;
- el('label','Destination facility (required for animals; optional for company goods)',root);const facility=select(root,[['','Personal inventory'],...(d.destinations||[]).map(f=>[f.id,f.name+' · '+f.id])]);const breed=select(root,[['turkoman','Turkoman'],['standardbred','Standardbred'],['shire','Shire']]);const young=el('input',null,root);young.type='checkbox';el('span',' Juvenile (60% price for animals)',root);
- button(root,'Purchase','buySupply',()=>({item:item.value,quantity:Number(qty.value),facility:facility.value.trim(),breed:breed.value,juvenile:young.checked}));
- for(const j of d.orders||[])el('p',j.item+' × '+j.quantity+' · '+j.phase+' (automatically retried)',root);
+ const shop=pages(root,'supplier',['Shop','Orders']),buy=shop.Shop;
+ const category=id=>id.startsWith('farm_seed_')?'Seeds':/_(female|male)$/.test(id)?'Animals':/^farm_(hoe|sickle|watering_can|bucket|pitchfork|milking_kit|shears|knife)$/.test(id)?'Tools':'Supplies';
+ el('label','Product category',buy);const cats=select(buy,[['All','All goods'],...['Seeds','Animals','Tools','Supplies'].map(k=>[k,k])]);
+ el('label','Product',buy);const item=select(buy,[]);
+ function populate(){item.replaceChildren();for(const v of d.items.filter(v=>cats.value==='All'||category(v.id)===cats.value)){const o=el('option',v.name+' · $'+(v.price/100).toFixed(2),item);o.value=v.id}purchase.disabled=!item.options.length}
+ el('label','Quantity',buy);const qty=el('input',null,buy);qty.type='number';qty.min=1;qty.max=1000;qty.value=1;
+ el('label','Destination facility (required for animals; optional for company goods)',buy);const facility=select(buy,[['','Personal inventory'],...(d.destinations||[]).map(f=>[f.id,f.name+' · '+f.id])]);
+ const breed=select(buy,[['turkoman','Turkoman'],['standardbred','Standardbred'],['shire','Shire']]);const young=el('input',null,buy);young.type='checkbox';el('span',' Juvenile (60% price for animals)',buy);
+ const purchase=el('button','Purchase',buy);purchase.onclick=()=>send('buySupply',{item:item.value,quantity:Number(qty.value),facility:facility.value.trim(),breed:breed.value,juvenile:young.checked});
+ cats.onchange=populate;populate();
+ for(const order of d.orders||[])el('p',order.item+' × '+order.quantity+' · '+order.phase+' (automatically retried)',shop.Orders);
+ if(!(d.orders||[]).length)el('p','No pending orders.',shop.Orders);
 });
 
 window.addEventListener('message',e=>{if(e.data.type==='slaughter'){cancelAnimationFrame(workFrame);workToken=e.data.data.token;document.body.hidden=false;document.querySelector('main').hidden=true}});
 
 window.addEventListener('message',e=>{
  if(e.data.type!=='horseMarket')return;
- document.body.hidden=false;document.querySelector('main').hidden=false;$('tabs').replaceChildren();$('pages').hidden=true;const root=$('content');root.replaceChildren();
+ document.body.hidden=false;document.querySelector('main').hidden=false;$('tabs').hidden=true;$('tabs').replaceChildren();$('pages').hidden=true;const root=$('content');root.replaceChildren();
  el('h2','Horse certificates · Trade market',root);
  const d=e.data.data;const dest=select(root,(d.destinations||[]).map(v=>[v.id,v.name+' · '+v.id]));
  if(!dest.options.length)el('p','Approach your registered empty or horse enclosure to buy.',root);
