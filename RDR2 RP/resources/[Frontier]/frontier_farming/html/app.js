@@ -116,7 +116,21 @@ function render(){
  }else actionPanel(work,f,'Fill well water','fill',{tool:'bucket',output:'Deposits 10 farm water units into linked chest.'});
  button(root,'Refresh','open');const release=el('button','Release empty facility',root);release.onclick=()=>{if(confirm('Release this empty facility?'))send('release')}
 }
-window.addEventListener('message',e=>{const d=e.data;if(d.type==='menu'){data=d.data;document.body.hidden=false;document.querySelector('main').hidden=false;render()}else if(d.type==='close'){document.body.hidden=true;document.querySelector('main').hidden=false};else if(d.type==='notice')$('notice').textContent=d.message});
+window.addEventListener('message', e => {
+    const d = e.data;
+
+    if (d.type === 'menu') {
+        data = d.data;
+        document.body.hidden = false;
+        document.querySelector('main').hidden = false;
+        render();
+    } else if (d.type === 'close') {
+        document.body.hidden = true;
+        document.querySelector('main').hidden = false;
+    } else if (d.type === 'notice') {
+        $('notice').textContent = d.message;
+    }
+});
 function close(){cancelAnimationFrame(workFrame);workToken=null;fetch('https://'+GetParentResourceName()+'/close',{method:'POST',body:'{}'});document.body.hidden=true}
 $('close').onclick=close;document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!document.querySelector('main').hidden)close()});
 
