@@ -67,3 +67,35 @@ FarmConfig.scenarios={plant='WORLD_HUMAN_FARMER_RAKE',clearCrop='WORLD_HUMAN_FAR
 FarmConfig.supplierModel='a_m_m_valtownfolk_01'
 FarmConfig.supplyPrices.farm_wheat=12
 FarmConfig.supplyPrices.farm_corn=12
+
+-- TEMPORARY TEST MODE
+FarmConfig.tick = 5
+
+for _, crop in pairs(FarmConfig.crops) do
+    crop.hours = 3 / 60
+end
+
+for _, species in pairs(FarmConfig.species) do
+    species.mature = 5 / 60
+
+    if species.product then
+        species.hours = 1 / 60
+    end
+end
+
+-- TEMPORARY TEST MODE
+FarmConfig.tick = 5
+
+for _, crop in pairs(FarmConfig.crops) do
+    crop.hours = 3 / 60
+end
+
+for _, species in pairs(FarmConfig.species) do
+    species.mature = 5 / 60
+
+    if species.product then
+        species.hours = 1 / 60
+    end
+end
+
+FarmConfig.horseTrainingInterval = 30
