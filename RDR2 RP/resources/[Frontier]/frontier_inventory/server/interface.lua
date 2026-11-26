@@ -913,6 +913,13 @@ local function gatheringBoxes(source)
  local loaded,belt=Inventory.Belt(source,id);if not loaded then return nil,belt end
  return id,bag,belt
 end
+-- Reuse the same character/death policy as ordinary inventory transactions.
+trusted('GetGatheringPosition',function(owner,source)
+ if owner~='frontier_gathering' then return false,'forbidden' end
+ local id,pos=Inventory.Session(source)
+ if not id then return false,pos end
+ return true,{character=id,x=pos.x,y=pos.y,z=pos.z,bucket=pos.bucket}
+end)
 trusted('GetGatheringTool',function(owner,source,kind,repair)
  if owner~='frontier_gathering' or not Inventory.Id(kind,24) then return false,'forbidden' end
  local id,bag,belt=gatheringBoxes(source);if not id then return false,bag end

@@ -10,3 +10,10 @@ assert(item=='wood' and great>poor)
 assert(R.key('logging',12,12,12)==R.key('logging',12.2,12.2,12.2))
 assert(R.key('logging',12,12,12)~=R.key('mining',12,12,12))
 print('gathering rules passed')
+
+local p={x=0,y=0,z=0}
+assert(R.inReach('logging',p,{x=4,y=0,z=0}))
+assert(not R.inReach('logging',p,{x=5,y=0,z=0}))
+assert(R.inReach('mining',p,{x=7,y=0,z=-5}))
+assert(not R.inReach('mining',p,{x=9,y=0,z=0}))
+assert(not R.inReach('mining',p,{x=0,y=0,z=-8}))

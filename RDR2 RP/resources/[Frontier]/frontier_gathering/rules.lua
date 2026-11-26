@@ -1,6 +1,12 @@
 GatherRules={}
 local R,C=GatherRules,GatherConfig
 function R.clamp(x,lo,hi)return math.max(lo,math.min(hi,x)) end
+-- Rock origins can be underground or inside a large outcrop.
+function R.inReach(action,a,b)
+ local dx,dy,dz=a.x-b.x,a.y-b.y,a.z-b.z
+ if action=='mining' then return dx*dx+dy*dy<=C.rockReach^2 and math.abs(dz)<=C.rockHeight end
+ return dx*dx+dy*dy+dz*dz<=C.reach^2
+end
 function R.quality(material,q,maker)
  local m=C.materials[material];if not m then return end
  q=math.floor(R.clamp(q,0,100));local durability,yield=1,1

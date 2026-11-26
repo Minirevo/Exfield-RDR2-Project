@@ -57,24 +57,43 @@ local function waterNearby(ped,p)
  local ok,z=pcall(GetWaterMapZoneAtCoords,p.x,p.y,p.z)
  return ok and z and z~=0
 end
-local function scan()
+local function scan(mode,debugScan)
  local ped=PlayerPedId();local p=GetEntityCoords(ped)
- local best,distance=nil,C.reach
- local itemset=CreateItemset(true)
- local size=Citizen.InvokeNative(0x59B57C4B06531E1E,p,C.reach,itemset,3,Citizen.ResultAsInteger())
+ local best,distance=nil,math.huge
+ local seen,nearby={},{}
  local function consider(entity)
-  if not entity or entity==0 or not DoesEntityExist(entity) then return end
-  local h=GetEntityModel(entity)&0xffffffff;local a=models[h];if not a then return end
-  local v=GetEntityCoords(entity);local d=#(p-v)
-  if d>distance or (a=='logging' and R.protected(v.x,v.y)) or hidden[R.key(a,v.x,v.y,v.z)] then return end
+  if not entity or entity==0 or seen[entity] then return end;seen[entity]=true
+  local ok,h,v=pcall(function()return GetEntityModel(entity)&0xffffffff,GetEntityCoords(entity) end)
+  if not ok or not h or h==0 or not v then return end
+  local a=models[h];local d=#(p-v)
+  if debugScan and d<15 then nearby[#nearby+1]={hash=h,kind=a or 'unknown',distance=d} end
+  if not a or (mode and mode~=a) or not R.inReach(a,p,v) then return end
+  if d>=distance or (a=='logging' and R.protected(v.x,v.y)) or hidden[R.key(a,v.x,v.y,v.z)] then return end
   best={action=a,model=h,x=v.x,y=v.y,z=v.z};distance=d
  end
- for i=0,(size or 0)-1 do consider(GetIndexedItemInItemset(i,itemset)) end
- if IsItemsetValid(itemset) then DestroyItemset(itemset) end
- -- Plants are also exposed through the object pool in some RedM builds.
- if not best then for _,obj in ipairs(GetGamePool('CObject')) do consider(obj) end end
+ local itemset=CreateItemset(true)
+ if IsItemsetValid(itemset) then
+  local ok,size=pcall(Citizen.InvokeNative,0x59B57C4B06531E1E,p,math.max(C.reach,C.rockReach+3),itemset,3,Citizen.ResultAsInteger())
+  if ok then for i=0,(size or 0)-1 do consider(GetIndexedItemInItemset(i,itemset)) end end
+  DestroyItemset(itemset)
+ end
+ -- Some static props are visible through the object pool but not the itemset.
+ for _,obj in ipairs(GetGamePool('CObject')) do consider(obj) end
+ -- A manual mining search additionally tries the known models directly.
+ if mode=='mining' and not best and type(GetClosestObjectOfType)=='function' then
+  for _,name in ipairs(C.rocks) do
+   local ok,obj=pcall(GetClosestObjectOfType,p.x,p.y,p.z,C.rockReach+3,GetHashKey(name),false,false,false)
+   if ok then consider(obj) end
+  end
+ end
+ if debugScan then
+  table.sort(nearby,function(x,y)return x.distance<y.distance end)
+  print(('[frontier_gathering] client position %.2f %.2f %.2f; nearby objects=%d'):format(p.x,p.y,p.z,#nearby))
+  for i=1,math.min(12,#nearby) do local n=nearby[i];print(('[frontier_gathering] model=%s kind=%s distance=%.1f'):format(n.hash,n.kind,n.distance)) end
+  print('[frontier_gathering] selected '..(best and best.action or 'none'))
+ end
  if best then return best end
- if R.region(p.x,p.y) and waterNearby(ped,p) and not hidden[R.key(waterMode,p.x,p.y,p.z)] then
+ if (not mode or mode==waterMode) and R.region(p.x,p.y) and waterNearby(ped,p) and not hidden[R.key(waterMode,p.x,p.y,p.z)] then
   return {action=waterMode,model=0,x=p.x,y=p.y,z=p.z}
  end
 end
@@ -126,13 +145,19 @@ RegisterNetEvent(E..'work',function(d)
   end
  end)
 end)
-local function begin()
+local function begin(mode)
  if work or not usable() or GetGameTimer()<waiting then return end
- local n=scan()
- if not n then return notice('No compatible natural resource nearby') end
+ local n=scan(mode)
+ if not n then return notice('No compatible '..(mode or 'natural')..' resource nearby. /gatherdebug for diagnostics.') end
  waiting=GetGameTimer()+5000;TriggerServerEvent(E..'begin',n)
 end
-RegisterCommand('gather',begin,false)
+RegisterCommand('gather',function(_,args)
+ local mode=args[1];if mode and not C.actions[mode] then return notice('Use /gather or /gather mining, logging, herbalism, prospecting, clay, sand') end
+ begin(mode)
+end,false)
+RegisterCommand('gatherdebug',function()
+ scan('mining',true);TriggerServerEvent(E..'debug');notice('Nearby model diagnostics printed in F8.')
+end,false)
 RegisterCommand('gatherwater',function(_,args)
  local mode=args[1];if mode~='prospecting' and mode~='clay' and mode~='sand' then return notice('Use /gatherwater prospecting, clay or sand') end
  waterMode=mode;notice('River activity: '..C.actions[mode].name)

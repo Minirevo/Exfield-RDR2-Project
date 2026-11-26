@@ -16,13 +16,19 @@ local function cid(src)return core:GetPlayerCharacterId(src) end
 local function finite(n)return type(n)=='number' and n==n and math.abs(n)<20000 end
 local function dist(a,b)return (a.x-b.x)^2+(a.y-b.y)^2+(a.z-b.z)^2 end
 local function position(src)
- local ped=GetPlayerPed(src)
- if ped==0 or not DoesEntityExist(ped) or GetPlayerRoutingBucket(src)~=0 then return end
- local dead
- if type(IsPedDeadOrDying)=='function' then local ok,result=pcall(IsPedDeadOrDying,ped,true);if ok then dead=result==true or result==1 end end
- if dead==nil then dead=GetEntityHealth(ped)<=0 end
- if dead then return end
- local v=GetEntityCoords(ped);return {x=v.x,y=v.y,z=v.z}
+ local ok,p=inv:GetGatheringPosition(src)
+ if not ok then return nil,'inventory session: '..tostring(p) end
+ if not C.worldBuckets[p.bucket] then return nil,'outdoor gathering unavailable in routing bucket '..tostring(p.bucket) end
+ if not finite(p.x) or not finite(p.y) or not finite(p.z) then return nil,'invalid player coordinates' end
+ return p
+end
+local function positionError(src,reason)
+ if C.nativeDebug then
+  local ped=GetPlayerPed(src)
+  local health=ped and ped~=0 and DoesEntityExist(ped) and GetEntityHealth(ped) or 'unavailable'
+  print(('[frontier_gathering] player=%s bucket=%s health=%s position rejected: %s'):format(src,tostring(GetPlayerRoutingBucket(src)),tostring(health),tostring(reason)))
+ end
+ return tostring(reason)
 end
 local function run(src,fn)
  if not ready then return notice(src,'Gathering is not ready; check the server console.') end
@@ -40,7 +46,11 @@ end
 local function reject(src,msg)release(src);TriggerClientEvent(E..'end',src);notice(src,msg) end
 local function nodeFrom(src,d)
  if type(d)~='table' or not C.actions[d.action] or not finite(d.x) or not finite(d.y) or not finite(d.z) then return nil,'Invalid target' end
- local pos=position(src);if not pos or dist(pos,d)>C.reach^2 then return nil,'Move closer' end
+ local pos,why=position(src);if not pos then return nil,positionError(src,why) end
+ if not R.inReach(d.action,pos,d) then
+  local dx,dy,dz=pos.x-d.x,pos.y-d.y,pos.z-d.z
+  return nil,('Move closer (horizontal %.1fm, vertical %.1fm)'):format(math.sqrt(dx*dx+dy*dy),math.abs(dz))
+ end
  local a=d.action;local model=type(d.model)=='number' and math.tointeger(d.model) or 0
  model=model and model&0xffffffff or 0
  if a=='logging' or a=='mining' or a=='herbalism' then
@@ -102,12 +112,13 @@ end
 RegisterNetEvent(E..'begin',function(d)
  local src=source;run(src,function()
   if sessions[src] or fishSessions[src] then return notice(src,'Already working') end
-  local id=cid(src);if not id then return end
+  local id=cid(src);if not id then return notice(src,'No active Frontier character') end
   local p=pending(id);if p and not recover(src,p) then return end
   local n,err=nodeFrom(src,d);if not n then return notice(src,err) end
   if locks[n.id] then return notice(src,'Someone is already working here') end
   locks[n.id]=src
-  local a=C.actions[n.action];local w={actor=id,node=n,expires=GetGameTimer()+20000};sessions[src]=w
+  local a=C.actions[n.action];local pos,why=position(src);if not pos then locks[n.id]=nil;return notice(src,positionError(src,why)) end
+  local w={actor=id,node=n,bucket=pos.bucket,expires=GetGameTimer()+20000};sessions[src]=w
   if remaining(n)<=0 then return reject(src,'Resource depleted; return later') end
   local tool
   if a.tool then local ok,t=inv:GetGatheringTool(src,a.tool);if not ok then return reject(src,'A working '..a.tool..' is required in your satchel or toolbelt') end;tool=t end
@@ -118,7 +129,8 @@ RegisterNetEvent(E..'begin',function(d)
    local fits,e=inv:GatheringCommit(src,id,a.tool,tool and tool.instance,item,1,0,'preview:'..src,true)
    if not fits then return reject(src,'Inventory cannot receive '..item..': '..tostring(e)) end
   end
-  if cid(src)~=id or not position(src) then return reject(src,'Character changed') end
+  local current,why=position(src);if not current then return reject(src,positionError(src,why)) end
+  if cid(src)~=id or current.bucket~=w.bucket or not R.inReach(n.action,current,n) then return reject(src,'Character changed or moved away') end
   w.tool,w.skill=tool,skill
   w.token=uuid();w.duration=n.action=='herbalism' and C.herbMs or C.workMs
   w.target=math.random(27,73)/100;w.started=GetGameTimer();w.expires=w.started+w.duration+7000
@@ -137,8 +149,10 @@ RegisterNetEvent(E..'finish',function(token)
  local src=source;run(src,function()
   local w=sessions[src];if not w or w.token~=token or w.finishing then return end
   w.finishing=true
-  local elapsed=GetGameTimer()-w.started;local pos=position(src)
-  if elapsed<w.duration or GetGameTimer()>w.expires or cid(src)~=w.actor or not pos or dist(pos,w.node)>C.reach^2 then return reject(src,'Work expired or you moved away') end
+  local elapsed=GetGameTimer()-w.started;local pos,why=position(src)
+  if not pos then return reject(src,positionError(src,why)) end
+  if elapsed<w.duration or GetGameTimer()>w.expires or cid(src)~=w.actor then return reject(src,'Work expired or character changed') end
+  if pos.bucket~=w.bucket or not R.inReach(w.node.action,pos,w.node) then return reject(src,'You moved away from the resource') end
   if w.smith then
    local workshop=GetResourceState('frontier_property')=='started' and exports.frontier_property:GatheringWorkshop(src)
    if not workshop or workshop.id~=w.workshop.id then return reject(src,'Remain at the workshop') end
@@ -155,7 +169,8 @@ RegisterNetEvent(E..'finish',function(token)
   local d=sample(src,n,score,w.skill,w.tool)
   local fits,issue=inv:GatheringCommit(src,w.actor,d.kind,d.instance,d.item,d.count,d.wear,'preview:'..src,true)
   if not fits then return reject(src,'Cannot complete: '..tostring(issue)) end
-  if cid(src)~=w.actor or not position(src) then return reject(src,'Character changed') end
+  local current,why=position(src);if not current then return reject(src,positionError(src,why)) end
+  if cid(src)~=w.actor or current.bucket~=w.bucket or not R.inReach(n.action,current,n) then return reject(src,'Character changed or moved away') end
   local row=makeClaim(src,w.actor,n.action,d,n,left-1)
   if not row then return reject(src,'Could not reserve resource') end
   if left==1 then TriggerClientEvent(E..'depleted',-1,{id=n.id,action=n.action,model=n.model,x=n.x,y=n.y,z=n.z,next_at=os.time()+C.actions[n.action].regen}) end
@@ -175,7 +190,7 @@ RegisterNetEvent(E..'survey',function(d)
  local src=source;if not IsPlayerAceAllowed(src,C.adminAce) then return end
  run(src,function()
   if type(d)~='table' or not C.actions[d.action] or not finite(d.x) or not finite(d.y) or not finite(d.z) then return end
-  local pos=position(src);if not pos or dist(pos,d)>C.reach^2 then return end
+  local pos=position(src);if not pos or not R.inReach(d.action,pos,d) then return end
   local m=math.tointeger(d.model or 0);if not m then return end;m=m&0xffffffff
   if modelKinds[m]~=d.action and not (m==0 and R.region(d.x,d.y) and (d.action=='prospecting' or d.action=='clay' or d.action=='sand')) then return end
   local k=R.key(d.action,d.x,d.y,d.z)
@@ -194,7 +209,7 @@ local function nativeEntity(src,net,lookup,dead,reportedModel,reportedDead)
  if type(net)~='number' or net%1~=0 or net<=0 or net>65535 then return nil,'invalid network ID' end
  local ent=NetworkGetEntityFromNetworkId(net)
  if not ent or ent==0 or not DoesEntityExist(ent) then return nil,'animal not replicated' end
- local pos=position(src);if not pos then return nil,'player unavailable or outside world bucket' end
+ local pos,why=position(src);if not pos then return nil,positionError(src,why) end
  if GetEntityType(ent)~=1 then return nil,'entity is not a ped' end
  local bucket=GetEntityRoutingBucket(ent)
  if bucket~=GetPlayerRoutingBucket(src) then return nil,'different routing bucket' end
@@ -259,7 +274,8 @@ end)
 RegisterNetEvent(E..'fishStart',function()
  local src=source;if not C.nativeFishing or GetResourceState('vorp_fishing')~='started' then return notice(src,'Native fishing resource is not running') end
  run(src,function()
-  local id=cid(src);local pos=position(src);if not id or not pos or not R.region(pos.x,pos.y) or fishSessions[src] or sessions[src] then return notice(src,'Stand at an eligible river reach and equip a native rod') end
+  local id=cid(src);local pos,why=position(src);if not pos then return notice(src,positionError(src,why)) end
+  if not id or not R.region(pos.x,pos.y) or fishSessions[src] or sessions[src] then return notice(src,'Stand at an eligible river reach and equip a native rod') end
   local p=pending(id);if p and not recover(src,p) then return end
   local ok,tool=inv:GetGatheringTool(src,'rod');if not ok then return notice(src,'A working fishing rod item is required') end
   local has,bait=inv:HasItem(src,'gather_bait',1);if not has or not bait then return notice(src,'Fishing bait required') end
@@ -304,7 +320,7 @@ end)
 RegisterNetEvent(E..'smithBegin',function(kind,material,repair)
  local src=source;run(src,function()
   if not C.tools[kind] or sessions[src] or fishSessions[src] then return notice(src,'Choose a tool or finish your current activity') end
-  local id=cid(src);local pos=position(src);if not id or not pos then return end
+  local id=cid(src);local pos,why=position(src);if not pos then return notice(src,positionError(src,why)) end;if not id then return notice(src,'No active Frontier character') end
   local p=pending(id);if p and not recover(src,p) then return end
   local workshop=GetResourceState('frontier_property')=='started' and exports.frontier_property:GatheringWorkshop(src)
   if not workshop then return notice(src,'Approach a completed workshop you may use') end
@@ -325,8 +341,20 @@ RegisterNetEvent(E..'smithBegin',function(kind,material,repair)
   local ok,skill=skills:GetSkill(src,'blacksmithing');if not ok then return notice(src,'Skills unavailable') end
   local node={id='smith:'..workshop.id,x=pos.x,y=pos.y,z=pos.z};if locks[node.id] then return notice(src,'Workshop is busy') end
   local token=uuid();local now=GetGameTimer()
-  local w={actor=id,node=node,smith=d,workshop=workshop,token=token,skill=skill,duration=C.workMs,target=math.random(27,73)/100,started=now,expires=now+C.workMs+7000}
+  local w={actor=id,node=node,bucket=pos.bucket,smith=d,workshop=workshop,token=token,skill=skill,duration=C.workMs,target=math.random(27,73)/100,started=now,expires=now+C.workMs+7000}
   sessions[src]=w;locks[node.id]=src
   TriggerClientEvent(E..'work',src,{token=token,action='smith',label=repair and 'Repair tool' or 'Forge tool',ms=w.duration,target=w.target,width=.11*skill.window,qte=true})
+ end)
+end)
+
+-- Diagnostic reads only server state; no client coordinates are trusted.
+RegisterNetEvent(E..'debug',function()
+ local src=source
+ run(src,function()
+  local pos,why=position(src)
+  if not pos then return notice(src,positionError(src,why)) end
+  local ped=GetPlayerPed(src)
+  local msg=('Server position %.2f %.2f %.2f | bucket=%s health=%s | gathering session OK'):format(pos.x,pos.y,pos.z,tostring(pos.bucket),tostring(GetEntityHealth(ped)))
+  print('[frontier_gathering] '..msg);notice(src,msg)
  end)
 end)
