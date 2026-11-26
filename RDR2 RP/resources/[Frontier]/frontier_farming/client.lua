@@ -37,6 +37,9 @@ end
 
 local function notice(s) TriggerEvent('chat:addMessage',{args={'Farming',s}}) end
 RegisterCommand('farm',function() TriggerServerEvent(E..'action','open',{}) end,false)
+AddEventHandler('frontier_farming:manageSign',function(id)
+ if not focused and not pendingSlaughter and not IsNuiFocused() then TriggerServerEvent(E..'action','openFacility',{id=id}) end
+end)
 RegisterNetEvent(E..'notice',function(s) if source~=65535 then return end;notice(s);SendNUIMessage({type='notice',message=s}) end)
 RegisterNetEvent(E..'menu',function(d) if source~=65535 then return end;endWork();focused=true;SetNuiFocus(true,true);SendNUIMessage({type='menu',data=d}) end)
 RegisterNetEvent(E..'workRound',function(d) if source==65535 then if d.round==1 then startWork(d.action) end;SendNUIMessage({type='workRound',data=d}) end end)
@@ -44,6 +47,25 @@ RegisterNetEvent(E..'workEnd',function() if source==65535 then endWork();SendNUI
 RegisterNetEvent(E..'world',function(d) if source==65535 then world=d end end)
 RegisterNUICallback('farmAction',function(d,cb) if focused then TriggerServerEvent(E..'action',d.action,d.data or {}) end;cb({ok=true}) end)
 RegisterNUICallback('close',function(_,cb) endWork();focused=false;TriggerServerEvent(E..'action','cancelWork',{});SetNuiFocus(false,false);SendNUIMessage({type='close'});cb({ok=true}) end)
+local V=C.fieldVisuals
+local fieldDims,fieldLayouts,vegModifiers={}, {}, {}
+local function terrain(x,y,z)
+ RequestCollisionAtCoord(x,y,z)
+ local ok,g=GetGroundZFor_3dCoord(x,y,z+8.0,false)
+ if ok and math.abs(g-z)<=5 then return g end
+end
+local function slope(d,h,z)
+ local min,max=GetModelDimensions(h)
+ local hx,hy=math.max(.15,(max.x-min.x)/2),math.max(.15,(max.y-min.y)/2)
+ local a=math.rad(d.heading);local c,s=math.cos(a),math.sin(a)
+ local l=terrain(d.x-hx*c,d.y-hx*s,d.z);local r=terrain(d.x+hx*c,d.y+hx*s,d.z)
+ local b=terrain(d.x+hy*s,d.y-hy*c,d.z);local f=terrain(d.x-hy*s,d.y+hy*c,d.z)
+ local function clamp(n) return math.max(-V.maxSlope,math.min(V.maxSlope,n)) end
+ local roll=l and r and clamp(-math.deg(math.atan(r-l,2*hx))) or 0
+ local pitch=b and f and clamp(math.deg(math.atan(f-b,2*hy))) or 0
+ if l and r and b and f then z=(l+r+b+f)/4 end
+ return z-min.z+(d.offset or 0),pitch,roll
+end
 local function spawn(d)
  local h=GetHashKey(d.model);if not IsModelValid(h) then return end
  RequestModel(h);local untilTime=GetGameTimer()+1500
@@ -52,7 +74,8 @@ local function spawn(d)
  RequestCollisionAtCoord(d.x,d.y,d.z)
  local ok,z=GetGroundZFor_3dCoord(d.x,d.y,d.z+5,false)
  if not ok then SetModelAsNoLongerNeeded(h);return end
- local min=GetModelDimensions(h);z=z-min.z
+ local min=GetModelDimensions(h);local pitch,roll=0,0
+ if d.field then z,pitch,roll=slope(d,h,z) else z=z-min.z end
  local ent
  if d.ped then ent=CreatePed(h,d.x,d.y,z,d.heading,false,false,false,false)
  else ent=CreateObject(h,d.x,d.y,z,false,false,false,false,false) end
@@ -62,33 +85,122 @@ local function spawn(d)
  if d.ped then
   pcall(function() Citizen.InvokeNative(0x283978A15512B2FE,ent,true) end)
   SetBlockingOfNonTemporaryEvents(ent,true);TaskStandStill(ent,3000)
- else FreezeEntityPosition(ent,true) end
+ else
+  if d.field then SetEntityRotation(ent,pitch,roll,d.heading,2,true);SetEntityCollision(ent,false,false) end
+  FreezeEntityPosition(ent,true)
+ end
  return ent
 end
+
+-- Model extents are cached after loading; group meshes can contain several plants.
+local function fieldSize(name)
+ local cached=fieldDims[name]
+ if cached and cached.x then return cached end
+ if cached and GetGameTimer()<cached.retry then return end
+ local h=GetHashKey(name)
+ if not IsModelValid(h) then fieldDims[name]={retry=GetGameTimer()+30000};return end
+ RequestModel(h);local deadline=GetGameTimer()+1500
+ while not HasModelLoaded(h) and GetGameTimer()<deadline do Wait(20) end
+ if not HasModelLoaded(h) then SetModelAsNoLongerNeeded(h);fieldDims[name]={retry=GetGameTimer()+10000};return end
+ local min,max=GetModelDimensions(h);SetModelAsNoLongerNeeded(h)
+ local d={x=math.max(.25,max.x-min.x),y=math.max(.25,max.y-min.y)}
+ fieldDims[name]=d;return d
+end
+
+local function clearVeg(id)
+ local old=vegModifiers[id]
+ if not old then return end
+ for _,m in ipairs(old.handles) do
+  Citizen.InvokeNative(0x9CF1836C03FB67A2,Citizen.PointerValueIntInitialized(m),0)
+ end
+ vegModifiers[id]=nil
+end
+
+local function ensureVeg(b)
+ if not V.vegetation then return end
+ local key=table.concat({b.x,b.y,b.z,b.heading,b.width,b.length},':')
+ if vegModifiers[b.id] and vegModifiers[b.id].key==key then return end
+ clearVeg(b.id)
+ local handles={}
+ local nx,ny=math.ceil(b.width/2.5),math.ceil(b.length/2.5)
+ local sx,sy=b.width/nx,b.length/ny
+ local radius=math.sqrt(sx*sx+sy*sy)/2
+ for col=1,nx do for row=1,ny do
+  local x,y=R.world(b,-b.width/2+(col-.5)*sx,-b.length/2+(row-.5)*sy)
+  local z=terrain(x,y,b.z)
+  if z then
+   local m=Citizen.InvokeNative(0xFA50F79257745E74,x,y,z,radius,1,1+2+4+8+16+256,0,Citizen.ResultAsInteger())
+   if m and m~=0 then handles[#handles+1]=m end
+  end
+ end end
+ if #handles>0 then vegModifiers[b.id]={key=key,handles=handles} end
+end
+
+local function fieldLayout(v)
+ local b=v.b
+ -- Empty plots retain planting beds, using the default corn footprint.
+ local name=v.crop and C.crops[v.crop] and v.crop or 'corn'
+ local crop=C.crops[name];local rotation=V.rotations[name] or 0
+ local cd=fieldSize(crop.models[#crop.models])
+ local sd=fieldSize(V.soilModel)
+ if not cd or not sd then return end
+ local cw,cl=cd.x,cd.y
+ if rotation%180==90 then cw,cl=cl,cw end
+ local bw,bl=math.max(sd.x,cw),math.max(sd.y,cl)
+ local aw,al=math.max(.5,b.width-2*V.margin),math.max(.5,b.length-2*V.margin)
+ local cols,rows=math.max(1,math.floor(aw/((bw+V.rowGap)*V.spacing))),math.max(1,math.floor(al/((bl+.2)*V.spacing)))
+ local nx=math.max(1,math.ceil(bw/(sd.x*V.soilOverlap)))
+ local ny=math.max(1,math.ceil(bl/(sd.y*V.soilOverlap)))
+ local spanX,spanY=math.max(0,bw-sd.x),math.max(0,bl-sd.y)
+ if spanX==0 then nx=1 end;if spanY==0 then ny=1 end
+ -- Bound the total while distributing beds evenly across the plot.
+ while cols*rows*(nx*ny+1)>V.maxProps and (cols>1 or rows>1) do
+  if cols>=rows and cols>1 then cols=cols-1 else rows=rows-1 end
+ end
+ while nx*ny+1>V.maxProps do if nx>=ny and nx>1 then nx=nx-1 else ny=ny-1 end end
+ local key=table.concat({name,b.x,b.y,b.z,b.heading,b.width,b.length},':')
+ local cache=fieldLayouts[b.id]
+ if cache and cache.key==key then return cache end
+ local soil,beds={},{}
+ for col=1,cols do for row=1,rows do
+  local x,y=-aw/2+(col-.5)*aw/cols,-al/2+(row-.5)*al/rows
+  beds[#beds+1]={x=x,y=y}
+  for i=1,nx do for j=1,ny do
+   local dx=nx>1 and (-spanX/2+(i-1)*spanX/(nx-1)) or 0
+   local dy=ny>1 and (-spanY/2+(j-1)*spanY/(ny-1)) or 0
+   soil[#soil+1]={x=x+dx,y=y+dy}
+  end end
+ end end
+ cache={key=key,soil=soil,beds=beds,rotation=rotation};fieldLayouts[b.id]=cache
+ return cache
+end
+
+local function addField(want,v,layout)
+ local b=v.b
+ local function put(key,model,p,rotation,offset)
+  local x,y=R.world(b,p.x,p.y)
+  want[b.id..':'..key]={model=model,x=x,y=y,z=b.z,heading=(b.heading+rotation)%360,offset=offset,field=true}
+ end
+ for i,p in ipairs(layout.soil) do put('soil:'..i,V.soilModel,p,0,V.soilOffset) end
+ if not v.crop or v.dead then return end
+ local c=C.crops[v.crop];if not c then return end
+ local growth=math.max(0,math.min(1,v.growth or 0))
+ local stage=math.min(#c.models,math.max(1,math.floor(growth*(#c.models-1)+1.000001)))
+ local count=#layout.beds;local visible=math.max(1,math.floor(count*(#c.models>1 and 1 or math.max(.22,growth))+.5))
+ for i,p in ipairs(layout.beds) do
+  if math.floor(i*visible/count)>math.floor((i-1)*visible/count) then
+   local model=c.models[stage]
+   put('crop:'..i,model,p,layout.rotation,V.cropOffset)
+  end
+ end
+end
+
 local function desired()
- local want={};local pos=GetEntityCoords(PlayerPedId())
+ local want,fields={},{};local pos=GetEntityCoords(PlayerPedId())
  for _,v in ipairs(world) do local b=v.b
   if #(pos-vector3(b.x,b.y,b.z))<C.stream then
-   if v.crop and not v.dead then
-    local c=C.crops[v.crop];local stage=math.min(#c.models,math.max(1,math.floor(v.growth*(#c.models-1)+1.000001)))
-    local spacing=C.cropRows[v.crop] or {x=c.spacing,y=c.spacing}
-    local cols=math.max(1,math.floor(b.width/spacing.x))
-    local rows=math.max(1,math.floor(b.length/spacing.y))
-    local total=cols*rows
-    local density=#c.models>1 and 1 or math.max(.22,v.growth)
-    local visible=math.max(1,math.floor(total*density+.5))
-    for i=0,total-1 do
-     -- Deterministic, distributed early growth, then fill the rows as the crop matures.
-     local rank=((i%cols)*rows+math.floor(i/cols))
-     if math.floor((rank+1)*visible/total)>math.floor(rank*visible/total) then
-      local col=i%cols;local line=math.floor(i/cols)
-      local x,y=R.world(b,(col+.5)*b.width/cols-b.width/2,(line+.5)*b.length/rows-b.length/2)
-      local models=c.models
-      local model=models[stage]
-      if v.crop=='corn' and stage==#models then model=C.cornMatureModels[(i%#C.cornMatureModels)+1] end
-      want[b.id..':crop:'..i]={model=model,x=x,y=y,z=b.z,heading=b.heading}
-     end
-    end
+   if b.kind=='field' and #(pos-vector3(b.x,b.y,b.z))<V.distance then
+    fields[#fields+1]={v=v,distance=#(pos-vector3(b.x,b.y,b.z))}
    end
    if v.species and not (pendingSlaughter and pendingSlaughter.facility==b.id) then
     local c=C.species[v.species];local limit=v.species=='chicken' and ({small=3,medium=5,large=8})[b.size] or 8
@@ -100,20 +212,31 @@ local function desired()
    end
   end
  end
+ table.sort(fields,function(a,b) return a.distance<b.distance end)
+ local active,used={},0
+ for _,entry in ipairs(fields) do
+  local v=entry.v;local layout=fieldLayout(v)
+  if layout and used+#layout.soil+#layout.beds<=V.maxTotal then
+   active[v.b.id]=true;used=used+#layout.soil+#layout.beds
+   ensureVeg(v.b);addField(want,v,layout)
+  end
+ end
+ for id in pairs(vegModifiers) do if not active[id] then clearVeg(id) end end
+ for id in pairs(fieldLayouts) do if not active[id] then fieldLayouts[id]=nil end end
  return want
 end
 CreateThread(function()
  while true do
   Wait(1000);local wanted=desired()
-  for key,e in pairs(entities) do if not wanted[key] or wanted[key].model~=e.model or not DoesEntityExist(e.handle) then DeleteEntity(e.handle);entities[key]=nil end end
+  for key,e in pairs(entities) do if not wanted[key] or wanted[key].model~=e.model or (wanted[key].field and (wanted[key].x~=e.spawn.x or wanted[key].y~=e.spawn.y or wanted[key].heading~=e.spawn.heading or wanted[key].z~=e.spawn.anchorZ)) or not DoesEntityExist(e.handle) then DeleteEntity(e.handle);entities[key]=nil end end
   for _,e in pairs(entities) do if e.ped and DoesEntityExist(e.handle) then local p=GetEntityCoords(e.handle);local d=e.spawn;if #(p-vector3(d.x,d.y,d.z))>1.8 then TaskGoStraightToCoord(e.handle,d.x,d.y,d.z,1.0,4000,d.heading,0.2) elseif math.random()<.2 then TaskGoStraightToCoord(e.handle,d.x+(math.random()-.5)*1.5,d.y+(math.random()-.5)*1.5,p.z,0.5,3000,d.heading,0.2) end end end
   local added=0
   for key,d in pairs(wanted) do if not entities[key] and added<12 then
-   local h=spawn(d);if h then local pos=GetEntityCoords(h);d.z=pos.z;entities[key]={handle=h,model=d.model,spawn=d,ped=d.ped};added=added+1 end
+   local h=spawn(d);if h then local pos=GetEntityCoords(h);d.anchorZ=d.z;d.z=pos.z;entities[key]={handle=h,model=d.model,spawn=d,ped=d.ped};added=added+1 end
   end end
  end
 end)
-AddEventHandler('onClientResourceStop',function(r) if r==GetCurrentResourceName() then endWork();for _,e in pairs(entities) do DeleteEntity(e.handle) end;if focused then SetNuiFocus(false,false) end end end)
+AddEventHandler('onClientResourceStop',function(r) if r==GetCurrentResourceName() then endWork();for id in pairs(vegModifiers) do clearVeg(id) end;for _,e in pairs(entities) do DeleteEntity(e.handle) end;if focused then SetNuiFocus(false,false) end end end)
 
 RegisterCommand('farmshop',function() TriggerServerEvent(E..'action','shop',{}) end,false)
 RegisterNetEvent(E..'shop',function(d) if source~=65535 then return end;focused=true;SetNuiFocus(true,true);SendNUIMessage({type='shop',data=d}) end)

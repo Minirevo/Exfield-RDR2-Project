@@ -75,3 +75,11 @@ FarmConfig.cropRows={
  broccoli={x=1.8,y=1.5},artichoke={x=2.7,y=1.8}
 }
 FarmConfig.cornMatureModels={'crp_cornstalks_ab_sim','crp_cornstalks_ac_sim'}
+
+-- Client-only visual budget; no effect on seed usage, growth or yields.
+FarmConfig.fieldVisuals={
+ soilModel='mp005_p_dirtpile_gen_buried',soilOffset=-0.10,cropOffset=0.0,
+ soilOverlap=0.80,margin=1.0,spacing=1.0,maxSlope=25.0,
+ distance=55,maxProps=600,maxTotal=1000,vegetation=true,
+ rotations={corn=90,potato=90},rowGap=0.35
+}

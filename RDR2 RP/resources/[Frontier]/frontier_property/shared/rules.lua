@@ -23,7 +23,11 @@ end
 function R.capacity(exterior,interior) return exterior.slots+(interior and interior.slots or 0) end
 function R.fits(s,p,r,ignore)
     if not R.point(p) or R.distance(s,p)+r>s.radius or R.distance(s,p)<r+6 then return false end
-    for id,b in pairs(s.buildings) do if id~=ignore and R.distance(b,p)<r+b.radius+1 then return false end end
+    for id,b in pairs(s.buildings) do
+        local e=PropertyConfig and PropertyConfig.Exteriors and PropertyConfig.Exteriors[b.exterior]
+        local radius=math.max(b.radius,e and e.radius or 0)
+        if id~=ignore and R.distance(b,p)<r+radius+1 then return false end
+    end
     return true
 end
 

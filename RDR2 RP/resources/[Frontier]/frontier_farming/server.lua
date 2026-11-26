@@ -146,7 +146,7 @@ local function buyHorse(src,d)
  local ok,e=horseSaleStep(j);notice(src,ok and 'Horse certificate transferred' or ('Horse purchase: '..tostring(e)));horseMarket(src)
 end
 
-local function view(src)
+local function view(src,preferred)
  local result={}
  for _,b in ipairs(prop:GetFarmBuildings(src)) do if near(src,b) then
   local f=row(b.id);local detail=prop:FarmBuilding(b.plot,b.id,cid(src))
@@ -156,8 +156,12 @@ local function view(src)
    result[#result+1]={building=b,owner=f.owner_id,ownerType=f.owner_type,storage=f.storage,state=s,stocks=biz:FarmStock(cid(src),f.plot,f.owner_type,f.owner_id),counts=counts,stockAvailable=available,pending=not not locked(f.id)}
   elseif not f and detail and detail.owned then result[#result+1]={building=b,unbound=true} end
  end end
+ if preferred then
+  local found=false;for _,v in ipairs(result) do if v.building.id==preferred then found=true;break end end
+  check(found,'Approach an authorized farm facility')
+ end
  local tools={};for k,id in pairs(C.tools) do local ok,has=inv:HasItem(src,id,1);tools[k]=ok and has or false end
- TriggerClientEvent(E..'menu',src,{facilities=result,crops=C.crops,species=C.species,capacity=C.fieldCapacity,tools=tools,items=C.items,trainingInterval=C.horseTrainingInterval,now=os.time()})
+ TriggerClientEvent(E..'menu',src,{facilities=result,selected=preferred,crops=C.crops,species=C.species,capacity=C.fieldCapacity,tools=tools,items=C.items,trainingInterval=C.horseTrainingInterval,now=os.time()})
 end
 
 local eco=exports.frontier_economy
@@ -355,6 +359,11 @@ end
 local function action(src,a,d,score)
  local who=cid(src);check(who,'Select a character first')
  if a=='open' then return view(src) end
+ if a=='openFacility' then
+  if sessions[src] then notice(src,'Finish or cancel your current farm work first');return end
+  local b=get(src,d.id);check(b and near(src,b),'Approach a completed farm facility')
+  return view(src,b.id)
+ end
  if a=='riverStart' then return beginWater(src) end
  if a=='riverFinish' then return finishWater(src,d) end
  if a=='returnMount' then check(mounts[src] and mounts[src].actor==who,'No mount checked out');return returnMount(src) end
@@ -692,7 +701,7 @@ CreateThread(function()
    for _,p in pairs(core:GetPlayers()) do
     local result={}
     for _,b in ipairs(prop:GetFarmBuildings(p.source)) do
-     local f=row(b.id);if f then local s=state(f);if mountLocks[f.id] and s.horses then local m=mounts[mountLocks[f.id]];if m then for i=#s.horses,1,-1 do if s.horses[i].id==m.horse then table.remove(s.horses,i) end end;R.horseCounts(s) end end;local lock=workLocks[f.id] and sessions[workLocks[f.id]];result[#result+1]={b=b,crop=s.crop,growth=s.growth,dead=s.dead,species=(not lock or (lock.phase~='slaughter' and lock.phase~='spawning')) and s.species or nil,female=s.female,male=s.male,young=s.young,horses=s.horses} end
+     local f=row(b.id);if f then local s=state(f);if mountLocks[f.id] and s.horses then local m=mounts[mountLocks[f.id]];if m then for i=#s.horses,1,-1 do if s.horses[i].id==m.horse then table.remove(s.horses,i) end end;R.horseCounts(s) end end;local lock=workLocks[f.id] and sessions[workLocks[f.id]];result[#result+1]={b=b,crop=s.crop,growth=s.growth,dead=s.dead,species=(not lock or (lock.phase~='slaughter' and lock.phase~='spawning')) and s.species or nil,female=s.female,male=s.male,young=s.young,horses=s.horses} elseif b.kind=='field' then result[#result+1]={b=b,growth=0} end
     end
     TriggerClientEvent(E..'world',p.source,result)
    end

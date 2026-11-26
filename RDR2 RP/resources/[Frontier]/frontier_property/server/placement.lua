@@ -15,6 +15,6 @@ function beginPreview(src,s,b,exterior,interior,mode,fid,itemId)
     local origin=b and mode=='move' and {x=b.x,y=b.y,z=b.z,heading=b.heading} or nil
     if mode=='moveFurniture' then origin=s.furniture[fid] end
     local blockers={}
-    if not isFurniture then for k,v in pairs(s.buildings) do if mode~='move' or k~=b.id then blockers[k]={x=v.x,y=v.y,z=v.z,radius=v.radius} end end end
+    if not isFurniture then for k,v in pairs(s.buildings) do if mode~='move' or k~=b.id then blockers[k]={x=v.x,y=v.y,z=v.z,radius=math.max(v.radius,(C.Exteriors[v.exterior] or {}).radius or 0)} end end end
     TriggerClientEvent(E..'preview',src,{model=model,parts=e and R.parts(e,C) or nil,mode=mode,origin=origin,claim=public(s),blockers=blockers,radius=e and e.radius or nil,furniture=isFurniture})
 end
