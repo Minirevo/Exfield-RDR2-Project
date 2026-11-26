@@ -2,6 +2,8 @@ local core = exports.frontier_core
 local Config = InventoryConfig
 local events = 'frontier_inventory:'
 local views, last, worldLast, inFlight = {}, {}, {}, {}
+local selectedBelt={}
+local equipped,selectTool -- forward declarations; shared by snapshots and quick slots
 
 local messages = {
     not_ready = 'Das Inventar ist noch nicht bereit.', character = 'Dein Charakter ist nicht verfügbar.',
@@ -33,6 +35,8 @@ local function unload(source)
     views[source] = nil
     Inventory.restricted[source] = nil
     Inventory.generations[source] = nil
+    selectedBelt[source]=nil
+    TriggerClientEvent(events..'equipped',source,false)
     if view then TriggerClientEvent(events .. 'close', source) end
 end
 
@@ -69,6 +73,7 @@ local function snapshot(source, id, storageId)
     local loaded,belt=Inventory.Belt(source,id)
     if not loaded then return false,belt end
     local state = { player = Inventory.Present(player, true), belt=Inventory.Present(belt,true) }
+    state.equipped=equipped(source,id,player,belt) or false
     if storageId then
         local loaded, storage = Inventory.Storage(source, storageId)
         if not loaded then return false, storage end
@@ -158,6 +163,12 @@ RegisterNetEvent(events .. 'request', function(ticket, seq, action, payload)
             local found, data = snapshot(source, view.id, view.storage)
             if found then observed = data end
             return found, data
+        end
+        if action=='equip' then
+            if type(payload)~='table' or (payload.side~='player' and payload.side~='belt') or not Inventory.Int(payload.slot,200) or not revision(payload.revision) or not revision(payload.beltRevision) then return false,'invalid_request' end
+            local applied,issue=selectTool(source,payload.side,payload.slot,payload.revision,payload.beltRevision)
+            local found,updated=snapshot(source,view.id,view.storage);if found then observed=updated end
+            return applied,issue
         end
         local data = normalize(action, payload)
         if not data or not revision(payload.revision)
@@ -876,22 +887,52 @@ end)
 
 
 -- Only the gathering resource may consume condition and award materials in a single inventory commit.
-local selectedBelt={}
-RegisterNetEvent(events..'selectBelt',function(slot)
- local src=source
- if not Inventory.Int(slot,Config.BeltSlots) then return end
- local now=GetGameTimer();local prior=selectedBelt[src]
- if prior and now-prior.time<300 then return end
- local id=Inventory.Session(src);if not id then return end
- local ok,belt=Inventory.Belt(src,id);if not ok then return end
- local entry=belt.slots[slot]
- if not entry then selectedBelt[src]=nil;TriggerClientEvent(events..'notice',src,'Toolbelt slot empty.');return end
- if prior and prior.id==id and prior.instance==entry.instance then
-  selectedBelt[src]=nil;TriggerClientEvent(events..'notice',src,'Tool put away.');return
+local function toolKind(e)
+ if not e or not e.instance then return end
+ local kind=e.item:match('^gather_([a-z]+)_')
+ if not kind then return end
+ local m=json.decode(e.metadata)
+ if m and type(m.uses)=='number' and m.uses>0 then return kind end
+end
+local function clearEquipped(src)
+ selectedBelt[src]=nil;TriggerClientEvent(events..'equipped',src,false)
+end
+equipped=function(src,id,bag,belt)
+ local p=selectedBelt[src];if not p then return end
+ if p.id==id then
+  for _,box in ipairs({bag,belt}) do for _,e in pairs(box.slots) do
+   if e.instance==p.instance then
+    local kind=toolKind(e)
+    if kind then return {instance=e.instance,item=e.item,kind=kind,name=Inventory.items[e.item].name} end
+   end
+  end end
  end
- selectedBelt[src]={id=id,instance=entry.instance,time=now}
- TriggerClientEvent(events..'notice',src,'Selected '..Inventory.items[entry.item].name)
+ clearEquipped(src)
+end
+selectTool=function(src,side,slot,rev,beltRev)
+ local id,err=Inventory.Session(src);if not id then return false,err end
+ local ok,bag=Inventory.Player(src,id);if not ok then return false,bag end
+ local loaded,belt=Inventory.Belt(src,id);if not loaded then return false,belt end
+ if (rev~=nil and bag.revision~=rev) or (beltRev~=nil and belt.revision~=beltRev) then return false,'conflict' end
+ local e=(side=='belt' and belt or bag).slots[slot]
+ local prior=selectedBelt[src]
+ if not e then clearEquipped(src);return false,'not_found' end
+ if prior and prior.id==id and prior.instance==e.instance then
+  clearEquipped(src);TriggerClientEvent(events..'notice',src,'Tool put away.');return true
+ end
+ if not toolKind(e) then return false,'unusable' end
+ selectedBelt[src]={id=id,instance=e.instance}
+ local state=equipped(src,id,bag,belt)
+ TriggerClientEvent(events..'equipped',src,state or false)
+ TriggerClientEvent(events..'notice',src,'Equipped '..state.name)
+ return true
+end
+RegisterNetEvent(events..'selectBelt',function(slot)
+ local src=source;if not Inventory.Int(slot,Config.BeltSlots) then return end
+ local ok,err=admit(src,last,function()return selectTool(src,'belt',slot)end)
+ if not ok then TriggerClientEvent(events..'notice',src,message(err)) end
 end)
+RegisterNetEvent(events..'holsterTool',function()clearEquipped(source)end)
 AddEventHandler('playerDropped',function() selectedBelt[source]=nil end)
 local function findGatherTool(source,id,bag,belt,kind,instance,repair)
  local preferred=selectedBelt[source];local best,bestBox,bestSlot,bestScore
@@ -920,15 +961,26 @@ trusted('GetGatheringPosition',function(owner,source)
  if not id then return false,pos end
  return true,{character=id,x=pos.x,y=pos.y,z=pos.z,bucket=pos.bucket}
 end)
-trusted('GetGatheringTool',function(owner,source,kind,repair)
+trusted('GetGatheringTool',function(owner,source,kind,repair,requireEquipped)
  if owner~='frontier_gathering' or not Inventory.Id(kind,24) then return false,'forbidden' end
  local id,bag,belt=gatheringBoxes(source);if not id then return false,bag end
- local e=findGatherTool(source,id,bag,belt,kind,nil,repair==true)
+ local active=equipped(source,id,bag,belt)
+ if requireEquipped and (not active or active.kind~=kind) then return false,'tool_not_equipped' end
+ local e=findGatherTool(source,id,bag,belt,kind,requireEquipped and active.instance or nil,repair==true)
  if not e then return false,'tool_missing' end
  return true,{item=e.item,instance=e.instance,metadata=json.decode(e.metadata)}
 end)
 trusted('GatheringCommit',function(owner,source,character,kind,instance,item,count,wear,key,preview,extra,metadata)
- if owner~='frontier_gathering' or not requestKey(key) or (kind~=nil and (not Inventory.Id(kind,24) or type(instance)~='string')) or type(count)~='number' or count%1~=0 or count<0 or count>100 or type(wear)~='number' or wear<0 or wear>1 then return false,'invalid_request' end
+ -- Table form avoids positional nil arguments crossing the resource boundary.
+ if type(kind)=='table' then
+  local d=kind;kind,instance,item,count,wear,key,preview,extra,metadata=d.kind,d.instance,d.item,d.count,d.wear,d.key,d.preview,d.extra,d.metadata
+ end
+ if owner~='frontier_gathering' then return false,'forbidden' end
+ if not requestKey(key) then return false,'invalid_request_key' end
+ if kind~=nil and (not Inventory.Id(kind,24) or type(instance)~='string') then return false,'invalid_tool_reference' end
+ if type(count)~='number' or count%1~=0 or count<0 or count>100 then return false,'invalid_reward_count' end
+ if type(wear)~='number' or wear~=wear or wear<0 or wear>1 then return false,'invalid_tool_wear' end
+ count=math.tointeger(count)
  if count>0 and (not Inventory.items[item] or not Inventory.items[item].stackable) then return false,'invalid_item' end
  local actor='resource:'..owner
  local fingerprint=json.encode({'gather',character,kind or false,instance or false,item or false,count,wear,extra and extra.item or false,extra and extra.count or false,metadata or false})
@@ -959,8 +1011,17 @@ trusted('GatheringCommit',function(owner,source,character,kind,instance,item,cou
  end
  if preview then return true end
  if Inventory.Session(source)~=id or Inventory.Generation(source)~=generation then return false,'character' end
- if changed==belt then return Inventory.Commit(key,actor,fingerprint,bag,belt) end
- return Inventory.Commit(key,actor,fingerprint,bag)
+ local ok,err
+ -- No reward (gold panning): commit only the changed tool container.
+ if changed==belt and count==0 and not extra then ok,err=Inventory.Commit(key,actor,fingerprint,belt)
+ elseif changed==belt then ok,err=Inventory.Commit(key,actor,fingerprint,bag,belt)
+ else ok,err=Inventory.Commit(key,actor,fingerprint,bag) end
+ if not ok then
+  Inventory.Log('WARN','Gathering commit rejected',{key=key,reason=err,count=count,kind=kind,item=item})
+  return false,err=='invalid_request' and 'inventory_sql_invalid_request' or err
+ end
+ equipped(source,id,bag,belt)
+ return true,key
 end)
 
 -- Material consumption, unique tool creation or repair, and receipt are one commit.
