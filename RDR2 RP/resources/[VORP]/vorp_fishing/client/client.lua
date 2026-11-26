@@ -85,6 +85,7 @@ end)
 
 RegisterNetEvent("vorp_fishing:UseBait", function(UsableBait)
     if fishing then return end
+    if GetResourceState("frontier_gathering")=="started" and UsableBait then currentLure=UsableBait end
 
     local playerPed = PlayerPedId()
     if Citizen.InvokeNative(0xDC88D06719070C39,playerPed) and not IsPedSwimming(playerPed) then

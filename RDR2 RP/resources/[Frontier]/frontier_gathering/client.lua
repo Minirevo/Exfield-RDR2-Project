@@ -86,7 +86,7 @@ end
 RegisterNetEvent(E..'notice',function(s)if source==65535 then waiting=0;notice(s) end end)
 RegisterNetEvent(E..'end',function()if source==65535 then clear() end end)
 local function startAnim(d)
- local ped=PlayerPedId();local a=C.actions[d.action]
+ local ped=PlayerPedId();local a=C.actions[d.action] or {scenario='WORLD_HUMAN_HAMMER'}
  if a.prop then
   local h=GetHashKey(a.prop)
   if IsModelValid(h) then
@@ -177,3 +177,10 @@ AddEventHandler('onResourceStop',function(name)
  if name~=GetCurrentResourceName() then return end
  clear();for id in pairs(hidden) do restore(id) end
 end)
+
+RegisterCommand('smith',function(_,args)
+ if usable() and not work then TriggerServerEvent(E..'smithBegin',args[1],args[2],false) end
+end,false)
+RegisterCommand('repair',function(_,args)
+ if usable() and not work then TriggerServerEvent(E..'smithBegin',args[1],nil,true) end
+end,false)

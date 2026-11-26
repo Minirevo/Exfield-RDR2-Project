@@ -22,6 +22,8 @@ end)
 
 local function giveReward(context, data, skipfinal)
 	local _source = source
+	-- Frontier native skinning awards its own inventory materials; do not pay legacy rewards too.
+	if GetResourceState('frontier_gathering')=='started' then return TriggerClientEvent('vorp_hunting:unlock',_source) end
 	local Character = VorpCore.getUser(_source).getUsedCharacter
 
 	if Config.joblocked then -- security check

@@ -67,14 +67,16 @@ local function recover(src,row)
  local d=json.decode(row.payload)
  if cid(src)~=row.character_id then return false end
  if tonumber(row.phase)==0 then
-  local ok,err=inv:GatheringCommit(src,row.character_id,d.kind,d.instance,d.item,d.count,d.wear,'gather:'..row.id,false)
+  local ok,err
+  if d.smith then ok,err=inv:GatheringSmith(src,row.character_id,d,'gather:'..row.id,false)
+  else ok,err=inv:GatheringCommit(src,row.character_id,d.kind,d.instance,d.item,d.count,d.wear,'gather:'..row.id,false,d.extra,d.metadata) end
   if not ok then notice(src,'Pending harvest: '..tostring(err)..'. Free satchel space or restore your tool, then /gatherrecover.');return false end
   MySQL.update.await('UPDATE frontier_gather_claims SET phase=1 WHERE id=? AND phase=0',{row.id})
  end
  local ok,err=skills:GrantXP(row.character_id,row.skill,d.xp,row.id)
  if not ok then notice(src,'Harvest secured; XP pending: '..tostring(err));return false end
  MySQL.update.await('UPDATE frontier_gather_claims SET phase=2 WHERE id=?',{row.id})
- notice(src,(d.count>0 and ('Received '..d.count..' × '..(d.item or '')) or 'Nothing valuable found')..' · +'..d.xp..' XP')
+ notice(src,(d.smith and (d.instance and 'Tool repaired' or 'Crafted '..d.item) or (d.count>0 and ('Received '..d.count..' × '..(d.item or '')) or 'Nothing valuable found'))..' · +'..d.xp..' XP')
  return true
 end
 local function makeClaim(src,id,skill,d,node,left)
@@ -132,6 +134,16 @@ RegisterNetEvent(E..'finish',function(token)
   w.finishing=true
   local elapsed=GetGameTimer()-w.started;local pos=position(src)
   if elapsed<w.duration or GetGameTimer()>w.expires or cid(src)~=w.actor or not pos or dist(pos,w.node)>C.reach^2 then return reject(src,'Work expired or you moved away') end
+  if w.smith then
+   local workshop=GetResourceState('frontier_property')=='started' and exports.frontier_property:GatheringWorkshop(src)
+   if not workshop or workshop.id~=w.workshop.id then return reject(src,'Remain at the workshop') end
+   local d=w.smith;local score=w.hit or 0
+   if not d.instance then d.metadata=R.encodeQuality(d.material,math.floor(w.skill.level*.4+score*40+workshop.equipment*.2+.5),workshop.name) end
+   local fits,err=inv:GatheringSmith(src,w.actor,d,'preview:'..src,true)
+   if not fits then return reject(src,'Smithing failed: '..tostring(err)) end
+   local row=makeClaim(src,w.actor,'blacksmithing',d)
+   release(src);TriggerClientEvent(E..'end',src);if row then recover(src,row) else notice(src,'Could not reserve work') end;return
+  end
   local n=w.node;local left=remaining(n)
   if left<=0 then return reject(src,'Resource already depleted') end
   local score=n.action=='herbalism' and .65 or w.hit or 0
@@ -189,7 +201,8 @@ local function nativeClaim(src,net,skill,toolKind,lookup,dead)
  local item=skill=='fishing' and 'gather_fish' or lookup[model]
  local n=skill=='fishing' and 1 or math.max(1,math.floor(3*stats.yield*tool.metadata.yield+.5))
  local d={kind=toolKind,instance=tool.instance,item=item,count=n,wear=stats.wear,xp=20}
- local fits,err=inv:GatheringCommit(src,id,d.kind,d.instance,item,n,d.wear,'preview:'..src,true)
+ if skill=='fishing' then d.metadata=json.encode({species=lookup[model]}) elseif item=='meat' then d.extra={item='gather_hide',count=1} end
+ local fits,err=inv:GatheringCommit(src,id,d.kind,d.instance,item,n,d.wear,'preview:'..src,true,d.extra,d.metadata)
  if not fits then notice(src,'Cannot carry catch: '..tostring(err));return false end
  if cid(src)~=id or not nativeEntity(src,net,lookup,dead) then return false end
  entityClaims[net]={ent=ent}
@@ -239,9 +252,39 @@ CreateThread(function()
  for kind,t in pairs(C.tools) do for mat,m in pairs(C.materials) do
   local id='gather_'..kind..'_'..mat;local name=m.label..' '..t.name
   while true do
-   local ok,err=inv:RegisterItem(id,{name=name,description='Repairable gathering tool',category='Tools',classification='tool',grams=t.grams,maxStack=1,condition=true,metadata=json.encode(R.quality(mat,50,'General store'))})
+   local ok,err=inv:RegisterItem(id,{name=name,description='Repairable gathering tool',category='Tools',classification='tool',grams=t.grams,maxStack=1,condition=true,metadata=R.encodeQuality(mat,50,'General store')})
    if ok then break end;print('[frontier_gathering] '..id..': '..tostring(err));Wait(3000)
   end
  end end
  ready=true;print('[frontier_gathering] ready')
+end)
+
+RegisterNetEvent(E..'smithBegin',function(kind,material,repair)
+ local src=source;run(src,function()
+  if not C.tools[kind] or sessions[src] or fishSessions[src] then return notice(src,'Choose a tool or finish your current activity') end
+  local id=cid(src);local pos=position(src);if not id or not pos then return end
+  local p=pending(id);if p and not recover(src,p) then return end
+  local workshop=GetResourceState('frontier_property')=='started' and exports.frontier_property:GatheringWorkshop(src)
+  if not workshop then return notice(src,'Approach a completed workshop you may use') end
+  local d={smith=true,kind=kind,xp=25}
+  if repair==true then
+   local ok,t=inv:GetGatheringTool(src,kind,true);if not ok then return notice(src,'No tool to repair') end
+   if t.metadata.uses>=t.metadata.maxUses then return notice(src,'Tool is already fully repaired') end
+   material=t.metadata.materialId;d.instance=t.instance;d.item=t.item
+  else
+   if not C.materials[material] then return notice(src,'Materials: crude, iron, steel, hardened') end
+   d.item='gather_'..kind..'_'..material;d.metadata=R.encodeQuality(material,50,workshop.name)
+  end
+  if not C.materials[material] then return notice(src,'Unsupported tool material') end
+  d.material=material;d.metal=(material=='steel' or material=='hardened') and 'gather_steel' or 'iron_ingot'
+  d.cost=repair and 1 or material=='hardened' and 3 or 2;d.wood=1
+  local fits,err=inv:GatheringSmith(src,id,d,'preview:'..src,true)
+  if not fits then return notice(src,'Requires '..d.cost..' '..d.metal..' and 1 wood; '..tostring(err)) end
+  local ok,skill=skills:GetSkill(src,'blacksmithing');if not ok then return notice(src,'Skills unavailable') end
+  local node={id='smith:'..workshop.id,x=pos.x,y=pos.y,z=pos.z};if locks[node.id] then return notice(src,'Workshop is busy') end
+  local token=uuid();local now=GetGameTimer()
+  local w={actor=id,node=node,smith=d,workshop=workshop,token=token,skill=skill,duration=C.workMs,target=math.random(27,73)/100,started=now,expires=now+C.workMs+7000}
+  sessions[src]=w;locks[node.id]=src
+  TriggerClientEvent(E..'work',src,{token=token,action='smith',label=repair and 'Repair tool' or 'Forge tool',ms=w.duration,target=w.target,width=.11*skill.window,qte=true})
+ end)
 end)

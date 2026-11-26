@@ -77,7 +77,7 @@ function Inventory.Belt(source,id)
 end
 function Inventory.BeltEligible(item)
     local def=Inventory.items[item]
-    return def and def.maxStack==1 and (def.classification=='tool' or Config.BeltTools[item]==true)
+    return def and def.maxStack==1 and (def.classification=='tool' or (Config.BeltTools or {})[item]==true)
 end
 function Inventory.Storage(source, id)
     if not Inventory.Id(id, 48) then return false, 'invalid_request' end

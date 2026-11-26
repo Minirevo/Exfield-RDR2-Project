@@ -42,3 +42,9 @@ function R.reward(action,node,score,skill,tool,roll)
  if action=='herbalism' then return node.item or 'gather_herbs',count end
  return 'gather_'..action,count
 end
+
+-- Stable definition JSON: Inventory compares registered definitions byte for byte.
+function R.encodeQuality(material,q,maker)
+ local m=R.quality(material,q,maker)
+ return ('{"condition":100,"material":%s,"materialId":%s,"quality":%d,"maxUses":%d,"uses":%d,"yield":%.4f,"manufacturer":%s}'):format(json.encode(m.material),json.encode(m.materialId),m.quality,m.maxUses,m.uses,m.yield,json.encode(m.manufacturer))
+end
