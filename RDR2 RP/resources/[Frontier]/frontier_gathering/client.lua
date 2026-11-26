@@ -9,6 +9,7 @@ for s in pairs(C.animals) do wildlife[GetHashKey(s)&0xffffffff]=true end
 local candidate,work,prop,waterMode,waiting=nil,nil,nil,'prospecting',0
 local hidden={}
 local equippedTool,heldProp,heldPed,heldKind=nil,nil,nil,nil
+local syncEquipped -- defined below, also receives periodic authoritative state
 local carryModels={axe='p_hatchet01x',pickaxe='p_pickaxe01x',shovel='p_shovel01x',pan='p_goldpan01x'}
 local function notice(s)TriggerEvent('chat:addMessage',{args={'Gathering',s}})end
 local function ui(d)SendNUIMessage(d)end
@@ -49,8 +50,9 @@ RegisterNetEvent(E..'depleted',function(row)
  if source~=65535 then return end
  local p=GetEntityCoords(PlayerPedId());if #(p-vector3(row.x,row.y,row.z))<C.stream then hide(row) end
 end)
-RegisterNetEvent(E..'world',function(rows)
+RegisterNetEvent(E..'world',function(rows,active)
  if source~=65535 then return end
+ if active~=nil then syncEquipped(active) end
  local seen={};for _,row in ipairs(rows) do seen[row.id]=true;hide(row) end
  for id in pairs(hidden) do if not seen[id] then restore(id) end end
 end)
@@ -96,7 +98,7 @@ local function scan(mode,debugScan)
   table.sort(nearby,function(x,y)return x.distance<y.distance end)
   print(('[frontier_gathering] client position %.2f %.2f %.2f; nearby objects=%d'):format(p.x,p.y,p.z,#nearby))
   for i=1,math.min(12,#nearby) do local n=nearby[i];print(('[frontier_gathering] model=%s kind=%s distance=%.1f'):format(n.hash,n.kind,n.distance)) end
-  print('[frontier_gathering] selected '..(best and best.action or 'none'))
+  print('[frontier_gathering] nearest compatible model (ignoring equipment): '..(best and best.action or 'none'))
  end
  if best then return best end
  local river=mode or (equippedTool and equippedTool.kind=='pan' and 'prospecting' or (waterMode=='sand' and 'sand' or 'clay'))
@@ -115,10 +117,15 @@ local function removeHeld()
  if heldProp and DoesEntityExist(heldProp) then DetachEntity(heldProp,true,true);DeleteEntity(heldProp) end
  heldProp,heldPed,heldKind=nil,nil,nil
 end
+syncEquipped=function(state)
+ local nextTool=type(state)=='table' and state or nil
+ if (equippedTool and equippedTool.instance)==(nextTool and nextTool.instance) then return end
+ equippedTool=nextTool
+ candidate=nil;ui({type='hint'});removeHeld()
+end
 RegisterNetEvent('frontier_inventory:equipped',function(state)
  if source~=65535 then return end
- equippedTool=type(state)=='table' and state or nil
- candidate=nil;ui({type='hint'});removeHeld()
+ syncEquipped(state)
 end)
 CreateThread(function()
  while true do
@@ -164,7 +171,7 @@ local function startAnim(d)
 end
 RegisterNetEvent(E..'work',function(d)
  if source~=65535 then return end
- if not usable() or work then TriggerServerEvent(E..'cancel');return end
+ if not usable() or work then waiting=0;notice('Cannot start work: close menus, dismount and stand on land or in shallow water');TriggerServerEvent(E..'cancel');return end
  waiting=0;work=d;d.started=GetGameTimer();ui({type='work',label=d.label,ms=d.ms,target=d.target,width=d.width,qte=d.qte})
  CreateThread(function()startAnim(d)end)
  CreateThread(function()
@@ -181,18 +188,23 @@ RegisterNetEvent(E..'work',function(d)
  end)
 end)
 local function begin(mode)
- if work or not usable() or GetGameTimer()<waiting then return end
+ if work then return notice('Already working') end
+ if not usable() then return notice('Cannot gather in this state: close menus, dismount and stand on land or in shallow water') end
+ if GetGameTimer()<waiting then return notice('Waiting for gathering server response') end
  if mode and not permitted(mode) then return notice('Equip the required '..C.actions[mode].tool..' first') end
  local n=scan(mode)
  if not n then return notice('No compatible '..(mode or 'natural')..' resource nearby. /gatherdebug for diagnostics.') end
- waiting=GetGameTimer()+5000;TriggerServerEvent(E..'begin',n)
+ waiting=GetGameTimer()+10000;local request=waiting;TriggerServerEvent(E..'begin',n)
+ SetTimeout(10000,function()if waiting==request and not work then waiting=0;notice('No gathering server response. Check frontier_gathering startup and server console.') end end)
 end
 RegisterCommand('gather',function(_,args)
  local mode=args[1];if mode and not C.actions[mode] then return notice('Use /gather or /gather mining, logging, herbalism, prospecting, clay, sand') end
  begin(mode)
 end,false)
 RegisterCommand('gatherdebug',function()
- scan('mining',true);TriggerServerEvent(E..'debug');notice('Nearby model diagnostics printed in F8.')
+ scan(nil,true);local actual=scan()
+ print(('[frontier_gathering] equipped=%s usable=%s waiting=%s actual interaction=%s'):format(equippedTool and equippedTool.kind or 'none',tostring(usable()),tostring(GetGameTimer()<waiting),actual and actual.action or 'none'))
+ TriggerServerEvent(E..'debug');notice('Gathering diagnostics printed in F8 and server console.')
 end,false)
 RegisterCommand('gatherwater',function(_,args)
  local mode=args[1];if mode~='prospecting' and mode~='clay' and mode~='sand' then return notice('Use /gatherwater prospecting, clay or sand') end

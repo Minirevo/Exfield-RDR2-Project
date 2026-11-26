@@ -961,6 +961,13 @@ trusted('GetGatheringPosition',function(owner,source)
  if not id then return false,pos end
  return true,{character=id,x=pos.x,y=pos.y,z=pos.z,bucket=pos.bucket}
 end)
+trusted('GetEquippedGatheringTool',function(owner,source)
+ if owner~='frontier_gathering' then return false,'forbidden' end
+ if not selectedBelt[source] then return true,false end
+ local id,bag,belt=gatheringBoxes(source)
+ if not id then return false,bag end
+ return true,equipped(source,id,bag,belt) or false
+end)
 trusted('GetGatheringTool',function(owner,source,kind,repair,requireEquipped)
  if owner~='frontier_gathering' or not Inventory.Id(kind,24) then return false,'forbidden' end
  local id,bag,belt=gatheringBoxes(source);if not id then return false,bag end
