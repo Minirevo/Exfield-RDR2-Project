@@ -18,3 +18,21 @@ exports('GatheringWorkshop',function(src)
   end
  end
 end)
+
+-- Read-only station discovery for the next production integration. No job or storage authority is granted here.
+exports('GetProductionStations',function(src)
+ if GetInvokingResource()~='frontier_production' or not ready then return {} end
+ local id=cid(src);local pos=position(src);if not id or not pos or pos.bucket~=0 then return {} end
+ local out={}
+ for _,s in pairs(S.settlements) do
+  if allowed(s,id,'work') and not (s.listing and s.listing.active) and R.distance(pos,s)<=s.radius+C.StreamDistance then
+   for fid,f in pairs(s.furniture or {}) do
+    local def=C.Furniture[f.item]
+    if def and def.station and close(src,f,C.InteractionDistance) then
+     out[#out+1]={id=fid,plot=s.id,kind=def.station,skill=def.skill,name=def.name,x=f.x,y=f.y,z=f.z,heading=f.heading}
+    end
+   end
+  end
+ end
+ table.sort(out,function(a,b)return a.id<b.id end);return out
+end)
