@@ -1,10 +1,87 @@
 local preview = {}
 local generation = 0
 
+print('[fieldtest] Script loaded successfully')
+
+RegisterCommand('fielddebug', function()
+    print('[fieldtest] Command works!')
+end, false)
+
+local vegetationModifiers = {}
+
 local sizes = {
-    small = 5.0,
-    medium = 10.0,
-    large = 20.0
+    small = 7.5,
+    medium = 15.5,
+    large = 23.5
+}
+
+local fenceLayouts = {
+    small = {
+        {-3.875, 3.75, 0},
+        {-0.125, 3.75, 0},
+
+        {3.875, 3.75, 270},
+        {3.875, -0.25, 270},
+
+        -- Entrance on south side
+
+        {-3.625, -3.75, 90},
+        {-3.625, 0.25, 90}
+    },
+
+    medium = {
+        {-7.875, 7.75, 0},
+        {-4.125, 7.75, 0},
+        {-0.125, 7.75, 0},
+        {3.875, 7.75, 0},
+
+        {7.875, 7.75, 270},
+        {7.875, 3.75, 270},
+        {7.875, -0.25, 270},
+        {7.875, -4.25, 270},
+
+        {7.875, -7.75, 180},
+
+        -- Entrance on south side
+
+        {-3.875, -7.75, 180},
+
+        {-7.625, -7.75, 90},
+        {-7.625, -3.75, 90},
+        {-7.625, 0, 90},
+        {-7.625, 3.75, 90}
+    },
+
+    large = {
+        {-11.875, 11.75, 0},
+        {-7.875, 11.75, 0},
+        {-3.875, 11.75, 0},
+        {0.125, 11.75, 0},
+        {4.125, 11.75, 0},
+        {7.875, 11.75, 0},
+
+        {11.875, 11.75, 270},
+        {11.875, 7.75, 270},
+        {11.875, 3.75, 270},
+        {11.875, -0.25, 270},
+        {11.875, -4.25, 270},
+        {11.875, -8.25, 270},
+
+        {11.875, -11.75, 180},
+        {7.875, -11.75, 180},
+
+        -- Entrance on south side
+
+        {-4.125, -11.75, 180},
+        {-7.875, -11.75, 180},
+
+        {-11.625, -11.75, 90},
+        {-11.625, -7.75, 90},
+        {-11.625, -3.75, 90},
+        {-11.625, 0.25, 90},
+        {-11.625, 4.25, 90},
+        {-11.625, 8.25, 90}
+    }
 }
 
 local crops = {
@@ -52,16 +129,14 @@ local settings = {
     crop = 'corn',
     stage = 3,
 
-    fence = 'p_fence02x',
+    fence = 'p_fence_cattle01x',
+	soil = 'mp005_p_dirtpile_gen_buried',
 
-    -- Experimental vanilla ground model.
-    soil = 'p_campfiredirt01x',
-
-    soilOffset = 0.015,
-    cropOffset = 0.02,
-    entrance = 2.0,
-    margin = 0.65,
-    spacing = 1.0,
+	soilOffset = -0.10,
+	cropOffset = 0.05,
+	entrance = 8.0,
+	margin = 1.0,
+	spacing = 1.0,
     cropRotation = nil
 }
 
@@ -84,7 +159,17 @@ local function clear()
             DeleteEntity(entity)
         end
     end
+	
+	for _, modifier in ipairs(vegetationModifiers) do
+		Citizen.InvokeNative(
+			0x9CF1836C03FB67A2,
+			Citizen.PointerValueIntInitialized(modifier),
+			0
+		)
+	end
 
+	vegetationModifiers = {}
+	
     preview = {}
 end
 
@@ -156,7 +241,41 @@ local function build()
     local parts = {}
     local size = sizes[settings.size]
     local half = size / 2
+	
+	-- Remove natural vegetation inside the field.
 
+	local cells = math.ceil(size / 2.5)
+	local step = size / cells
+	local radius = step * 0.72
+
+	local flags = 1 + 2 + 4 + 8 + 16 + 256
+
+	for col = 1, cells do
+		for row = 1, cells do
+			local x = -half + (col - 0.5) * step
+			local y = -half + (row - 0.5) * step
+
+			local wx, wy = world(x, y)
+			local wz = ground(wx, wy) or anchor.z
+
+			local modifier = Citizen.InvokeNative(
+				0xFA50F79257745E74,
+				wx,
+				wy,
+				wz,
+				radius,
+				1,
+				flags,
+				0,
+				Citizen.ResultAsInteger()
+			)
+
+			if modifier and modifier ~= 0 then
+				vegetationModifiers[#vegetationModifiers + 1] = modifier
+			end
+		end
+	end
+	
     local function getModel(name)
         if loaded[name] then
             return loaded[name]
@@ -196,6 +315,10 @@ local function build()
     -- FENCE LAYOUT
     -- =====================================
 
+        -- =====================================
+    -- ORIGINAL LIVESTOCK FENCES
+    -- =====================================
+
     local fence = getModel(settings.fence)
 
     if not fence then
@@ -203,78 +326,35 @@ local function build()
         return
     end
 
-    local fenceDim = dimensions(fence)
-    local segment = math.max(0.5, fenceDim.x)
-
-    local count = math.ceil(size / segment)
-    local step = size / count
-
-    for i = 1, count do
-        local pos = -half + (i - 0.5) * step
-
-        -- Back fence
-        add(fence, pos, half, 0, 0, true)
-
-        -- Front fence with entrance
-        if math.abs(pos) - segment / 2
-            >= settings.entrance / 2 then
-
-            add(fence, pos, -half, 0, 0, true)
-        end
-
-        -- Left and right fences
-        add(fence, -half, pos, 90, 0, true)
-        add(fence, half, pos, 90, 0, true)
+    for _, part in ipairs(fenceLayouts[settings.size]) do
+        add(
+            fence,
+            part[1],
+            part[2],
+            part[3],
+            0.0,
+            true
+        )
     end
 
     -- =====================================
-    -- SOIL LAYOUT
+    -- DIRT BEDS AND CROPS
     -- =====================================
+
+    local soil
+    local soilDim
 
     if settings.soil ~= 'none' then
-        local soil = getModel(settings.soil)
+        soil = getModel(settings.soil)
 
         if soil then
-            local d = dimensions(soil)
-
-            local sx = math.max(0.5, d.x)
-            local sy = math.max(0.5, d.y)
-
-            local area = size - settings.margin * 2
-
-            local cols = math.max(1, math.ceil(area / sx))
-            local rows = math.max(1, math.ceil(area / sy))
-
-            if cols * rows <= 250 then
-                for col = 1, cols do
-                    for row = 1, rows do
-                        local x = -area / 2
-                            + (col - 0.5) * area / cols
-
-                        local y = -area / 2
-                            + (row - 0.5) * area / rows
-
-                        add(
-                            soil, x, y, 0,
-                            settings.soilOffset, false
-                        )
-                    end
-                end
-            else
-                note('Soil model too small to tile efficiently.')
-            end
-
-            note(('Soil dimensions: %.2f x %.2f x %.2f'):format(
-                d.x, d.y, d.z
-            ))
-        else
-            note('Soil unavailable. Continuing without soil.')
+            soilDim = dimensions(soil)
         end
     end
 
-    -- =====================================
-    -- CROP LAYOUT
-    -- =====================================
+    local cropHash
+    local cropDim
+    local rotation = 0
 
     if settings.crop ~= 'empty' then
         local crop = crops[settings.crop]
@@ -284,70 +364,150 @@ local function build()
             math.max(1, settings.stage)
         )
 
-        local name = crop.models[stage]
-        local hash = getModel(name)
+        cropHash = getModel(crop.models[stage])
+        rotation = settings.cropRotation or crop.rotation
 
-        if hash then
-            local d = dimensions(hash)
-
-            local rotation =
-                settings.cropRotation or crop.rotation
-
-            local width = d.x
-            local length = d.y
-
-            if rotation % 180 == 90 then
-                width, length = length, width
-            end
-
-            local spacingX = math.max(
-                0.35,
-                (width + crop.rowGap) * settings.spacing
-            )
-
-            local spacingY = math.max(
-                0.35,
-                (length + 0.1) * settings.spacing
-            )
-
-            local area = size - settings.margin * 2
-
-            local cols = math.max(
-                1, math.floor(area / spacingX)
-            )
-
-            local rows = math.max(
-                1, math.floor(area / spacingY)
-            )
-
-            while cols * rows > 300 do
-                if rows > cols then
-                    rows = rows - 1
-                else
-                    cols = cols - 1
-                end
-            end
-
-            for col = 1, cols do
-                for row = 1, rows do
-                    local x = -area / 2
-                        + (col - 0.5) * area / cols
-
-                    local y = -area / 2
-                        + (row - 0.5) * area / rows
-
-                    add(
-                        hash, x, y, rotation,
-                        settings.cropOffset, false
-                    )
-                end
-            end
-
-            note(('Crop: %s | %d columns x %d rows'):format(
-                name, cols, rows
-            ))
+        if cropHash then
+            cropDim = dimensions(cropHash)
         end
     end
+
+    local bedWidth = soilDim and soilDim.x or 1.5
+    local bedLength = soilDim and soilDim.y or 1.5
+
+    -- Account for the rotated crop dimensions.
+
+    if cropDim then
+        local cw = cropDim.x
+        local cl = cropDim.y
+
+        if rotation % 180 == 90 then
+            cw, cl = cl, cw
+        end
+
+        bedWidth = math.max(bedWidth, cw)
+        bedLength = math.max(bedLength, cl)
+    end
+
+    local spacingX = math.max(
+        0.5,
+        (bedWidth + 0.35) * settings.spacing
+    )
+
+    local spacingY = math.max(
+        0.5,
+        (bedLength + 0.20) * settings.spacing
+    )
+
+    local area = size - settings.margin * 2
+
+    local cols = math.max(
+        1,
+        math.floor(area / spacingX)
+    )
+
+    local rows = math.max(
+        1,
+        math.floor(area / spacingY)
+    )
+
+    -- Limit entity count for performance.
+
+    while cols * rows > 250 do
+        if rows > cols then
+            rows = rows - 1
+        else
+            cols = cols - 1
+        end
+    end
+
+    for col = 1, cols do
+        for row = 1, rows do
+
+            local x = -area / 2
+                + (col - 0.5) * area / cols
+
+            local y = -area / 2
+                + (row - 0.5) * area / rows
+
+            -- Place the dirt bed.
+
+            if soil and soilDim then
+
+    local coverWidth = bedWidth
+    local coverLength = bedLength
+
+    -- Slight overlap between dirt piles.
+    local overlap = 0.80
+
+    local tileWidth = math.max(
+        0.25, soilDim.x * overlap
+    )
+
+    local tileLength = math.max(
+        0.25, soilDim.y * overlap
+    )
+
+    local soilCols = math.max(
+        1, math.ceil(coverWidth / tileWidth)
+    )
+
+    local soilRows = math.max(
+        1, math.ceil(coverLength / tileLength)
+    )
+
+    local spanX = math.max(
+        0, coverWidth - soilDim.x
+    )
+
+    local spanY = math.max(
+        0, coverLength - soilDim.y
+    )
+
+    for sx = 1, soilCols do
+        for sy = 1, soilRows do
+
+            local offsetX = soilCols > 1
+                and (-spanX / 2
+                + (sx - 1) * spanX / (soilCols - 1))
+                or 0
+
+            local offsetY = soilRows > 1
+                and (-spanY / 2
+                + (sy - 1) * spanY / (soilRows - 1))
+                or 0
+
+            add(
+                soil,
+                x + offsetX,
+                y + offsetY,
+                0,
+                settings.soilOffset,
+                false
+            )
+        end
+    end
+end
+
+            -- Place the crop at exactly the
+            -- same coordinates as the dirt bed.
+
+            if cropHash then
+                add(
+                    cropHash,
+                    x,
+                    y,
+                    rotation,
+                    settings.cropOffset,
+                    false
+                )
+            end
+        end
+    end
+
+    note(('Field layout: %d x %d planting beds'):format(
+        cols, rows
+    ))
 
     -- =====================================
     -- SPAWN PREVIEW
@@ -368,10 +528,79 @@ local function build()
 
         local z = ground(part.x, part.y)
 
-        if z then
-            local min = GetModelDimensions(part.hash)
-            part.z = z - min.z + part.offset
-        end
+if z then
+    local min, max = GetModelDimensions(part.hash)
+
+    local halfX = math.max(
+        0.15, (max.x - min.x) / 2
+    )
+
+    local halfY = math.max(
+        0.15, (max.y - min.y) / 2
+    )
+
+    local angle = math.rad(part.heading)
+
+    local cosA = math.cos(angle)
+    local sinA = math.sin(angle)
+
+    -- Sample terrain along the local X axis.
+
+    local left = ground(
+        part.x - halfX * cosA,
+        part.y - halfX * sinA
+    )
+
+    local right = ground(
+        part.x + halfX * cosA,
+        part.y + halfX * sinA
+    )
+
+    -- Sample terrain along the local Y axis.
+
+    local back = ground(
+        part.x + halfY * sinA,
+        part.y - halfY * cosA
+    )
+
+    local front = ground(
+        part.x - halfY * sinA,
+        part.y + halfY * cosA
+    )
+
+    part.pitch = 0.0
+    part.roll = 0.0
+
+    if left and right then
+        part.roll = -math.deg(
+            math.atan(right - left, halfX * 2)
+        )
+    end
+
+    if back and front then
+        part.pitch = math.deg(
+            math.atan(front - back, halfY * 2)
+        )
+    end
+
+    -- Prevent extreme rotations.
+
+    part.pitch = math.max(
+        -25.0, math.min(25.0, part.pitch)
+    )
+
+    part.roll = math.max(
+        -25.0, math.min(25.0, part.roll)
+    )
+
+    local average = z
+
+    if left and right and front and back then
+        average = (left + right + front + back) / 4
+    end
+
+    part.z = average - min.z + part.offset
+end
 
         if i % 10 == 0 then Wait(0) end
     end
@@ -412,7 +641,14 @@ local function build()
                     false, false, false
                 )
 
-                SetEntityHeading(entity, part.heading)
+                SetEntityRotation(
+					entity,
+					part.pitch or 0.0,
+					part.roll or 0.0,
+					part.heading,
+					2,
+					true
+				)
                 SetEntityInvincible(entity, true)
 
                 SetEntityCollision(
