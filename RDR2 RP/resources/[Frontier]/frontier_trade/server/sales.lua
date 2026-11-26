@@ -45,6 +45,12 @@ local function bank(source,actor)
     if ok and accounts.characterId==actor and core:GetPlayerCharacterId(source)==actor then return accounts.bank.id end
 end
 
+
+local function farmSaleAllowed(typ,id,item)
+ if not TradeConfig.Agricultural[item] then return true end
+ return GetResourceState('frontier_business')=='started' and exports.frontier_business:VerifyLicense(typ,id,'agriculture')
+end
+
 command('handelsangebot',function(source,actor,args)
     local market,item=args[1],args[2]
     local count,price=tonumber(args[3]),tonumber(args[4])
@@ -52,6 +58,7 @@ command('handelsangebot',function(source,actor,args)
         or not int(count,math.min(cfg.MaxQuantity,1000)) or not int(price,math.min(cfg.MaxUnitMinor,10000)) then
         return 'Verwendung: /handelsangebot <Markt> <Ware> <Menge> <Cent je Stück>'
     end
+    if not farmSaleAllowed('character',actor,item) then return 'Agriculture license required.' end
     local found,def=inventory:GetTradeItemDefinition(item)
     if not found or not def.transferable then return 'Diese Ware ist nicht handelbar.' end
     local id=db('scalar','SELECT UUID()')

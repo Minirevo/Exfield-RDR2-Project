@@ -21,6 +21,7 @@ function world(src)
                         if e then for n,part in ipairs(R.parts(e,C)) do
                             local q=R.transform(b,part)
                             obj(bid..':'..n,q.model,q.x,q.y,q.z,q.heading,nil,sid,bid,false)
+                            local o=data.objects[#data.objects];o.terrain=q.terrain;o.anchorZ=q.anchorZ;o.offsetZ=q.offsetZ
                         end end
                     else obj(bid,C.Camp.site,b.x,b.y,b.z,b.heading,'site',sid,bid,true) end
                 end end

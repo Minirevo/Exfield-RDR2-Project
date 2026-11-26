@@ -452,6 +452,7 @@ fixtureAction=function(src,who,a,d)
   TriggerClientEvent('frontier_business:close',src);local ok,e=inv:OpenStorage(src,'business_'..id);requireThat(ok,e);return true
  elseif a=='fixtureRemove' then
   requireThat(f and propertyOwner(who,sid),'Plot owner required')
+  local farm=GetResourceState('frontier_farming');requireThat(farm=='missing' or farm=='started' and not exports.frontier_farming:StorageBound('business_'..id),'Unlink farming storage and resolve orders first')
   requireThat(not exports.frontier_trade:BusinessFixtureBusy(id) and not next(stock(f)) and not S("SELECT id FROM fb_retail WHERE fixture_id=? AND state NOT IN ('complete','failed') LIMIT 1",{id}),'Empty storage and resolve purchases first')
   tx({sql('DELETE FROM fb_prices WHERE fixture_id=?',{id}),sql('DELETE FROM fb_fixtures WHERE id=?',{id})})
  elseif a=='fixturePrice' then
@@ -460,6 +461,7 @@ fixtureAction=function(src,who,a,d)
   if d.price==0 then U('DELETE FROM fb_prices WHERE fixture_id=? AND item_id=?',{id,d.item}) else Q('INSERT INTO fb_prices VALUES(?,?,?) ON DUPLICATE KEY UPDATE price=VALUES(price)',{id,d.item,d.price}) end
  elseif a=='fixtureBuy' then
   requireThat(f and validFixture(f) and f.kind=='counter' and integer(d.quantity,1,1000),'Invalid purchase')
+  if type(d.item)=='string' and d.item:match('^farm_') and not d.item:match('^farm_seed_') then local l=S('SELECT active FROM fb_licenses WHERE owner_type=? AND owner_id=? AND category=?',{f.owner_type,f.owner_id,'agriculture'});requireThat(l and tonumber(l.active)==1,'Agriculture license required') end
   local r=S('SELECT * FROM fb_prices WHERE fixture_id=? AND item_id=?',{id,d.item});requireThat(r and (stock(f)[d.item] or 0)>=d.quantity,'Stock unavailable')
   local from=bank(who);local to=f.owner_type=='company' and account(company(f.owner_id)) or bank(f.owner_id)
   requireThat(from and to and from~=to,'Invalid accounts')
@@ -563,6 +565,8 @@ liquidate=function(b,t)
  local expired=tonumber(b.liquidate_until)<=t
  local drained=exports.frontier_trade:DrainBusiness(b.id,expired)
  if not expired or not drained then return false end
+ local farm=GetResourceState('frontier_farming')
+ if farm~='missing' and (farm~='started' or exports.frontier_farming:CompanyOrdersPending(b.id) or not exports.frontier_farming:DrainCompany(b.id)) then return false end
  if S("SELECT id FROM fb_retail WHERE seller_type='company' AND seller_id=? AND state IN ('reserve','payment','return') LIMIT 1",{b.id}) then return false end
  for _,f in ipairs(Q("SELECT * FROM fb_fixtures WHERE owner_type='company' AND owner_id=? ORDER BY id",{b.id})) do
   local row=S('SELECT * FROM fb_confiscations WHERE company_id=? AND fixture_id=?',{b.id,f.id})
@@ -621,3 +625,44 @@ RegisterCommand('businessrecovery',function(src)
  for _,r in ipairs(Q("SELECT id,fixture_id,status FROM fb_confiscations WHERE status<>'complete' LIMIT 50")) do report('Pending seizure '..r.id..' '..r.fixture_id) end
  report('Recovery is replay-only. Do not delete pending jobs or manually edit ledger balances.')
 end,false)
+
+exports('FarmStock',function(who,sid,typ,id)
+ if GetInvokingResource()~='frontier_farming' or not ready then return {} end
+ if typ=='character' and who~=id or typ=='company' and not allowed(company(id),who,'farm') then return {} end
+ local out={}
+ for _,f in ipairs(Q("SELECT * FROM fb_fixtures WHERE property_id=? AND owner_type=? AND owner_id=? AND kind='storage'",{sid,typ,id})) do
+  if validFixture(f) then out[#out+1]={id='business_'..f.id,name=f.name} end
+ end
+ return out
+end)
+exports('FarmStockValid',function(sid,typ,id,storage)
+ if GetInvokingResource()~='frontier_farming' or not ready or type(storage)~='string' then return false end
+ local f=fixture(storage:match('^business_([a-f0-9]+)$'))
+ return f and f.kind=='storage' and f.property_id==sid and f.owner_type==typ and f.owner_id==id and validFixture(f)~=nil or false
+end)
+
+-- Only a persisted farming order may debit a company account. Replay is independent of employee changes.
+exports('PayFarmOrder',function(id)
+ if GetInvokingResource()~='frontier_farming' or not ready then return false,'forbidden' end
+ local j=S("SELECT * FROM ff_orders WHERE id=? AND owner_type='company' AND phase='payment'",{id})
+ if not j then return false,'invalid_order' end
+ local b=company(j.owner_id);if not b then return false,'invalid_company' end
+ return eco:DebitAccount(account(b),tonumber(j.amount),{key='farm_order_'..id,reason='Agricultural supplies',reference=id})
+end)
+
+exports('PayFarmHorseSale',function(id)
+ if GetInvokingResource()~='frontier_farming' or not ready then return false,'forbidden' end
+ local j=S("SELECT h.*,f.owner_type AS seller_type,f.owner_id AS seller_id,t.owner_type AS buyer_type,t.owner_id AS buyer_id FROM ff_horse_sales h JOIN ff_facilities f ON f.id=h.source_id JOIN ff_facilities t ON t.id=h.dest_id WHERE h.id=? AND h.phase='payment'",{id})
+ if not j then return false,'invalid_sale' end
+ local from=j.buyer_type=='company' and account(company(j.buyer_id)) or bank(j.buyer_id)
+ local to=j.seller_type=='company' and account(company(j.seller_id)) or bank(j.seller_id)
+ if from~=tonumber(j.debit) or to~=tonumber(j.credit) then return false,'invalid_account' end
+ return eco:TransferAccounts(from,to,tonumber(j.amount),{key='farm_horse_'..id,reason='Horse certificate sale',reference=id})
+end)
+
+exports('RefundFarmOrder',function(id)
+ if GetInvokingResource()~='frontier_farming' or not ready then return false,'forbidden' end
+ local j=S("SELECT * FROM ff_orders WHERE id=? AND owner_type='company' AND phase='paid'",{id})
+ local b=j and company(j.owner_id);if not b or b.status~='liquidating' then return false,'invalid_order' end
+ return eco:CreditAccount(account(b),tonumber(j.amount),{key='farm_refund_'..id,reason='Undelivered agricultural supply refund',reference=id})
+end)

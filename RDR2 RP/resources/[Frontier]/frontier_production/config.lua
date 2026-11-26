@@ -31,3 +31,6 @@ ProductionConfig = {
         iron_ingot={name='Eisenbarren',description='Ein gegossener Barren.',grams=1000},
     },
 }
+
+ProductionConfig.Recipes.mill_wheat={name='Mill wheat',description='Process farm wheat into flour.',seconds=300,inputs={farm_wheat=3},output='flour',quantity=2,player=true,npc=true}
+ProductionConfig.Recipes.cook_farm_meat={name='Cook farm meat',description='Cook harvested farm meat.',seconds=240,inputs={farm_meat=1},output='cooked_meat',quantity=1,player=true,npc=true}

@@ -107,6 +107,8 @@ function process(j)
         s.owners={[j.actor]=true}; s.primary=j.actor; s.members={}; s.listing=nil
         finishJob(j,'Settlement purchased, including chest and furniture.')
     elseif j.kind=='foreclose' then
+        local farm=GetResourceState('frontier_farming')
+        if farm~='missing' and (farm~='started' or not exports.frontier_farming:DrainPlot(j.sid)) then return end
         if not payout(j) then return end
         s.status='abandoned'; s.listing=nil; finishJob(j)
     end

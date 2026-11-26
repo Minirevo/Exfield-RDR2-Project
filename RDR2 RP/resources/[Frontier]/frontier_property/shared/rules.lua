@@ -29,7 +29,7 @@ end
 
 function R.transform(o,p)
     local a=math.rad(o.heading or 0);local x,y=p.x or 0,p.y or 0
-    return {x=o.x+x*math.cos(a)-y*math.sin(a),y=o.y+x*math.sin(a)+y*math.cos(a),z=o.z+(p.z or 0),heading=((o.heading or 0)+(p.heading or 0))%360,model=p.model}
+    return {x=o.x+x*math.cos(a)-y*math.sin(a),y=o.y+x*math.sin(a)+y*math.cos(a),z=o.z+(p.z or 0),heading=((o.heading or 0)+(p.heading or 0))%360,model=p.model,terrain=p.terrain,anchorZ=o.z,offsetZ=p.z or 0}
 end
 function R.localPoint(o,p)
     local a=math.rad(o.heading or 0);local x,y=p.x-o.x,p.y-o.y

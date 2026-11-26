@@ -5,6 +5,7 @@ local Q,S,U=MySQL.query.await,MySQL.single.await,MySQL.update.await
 local cfg=TradeConfig
 local function id(v) return type(v)=='string' and #v==36 and v:match('^[a-f0-9-]+$') end
 local function integer(v,lo,hi) return type(v)=='number' and v%1==0 and v>=lo and v<=hi end
+local function farmSaleAllowed(id,item) return not cfg.Agricultural[item] or exports.frontier_business:VerifyLicense('company',id,'agriculture') end
 local function allowedCaller() return GetInvokingResource()=='frontier_business' end
 local function fresh() return MySQL.scalar.await('SELECT UUID()') end
 local function procedure(name,a,ref,parent,actor,value,quote)
@@ -61,6 +62,7 @@ exports('BusinessAction',function(src,company,action,d)
   if not cfg.Markets[d.market] or not cfg.Products[d.item] or not integer(d.quantity,1,math.min(cfg.MaxQuantity,1000)) or not integer(d.price,1,math.min(cfg.MaxUnitMinor,10000)) then return false,'Invalid market, product, quantity or price' end
   local cap=d.cap or d.price
   if not integer(cap,d.price,math.min(cfg.MaxUnitMinor,10000)) then return false,'Invalid maximum price' end
+  if action=='offer' and not farmSaleAllowed(company,d.item) then return false,'Agriculture license required' end
   local known,def=inventory:GetTradeItemDefinition(d.item);if not known or not def.transferable then return false,'Item not tradeable' end
   if not fixture(src,company,d.fixture,action=='offer' and 'retrieve' or 'deposit',action=='offer') then return false,'Invalid or inaccessible stock location' end
   ref=fresh();route(ref,company,d.fixture)
@@ -76,13 +78,13 @@ exports('BusinessAction',function(src,company,action,d)
  end
  if not id(d.id) then return false,'Invalid reference' end
  if action=='accept' then
-  local r=S("SELECT buyer_id FROM frontier_trade_requests WHERE id=? AND state='open'",{d.id})
-  if not r or not active(r.buyer_id) then return false,'Request unavailable' end
+  local r=S("SELECT buyer_id,item_id FROM frontier_trade_requests WHERE id=? AND state='open'",{d.id})
+  if not r or not active(r.buyer_id) or not farmSaleAllowed(company,r.item_id) then return false,'Request unavailable or agriculture license required' end
   ref=fresh();ok=contract('accept',ref,d.id,company,bank,0)
  elseif action=='deliver' then
   if not integer(d.quantity,1,1000) or not fixture(src,company,d.fixture,'retrieve',true) then return false,'Invalid delivery or stock location' end
-  local r=S([[SELECT r.buyer_id FROM frontier_trade_contracts c JOIN frontier_trade_requests r ON r.id=c.request_id WHERE c.id=? AND c.seller_id=? AND c.state='active']],{d.id,company})
-  if not r or not active(r.buyer_id) then return false,'Contract unavailable' end
+  local r=S([[SELECT r.buyer_id,r.item_id FROM frontier_trade_contracts c JOIN frontier_trade_requests r ON r.id=c.request_id WHERE c.id=? AND c.seller_id=? AND c.state='active']],{d.id,company})
+  if not r or not active(r.buyer_id) or not farmSaleAllowed(company,r.item_id) then return false,'Contract unavailable or agriculture license required' end
   ref=fresh();route(ref,company,d.fixture);ok=contract('deliver',ref,d.id,company,d.quantity)
  elseif action=='buy' then
   if not integer(d.quantity,1,1000) or not fixture(src,company,d.fixture,'deposit',false) then return false,'Invalid purchase or destination' end
@@ -133,3 +135,7 @@ exports('BusinessFixtureBusy',function(fid)
  (SELECT COUNT(*) FROM fb_trade_routes x JOIN frontier_trade_sales s ON s.id=x.reference_id WHERE x.fixture_id=? AND (s.state IN ('stock','payment','reverse') OR s.state='complete' AND s.claimed_at IS NULL))]],{fid,fid,fid,fid})
  return tonumber(n)~=0
 end)
+
+RegisterCommand('handelspferde',function(src)
+ if src>0 and GetResourceState('frontier_farming')=='started' then exports.frontier_farming:OpenHorseMarket(src) end
+end,false)

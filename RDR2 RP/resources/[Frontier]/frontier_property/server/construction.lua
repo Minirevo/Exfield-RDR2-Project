@@ -1,5 +1,6 @@
 local _ENV=PropertyRuntime
 function buildingStages(e,i)
+    if e.farm=='field' then return {{label='Prepare soil',materials={},tools={'farm_hoe'},seconds=e.seconds}} end
     local a,b={},{}
     for k,n in pairs(e.materials) do local first=math.max(1,math.floor(n*0.4)); a[k]=first; if n>first then b[k]=n-first end end
     local stages={{label='Foundation',materials=a,tools={'property_hammer'},seconds=math.max(10,math.floor(e.seconds*0.4))},

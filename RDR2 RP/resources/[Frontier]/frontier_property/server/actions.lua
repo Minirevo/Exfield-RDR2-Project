@@ -147,6 +147,7 @@ function request(src,action,d)
         local a=account(src,id); if a then queue({kind='tax',actor=id,src=src,sid=s.id,account=a,amount=s.debt}) end
     elseif action=='list' and owner(s,id) and s.debt==0 and not occupied(s.id) then
         if GetResourceState('frontier_business')=='started' and exports.frontier_business:PlotHasBusinessFixtures(s.id) then return notice(src,'Unregister commercial furniture before listing this plot.') end
+        for _,b in pairs(s.buildings) do if C.Exteriors[b.exterior].farm and (GetResourceState('frontier_farming')~='started' or exports.frontier_farming:FacilityBound(b.id)) then return notice(src,'Release farm facilities before listing.') end end
         local price=tonumber(d.price)
         if not price or price%1~=0 or price<1 or price>100000000 then return end
         s.listing={price=price,approvals={[id]=true},active=false}
@@ -158,6 +159,7 @@ function request(src,action,d)
     elseif action=='unlist' and owner(s,id) then s.listing=nil; save()
     elseif action=='abandon' and owner(s,id) and s.primary==id and not occupied(s.id) then
         if GetResourceState('frontier_business')=='started' and exports.frontier_business:PlotHasBusinessFixtures(s.id) then return notice(src,'Resolve registered commercial furniture before abandoning this plot.') end
+        for _,b in pairs(s.buildings) do if C.Exteriors[b.exterior].farm and (GetResourceState('frontier_farming')~='started' or exports.frontier_farming:FacilityBound(b.id)) then return notice(src,'Release farm facilities before abandoning.') end end
         local count=0; for _ in pairs(s.owners) do count=count+1 end
         if count~=1 or s.debt>0 then return notice(src,'Co-owned or indebted settlements cannot be abandoned.') end
         if d.confirm~='ABANDON' then return end
@@ -168,8 +170,9 @@ function request(src,action,d)
         if not n or n.category~=e.category or n.slots<=e.slots or n.interior~=e.interior or not R.fits(s,b,n.radius,b.id) then return notice(src,'Invalid upgrade.') end
         b.exterior=d.exterior; b.radius=n.radius; b.capacity=R.capacity(n,i); b.value=n.value+(i and i.value or 0)
         b.stages=buildingStages(n,nil); b.stage=1; b.delivered={}; b.progress=0; b.complete=false; save()
-    elseif action=='move' and b and b.complete and allowed(s,id,'move') then beginPreview(src,s,b,b.exterior,b.interior,'move')
+    elseif action=='move' and b and b.complete and allowed(s,id,'move') then if C.Exteriors[b.exterior].farm then return notice(src,'Farm structures cannot be moved in this release.') end; beginPreview(src,s,b,b.exterior,b.interior,'move')
     elseif action=='demolish' and b and allowed(s,id,'demolish') and not occupied(s.id) and d.confirm=='DEMOLISH' then
+        if C.Exteriors[b.exterior].farm and (GetResourceState('frontier_farming')~='started' or exports.frontier_farming:FacilityBound(b.id)) then return notice(src,'Release the farming facility first.') end
         if next(b.furniture) then return notice(src,'Recover legacy furniture at camp before demolition.') end
         s.buildings[b.id]=nil; save()
     elseif action=='lock' then return notice(src,'Physical door locks are not implemented yet.')
@@ -227,4 +230,24 @@ exports('GetBusinessFixtureRecovery',function(sid,fid)
     local s=settlement(sid);local f=s and s.furniture and s.furniture[fid]
     if not f or (f.item~='property_storage' and f.item~='property_counter') then return end
     return {item=f.item,x=f.x,y=f.y,z=f.z,heading=f.heading}
+end)
+
+exports('GetFarmBuildings',function(src)
+    if GetInvokingResource()~='frontier_farming' or not ready then return {} end
+    local p=position(src);if not p or p.bucket~=0 then return {} end
+    local result={}
+    for sid,s in pairs(S.settlements) do if s.status=='active' and not s.listing and R.distance(p,s)<=s.radius+C.StreamDistance then
+        for bid,b in pairs(s.buildings) do local e=C.Exteriors[b.exterior]
+            if b.complete and e and e.farm and R.distance(p,b)<=C.StreamDistance then
+                result[#result+1]={id=bid,plot=sid,x=b.x,y=b.y,z=b.z,heading=b.heading,kind=e.farm,size=e.size,width=e.width,length=e.length,personalOwner=s.primary}
+            end
+        end
+    end end
+    return result
+end)
+exports('FarmBuilding',function(sid,bid,who)
+    if GetInvokingResource()~='frontier_farming' or not ready then return end
+    local s=settlement(sid);local b=s and s.buildings[bid];local e=b and C.Exteriors[b.exterior]
+    if not s or s.status~='active' or s.listing or not b or not b.complete or not e or not e.farm then return end
+    return {id=bid,plot=sid,x=b.x,y=b.y,z=b.z,heading=b.heading,kind=e.farm,size=e.size,width=e.width,length=e.length,personalOwner=s.primary,owned=owner(s,who)==true}
 end)
