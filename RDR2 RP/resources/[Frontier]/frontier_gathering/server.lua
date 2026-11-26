@@ -17,11 +17,16 @@ local function finite(n)return type(n)=='number' and n==n and math.abs(n)<20000 
 local function dist(a,b)return (a.x-b.x)^2+(a.y-b.y)^2+(a.z-b.z)^2 end
 local function position(src)
  local ped=GetPlayerPed(src)
- if ped==0 or not DoesEntityExist(ped) or GetPlayerRoutingBucket(src)~=0 or GetEntityHealth(ped)<=0 then return end
+ if ped==0 or not DoesEntityExist(ped) or GetPlayerRoutingBucket(src)~=0 then return end
+ local dead
+ if type(IsPedDeadOrDying)=='function' then local ok,result=pcall(IsPedDeadOrDying,ped,true);if ok then dead=result==true or result==1 end end
+ if dead==nil then dead=GetEntityHealth(ped)<=0 end
+ if dead then return end
  local v=GetEntityCoords(ped);return {x=v.x,y=v.y,z=v.z}
 end
 local function run(src,fn)
- if not ready or busy[src] then return end
+ if not ready then return notice(src,'Gathering is not ready; check the server console.') end
+ if busy[src] then return notice(src,'Gathering is busy; try again.') end
  local now=GetGameTimer();if last[src] and now-last[src]<200 then return end
  last[src]=now;busy[src]=true
  local ok,err=pcall(fn);busy[src]=nil
@@ -178,23 +183,57 @@ RegisterNetEvent(E..'survey',function(d)
   notice(src,'Surveyed '..k)
  end)
 end)
-local function nativeEntity(src,net,lookup,dead)
- if type(net)~='number' or net%1~=0 or net<=0 or net>65535 then return end
- local ent=NetworkGetEntityFromNetworkId(net);local pos=position(src)
- if ent==0 or not pos or not DoesEntityExist(ent) or GetEntityType(ent)~=1 or NetworkGetEntityOwner(ent)~=src then return end
- local p=GetEntityCoords(ent);if dist(pos,p)>64 then return end
- if dead and GetEntityHealth(ent)>0 then
-  local ok,d=pcall(IsEntityDead,ent);if not ok or not d then return end
- end
+-- Cfx/RedM builds differ in which death natives and health values replicate.
+-- A confirmed dead animal may migrate owners while being skinned. Only the
+-- weaker health-floor fallback requires ownership and the client's dead flag.
+local function optionalNative(fn,...)
+ if type(fn)~='function' then return nil end
+ local ok,v=pcall(fn,...);if ok then return v end
+end
+local function nativeEntity(src,net,lookup,dead,reportedModel,reportedDead)
+ if type(net)~='number' or net%1~=0 or net<=0 or net>65535 then return nil,'invalid network ID' end
+ local ent=NetworkGetEntityFromNetworkId(net)
+ if not ent or ent==0 or not DoesEntityExist(ent) then return nil,'animal not replicated' end
+ local pos=position(src);if not pos then return nil,'player unavailable or outside world bucket' end
+ if GetEntityType(ent)~=1 then return nil,'entity is not a ped' end
+ local bucket=GetEntityRoutingBucket(ent)
+ if bucket~=GetPlayerRoutingBucket(src) then return nil,'different routing bucket' end
+ local p=GetEntityCoords(ent);if dist(pos,p)>64 then return nil,'animal too far away' end
  local model=GetEntityModel(ent)&0xffffffff
- if not lookup[model] then return end
+ if not lookup[model] then return nil,'unsupported animal model '..model end
+ if reportedModel~=nil and reportedModel~=model then return nil,'animal model mismatch' end
+ local owner=NetworkGetEntityOwner(ent)
  local used=entityClaims[net]
- if used and used.ent==ent then return end
+ if used and used.ent==ent then return nil,'animal already claimed' end
+ if dead then
+  local health=GetEntityHealth(ent)
+  local isDead=optionalNative(IsEntityDead,ent)
+  local isDying=optionalNative(IsPedDeadOrDying,ent,true)
+  local confirmed=isDead==true or isDead==1 or isDying==true or isDying==1 or (type(health)=='number' and health<=0)
+  if not confirmed then
+   local maxHealth=optionalNative(GetEntityMaxHealth,ent) or optionalNative(GetPedMaxHealth,ent)
+   local floor=C.allowHuntingHealthFloor and not C.strictSurvey and reportedDead==true and owner==src and health==100 and type(maxHealth)=='number' and maxHealth>100
+   if not floor then return nil,('death state not confirmed (health=%s max=%s owner=%s)'):format(tostring(health),tostring(maxHealth),tostring(owner)) end
+  end
+ elseif owner~=src then return nil,'fish network ownership mismatch' end
  return ent,model
 end
-local function nativeClaim(src,net,skill,toolKind,lookup,dead)
+local function catchFailure(src,net,reason)
+ if C.nativeDebug then print(('[frontier_gathering] native catch rejected: player=%s net=%s reason=%s'):format(src,tostring(net),tostring(reason))) end
+ notice(src,'Native catch could not be verified: '..tostring(reason))
+end
+local function nativeClaim(src,net,skill,toolKind,lookup,dead,reportedModel,reportedDead)
  local id=cid(src);if not id then return false end
- local ent,model=nativeEntity(src,net,lookup,dead);if not ent then notice(src,'Native catch could not be verified');return false end
+ local ent,model=nativeEntity(src,net,lookup,dead,reportedModel,reportedDead)
+ -- Give OneSync a short window to replicate the corpse or its final death state.
+ if not ent and dead and (model=='animal not replicated' or model:find('death state not confirmed',1,true)) then
+  for i=1,5 do
+   Wait(150);if cid(src)~=id then return false end
+   ent,model=nativeEntity(src,net,lookup,dead,reportedModel,reportedDead);if ent then break end
+   if model~='animal not replicated' and not model:find('death state not confirmed',1,true) then break end
+  end
+ end
+ if not ent then catchFailure(src,net,model);return false end
  local p=pending(id);if p and not recover(src,p) then return false end
  local ok,tool=inv:GetGatheringTool(src,toolKind);if not ok then notice(src,'A working '..toolKind..' is required');return false end
  local found,stats=skills:GetSkill(src,skill);if not found then return false end
@@ -204,15 +243,18 @@ local function nativeClaim(src,net,skill,toolKind,lookup,dead)
  if skill=='fishing' then d.metadata=json.encode({species=lookup[model]}) elseif item=='meat' then d.extra={item='gather_hide',count=1} end
  local fits,err=inv:GatheringCommit(src,id,d.kind,d.instance,item,n,d.wear,'preview:'..src,true,d.extra,d.metadata)
  if not fits then notice(src,'Cannot carry catch: '..tostring(err));return false end
- if cid(src)~=id or not nativeEntity(src,net,lookup,dead) then return false end
+ if cid(src)~=id then return false end
+ local checked,reason=nativeEntity(src,net,lookup,dead,reportedModel,reportedDead)
+ if not checked or checked~=ent then catchFailure(src,net,checked and 'animal changed' or reason);return false end
  entityClaims[net]={ent=ent}
  local row=makeClaim(src,id,skill,d)
  if not row then entityClaims[net]=nil;return false end
  recover(src,row);return true
 end
-RegisterNetEvent(E..'skin',function(net)
+RegisterNetEvent(E..'skin',function(net,model,dead)
  local src=source;if not C.nativeHunting then return end
- run(src,function()if not sessions[src] then nativeClaim(src,net,'hunting','knife',animals,true) end end)
+ if type(model)~='number' or not math.tointeger(model) or model<0 or model>0xffffffff or type(dead)~='boolean' then return end
+ run(src,function()if not sessions[src] then nativeClaim(src,net,'hunting','knife',animals,true,model,dead) end end)
 end)
 RegisterNetEvent(E..'fishStart',function()
  local src=source;if not C.nativeFishing or GetResourceState('vorp_fishing')~='started' then return notice(src,'Native fishing resource is not running') end

@@ -32,3 +32,6 @@ This is a review build, not a live-tested release. Static map entities cannot al
 - Native fishing and hunting pay once into Frontier inventory and never also into VORP.
 - Verify all new trade and production materials and balance gathering versus house construction.
 - Verify legacy farm water, property construction and other existing workflows.
+
+## Gathering input and native catch diagnostics
+The contextual key is E (`0xCEFD9220`); `/gather` remains an alternative. Native hunting no longer requires current network ownership for server-confirmed dead animals. Validation checks distance, routing bucket, configured model, death evidence and duplicate claims. `nativeDebug=true` logs precise rejection reasons. `allowHuntingHealthFloor=true` permits a health value of exactly 100 only when max health is higher, the current network owner is the claimant, the client reports death and strictSurvey is false. Disable this compatibility fallback on untrusted servers. This is not equivalent to authoritative proof of native skinning. RedM runtime validation is still required.
