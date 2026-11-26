@@ -7,6 +7,7 @@ local workLocks,mounts,mountLocks,waterWork={},{},{},{}
 local function unlock(src)
  local w=sessions[src];if w then
   for _,ped in ipairs(w.animals or {}) do if DoesEntityExist(ped) then DeleteEntity(ped) end end
+  if w.phase=='spawning' or w.phase=='slaughter' then TriggerClientEvent(E..'slaughterCleanup',src,w.token) end
   workLocks[w.id]=nil;sessions[src]=nil
  end
 end
@@ -362,8 +363,35 @@ local function action(src,a,d,score)
  if a=='buyHorse' then return buyHorse(src,d) end
  if a=='buySupply' then return buySupply(src,d) end
  if a=='cancelWork' then unlock(src);waterWork[src]=nil;TriggerClientEvent(E..'workEnd',src);if d.reopen then return view(src) end;return end
+ if a=='slaughterSpawnFailed' then
+  local w=sessions[src];check(w and w.actor==who and w.phase=='spawning' and d.token==w.token,'No pending animal spawn')
+  unlock(src);TriggerClientEvent(E..'workEnd',src)
+  error('Could not create networked animals on your client. No livestock consumed. Check client F8 console.',0)
+ end
+ if a=='slaughterSpawned' then
+  local w=sessions[src];check(w and w.actor==who and w.phase=='spawning' and d.token==w.token,'No pending animal spawn')
+  check(GetGameTimer()<=w.expires,'Animal spawn timed out')
+  local f=row(w.id);local b=f and current(src,f);check(b and not pending(w.id),'Facility unavailable')
+  check(type(d.ids)=='table' and #d.ids==#w.points,'Incorrect number of networked animals')
+  local seen={};local deadline=GetGameTimer()+4000
+  for i,id in ipairs(d.ids) do
+   check(type(id)=='number' and id%1==0 and id>0 and not seen[id],'Invalid or duplicate animal network ID')
+   seen[id]=true
+   local ped=NetworkGetEntityFromNetworkId(id)
+   while (not ped or ped==0 or not DoesEntityExist(ped)) and GetGameTimer()<deadline do Wait(50);ped=NetworkGetEntityFromNetworkId(id) end
+   check(sessions[src]==w,'Animal spawn cancelled')
+   check(ped and ped~=0 and DoesEntityExist(ped),'Network animal did not replicate to server (check OneSync and entity lockdown)')
+   check(not w.existing[ped] and GetEntityType(ped)==1 and NetworkGetEntityOwner(ped)==src and GetEntityModel(ped)==joaat(w.model) and GetEntityHealth(ped)>0,'Invalid newly spawned animal')
+   check(GetEntityRoutingBucket(ped)==GetPlayerRoutingBucket(src),'Animal is in the wrong routing bucket')
+   local pos=GetEntityCoords(ped);local p=w.points[i]
+   check((pos.x-p.x)^2+(pos.y-p.y)^2<=9 and math.abs(pos.z-p.z)<5,'Animal spawned outside the assigned position')
+   w.animals[#w.animals+1]=ped
+  end
+  w.phase='slaughter';w.expires=GetGameTimer()+300000;w.existing=nil;w.points=nil
+  TriggerClientEvent(E..'slaughter',src,{token=w.token,ids=d.ids,count=#w.animals});return
+ end
  if a=='slaughterFinish' then
-  local w=sessions[src];check(w and w.actor==who and w.phase=='slaughter' and d.token==w.token,'No slaughter session')
+  local w=sessions[src];check(w and w.actor==who and w.phase=='slaughter' and d.token==w.token and GetGameTimer()<=w.expires,'No active slaughter session')
   local f=row(w.id);local b=f and current(src,f);check(b and not pending(w.id),'Facility unavailable')
   tool(src,'knife')
   for _,ped in ipairs(w.animals) do check(DoesEntityExist(ped) and GetEntityHealth(ped)<=0,'All selected physical animals must be slaughtered first') end
@@ -371,7 +399,7 @@ local function action(src,a,d,score)
   return action(src,'slaughter',payload,hits+10)
  end
  if a=='workHit' then
-  local w=sessions[src];check(w and w.phase~='slaughter' and w.actor==who and w.token==d.token,'Work session expired')
+  local w=sessions[src];check(w and w.phase==nil and w.actor==who and w.token==d.token,'Work session expired')
   local now=GetGameTimer();check(now<=w.expires,'Work session expired')
   local b=prop:FarmBuilding(w.plot,w.id,who);local f=row(w.id)
   check(f and b and near(src,b) and authorized(src,f,b),'Return to facility')
@@ -385,20 +413,16 @@ local function action(src,a,d,score)
     local ss=state(f);local n=tonumber(w.data.count);local sex=w.data.sex
     check(ss.species and ss.species~='horse' and (sex=='male' or sex=='female') and n and n%1==0 and n>=1 and n<=ss[sex],'Invalid selection')
     local model=C.species[ss.species][sex];local amount=math.max(1,math.ceil(n*C.slaughterFractions[w.hits+1]))
-    w.animals={};local ids={}
-    local ok,err=pcall(function()
-     for i=1,amount do
-      local angle=i*2.39996;local x,y=R.world(b,math.cos(angle)*b.width*.25,math.sin(angle)*b.length*.25)
-      local ped=CreatePed(joaat(model),x,y,b.z+0.4,0.0,true,true)
-      check(ped and ped~=0 and DoesEntityExist(ped),'Network animal spawn unavailable')
-      w.animals[#w.animals+1]=ped
-      SetEntityRoutingBucket(ped,GetPlayerRoutingBucket(src))
-      ids[#ids+1]=NetworkGetNetworkIdFromEntity(ped)
-     end
-    end)
-    if not ok then unlock(src);TriggerClientEvent(E..'workEnd',src);error(err,0) end
-    w.phase='slaughter';w.expires=GetGameTimer()+300000
-    TriggerClientEvent(E..'slaughter',src,{token=w.token,ids=ids,count=amount});return
+    -- RedM client native loads the model and creates the networked ped.
+    -- Server chooses all models/locations, records preexisting peds and validates replication.
+    w.animals={};w.points={};w.model=model;w.existing={}
+    for _,ped in ipairs(GetAllPeds()) do w.existing[ped]=true end
+    for i=1,amount do
+     local angle=i*2.39996;local x,y=R.world(b,math.cos(angle)*b.width*.25,math.sin(angle)*b.length*.25)
+     w.points[i]={x=x,y=y,z=b.z,heading=b.heading}
+    end
+    w.phase='spawning';w.expires=GetGameTimer()+30000
+    TriggerClientEvent(E..'slaughterSpawn',src,{token=w.token,model=model,points=w.points});return
    end
    unlock(src);TriggerClientEvent(E..'workEnd',src)
    return action(src,w.action,w.data,w.hits)
@@ -527,7 +551,7 @@ local function run(src,fn)
 end
 RegisterNetEvent(E..'action',function(a,d)
  local src=source;if type(a)~='string' or type(d)~='table' then return end
- local t=GetGameTimer();if rate[src] and t-rate[src]<400 then return end;rate[src]=t
+ local t=GetGameTimer();if a~='slaughterSpawned' and a~='slaughterSpawnFailed' and a~='cancelWork' and rate[src] and t-rate[src]<400 then return end;rate[src]=t
  run(src,function() action(src,a,d) end)
 end)
 AddEventHandler('playerDropped',function() local src=source;unlock(src);waterWork[src]=nil;rate[src]=nil;CreateThread(function() if ready then while busy do Wait(100) end;run(nil,function() returnMount(src) end) end end) end)
@@ -584,7 +608,7 @@ CreateThread(function()
    for _,p in pairs(core:GetPlayers()) do
     local result={}
     for _,b in ipairs(prop:GetFarmBuildings(p.source)) do
-     local f=row(b.id);if f then local s=state(f);if mountLocks[f.id] and s.horses then local m=mounts[mountLocks[f.id]];if m then for i=#s.horses,1,-1 do if s.horses[i].id==m.horse then table.remove(s.horses,i) end end;R.horseCounts(s) end end;local lock=workLocks[f.id] and sessions[workLocks[f.id]];result[#result+1]={b=b,crop=s.crop,growth=s.growth,dead=s.dead,species=(not lock or lock.phase~='slaughter') and s.species or nil,female=s.female,male=s.male,young=s.young,horses=s.horses} end
+     local f=row(b.id);if f then local s=state(f);if mountLocks[f.id] and s.horses then local m=mounts[mountLocks[f.id]];if m then for i=#s.horses,1,-1 do if s.horses[i].id==m.horse then table.remove(s.horses,i) end end;R.horseCounts(s) end end;local lock=workLocks[f.id] and sessions[workLocks[f.id]];result[#result+1]={b=b,crop=s.crop,growth=s.growth,dead=s.dead,species=(not lock or (lock.phase~='slaughter' and lock.phase~='spawning')) and s.species or nil,female=s.female,male=s.male,young=s.young,horses=s.horses} end
     end
     TriggerClientEvent(E..'world',p.source,result)
    end

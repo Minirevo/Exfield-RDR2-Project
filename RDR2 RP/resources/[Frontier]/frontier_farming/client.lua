@@ -117,8 +117,72 @@ RegisterCommand('farmshop',function() TriggerServerEvent(E..'action','shop',{}) 
 RegisterNetEvent(E..'shop',function(d) if source~=65535 then return end;focused=true;SetNuiFocus(true,true);SendNUIMessage({type='shop',data=d}) end)
 
 local slaughterToken
+local pendingSlaughter
+local function clearSlaughterSpawn(token)
+ local job=pendingSlaughter
+ if not job or token and job.token~=token then return end
+ pendingSlaughter=nil
+ for _,ped in ipairs(job.peds) do
+  if DoesEntityExist(ped) then
+   if NetworkHasControlOfEntity(ped) then SetEntityAsMissionEntity(ped,true,true);DeleteEntity(ped) end
+  end
+ end
+end
+RegisterNetEvent(E..'slaughterCleanup',function(token)
+ if source~=65535 then return end
+ clearSlaughterSpawn(token)
+ if slaughterToken==token then slaughterToken=nil end
+end)
+RegisterNetEvent(E..'slaughterSpawn',function(d)
+ if source~=65535 then return end
+ endWork();clearSlaughterSpawn()
+ local job={token=d.token,peds={}};pendingSlaughter=job
+ SendNUIMessage({type='notice',message='Preparing networked animals...'})
+ CreateThread(function()
+  local h=GetHashKey(d.model)
+  local function fail(reason)
+   if pendingSlaughter~=job then return end
+   print('[frontier_farming] slaughter spawn: '..reason)
+   clearSlaughterSpawn(job.token);SetModelAsNoLongerNeeded(h)
+   TriggerServerEvent(E..'action','slaughterSpawnFailed',{token=job.token})
+  end
+  if not IsModelValid(h) then return fail('Invalid animal model '..d.model) end
+  RequestModel(h);local deadline=GetGameTimer()+6000
+  while not HasModelLoaded(h) and GetGameTimer()<deadline and pendingSlaughter==job do Wait(50) end
+  if pendingSlaughter~=job then SetModelAsNoLongerNeeded(h);return end
+  if not HasModelLoaded(h) then return fail('Model loading timed out') end
+  local ids={}
+  for i,p in ipairs(d.points) do
+   if pendingSlaughter~=job then SetModelAsNoLongerNeeded(h);return end
+   RequestCollisionAtCoord(p.x,p.y,p.z)
+   local ok,z=GetGroundZFor_3dCoord(p.x,p.y,p.z+5.0,false)
+   if not ok then return fail('Ground unavailable at animal '..i) end
+   local min=GetModelDimensions(h);z=z-min.z
+   local ped=CreatePed(h,p.x+0.0,p.y+0.0,z+0.0,p.heading+0.0,true,true,false,false)
+   if not ped or ped==0 or not DoesEntityExist(ped) then return fail('CreatePed failed for animal '..i) end
+   job.peds[#job.peds+1]=ped
+   SetEntityAsMissionEntity(ped,true,true)
+   pcall(function() Citizen.InvokeNative(0x283978A15512B2FE,ped,true) end)
+   SetEntityCoordsNoOffset(ped,p.x,p.y,z,false,false,false)
+   FreezeEntityPosition(ped,true);SetEntityInvincible(ped,true)
+   SetBlockingOfNonTemporaryEvents(ped,true)
+   if not NetworkGetEntityIsNetworked(ped) then NetworkRegisterEntityAsNetworked(ped) end
+   local id=NetworkGetNetworkIdFromEntity(ped);local untilTime=GetGameTimer()+1500
+   while (not id or id==0) and GetGameTimer()<untilTime and pendingSlaughter==job do Wait(50);id=NetworkGetNetworkIdFromEntity(ped) end
+   if pendingSlaughter~=job then SetModelAsNoLongerNeeded(h);return end
+   if not id or id==0 then return fail('No network ID for animal '..i) end
+   ids[i]=id
+  end
+  SetModelAsNoLongerNeeded(h)
+  if pendingSlaughter==job then TriggerServerEvent(E..'action','slaughterSpawned',{token=job.token,ids=ids}) end
+ end)
+end)
+AddEventHandler('onClientResourceStop',function(r) if r==GetCurrentResourceName() then clearSlaughterSpawn() end end)
 RegisterNetEvent(E..'slaughter',function(d)
  if source~=65535 then return end
+ local job=pendingSlaughter
+ if not job or job.token~=d.token then return end
+ for _,ped in ipairs(job.peds) do if DoesEntityExist(ped) then SetEntityInvincible(ped,false);FreezeEntityPosition(ped,false);TaskStandStill(ped,300000) end end
  slaughterToken=d.token;endWork();focused=false;SetNuiFocus(false,false);SendNUIMessage({type='slaughter',data=d})
  notice('Slaughter the '..d.count..' marked animals, then /farmfinish. /farmcancel cancels without rewards.')
  CreateThread(function()
@@ -130,7 +194,7 @@ RegisterNetEvent(E..'slaughter',function(d)
  end)
 end)
 RegisterCommand('farmfinish',function() if slaughterToken then TriggerServerEvent(E..'action','slaughterFinish',{token=slaughterToken}) end end,false)
-RegisterCommand('farmcancel',function() endWork();slaughterToken=nil;TriggerServerEvent(E..'action','cancelWork',{}) end,false)
+RegisterCommand('farmcancel',function() endWork();clearSlaughterSpawn();slaughterToken=nil;TriggerServerEvent(E..'action','cancelWork',{}) end,false)
 
 RegisterNetEvent(E..'horseMarket',function(d) if source~=65535 then return end;focused=true;SetNuiFocus(true,true);SendNUIMessage({type='horseMarket',data=d}) end)
 RegisterCommand('farmhorses',function() TriggerServerEvent(E..'action','horseMarket',{}) end,false)

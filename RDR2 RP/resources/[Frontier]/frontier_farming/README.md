@@ -18,3 +18,5 @@ Start after oxmysql, frontier_core, frontier_economy, frontier_inventory, fronti
 ## Testing and deployment
 
 Run lua5.4 tests/rules.lua from frontier_farming and node --check html/app.js. The farming workflow runs these and parses Lua across the affected resources. Native scenario-prop cleanup, crop placement, networked horse/slaughter entities and end-to-end journal recovery need live RedM testing. Small/large pen geometry and slope-adjusted Property previews also need validation. Keep test mode timer overrides local to the test server; remove before production. No SQL reset is required for this patch.
+
+Slaughter animals are created via the RedM client native, then validated by the server against the authorized session, expected model, assigned positions, fresh network entities and ownership before becoming vulnerable. Failed or expired spawn attempts do not consume livestock. OneSync and a routing bucket that permits networked client-created peds are required. Horse checkout still uses the existing server spawn implementation.
