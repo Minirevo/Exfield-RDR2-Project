@@ -26,7 +26,7 @@ async function run() {
         });
         const send = (payload) => page.evaluate((value) => window.postMessage(value, '*'), payload);
         const byButton = (name) => page.getByRole('button', { name, exact: true });
-        const entry = { slot: 1, name: 'Brot', description: 'Ein Laib Brot.', quantity: 4, grams: 350,
+        const entry = { slot: 1, item:'bread', maxStack:10, metadata:'{}', name: 'Brot', description: 'Ein Laib Brot.', quantity: 4, grams: 350,
             transfer: true, store: true, drop: true };
         const state = {
             player: { slots: [entry], capacity: 4, available: 3, weight: 1400, weightLimit: 7500, revision: 6 },
@@ -44,26 +44,48 @@ async function run() {
         assert(await page.locator('body').isHidden());
         await send({ type: 'open', data: state });
         await page.locator('body').waitFor({ state: 'visible' });
-        assert.equal(await page.locator('main').evaluate((main) => getComputedStyle(main).backgroundColor), 'rgb(0, 0, 0)');
+        assert.equal(await page.locator('main').evaluate((main) => getComputedStyle(main).backgroundColor), 'rgb(33, 30, 25)');
         await page.getByRole('button', { name: /1 · Brot/ }).click();
         assert.equal(await page.locator('#description').textContent(), 'Ein Laib Brot.');
-        await byButton('Teilen').click();
-        assert.match(await page.locator('#message').textContent(), /Zielplatz/);
-        await page.locator('#target').fill('2');
-        await byButton('Teilen').click();
+        await byButton('One').click();
+        await byButton('Split').click();
         const first = await action(0);
         assert.equal(first.action, 'split');
         assert.equal(first.data.target, 2);
         assert.equal(first.data.revision, 6);
         await send({ type: 'result', ok: false, retry: true, sequence: first.sequence, message: 'Keine Antwort.' });
-        await byButton('Denselben Auftrag wiederholen').click();
+        await byButton('Retry same request').click();
         assert.deepEqual(await action(1), first);
         const updated = { ...state, player: { ...state.player, revision: 7, available: 2,
             slots: [{ ...entry, quantity: 3 }, { ...entry, slot: 2, quantity: 1 }] } };
         await send({ type: 'result', ok: true, sequence: first.sequence, snapshot: updated, message: 'Inventar aktualisiert.' });
         await page.getByRole('button', { name: /2 · Brot × 1/ }).waitFor();
+        const from=page.locator('#player-slots [data-slot="2"]');
+        const to=page.locator('#player-slots [data-slot="1"]');
+        const a=await from.boundingBox(), b=await to.boundingBox();
+        await page.mouse.move(a.x+a.width/2,a.y+a.height/2);
+        await page.mouse.down();
+        await page.mouse.move(b.x+b.width/2,b.y+b.height/2,{steps:12});
+        await page.locator('.drag-ghost').waitFor();
+        await page.mouse.up();
+        const merge=await action(2);
+        assert.equal(merge.action,'move');assert.equal(merge.data.slot,2);assert.equal(merge.data.target,1);assert.equal(merge.data.quantity,1);
+        const merged={...state,player:{...state.player,revision:8}};
+        await send({type:'result',ok:true,sequence:merge.sequence,snapshot:merged});
+        await page.waitForTimeout(300);
+        await page.locator('#player-slots [data-slot="1"]').click();
+        await page.locator('#storage-slots [data-slot="1"]').click();
+        const store=await action(3);
+        assert.equal(store.action,'store');assert.equal(store.data.quantity,4);assert.equal(store.data.target,1);
+        const partial={...state,player:{...state.player,revision:9,slots:[{...entry,quantity:7},{...entry,slot:2,quantity:6}]}};
+        await send({type:'result',ok:true,sequence:store.sequence,snapshot:partial});
+        await page.locator('#player-slots [data-slot="1"]').click();
+        await page.locator('#player-slots [data-slot="2"]').click();
+        const capped=await action(4);
+        assert.equal(capped.action,'move');assert.equal(capped.data.quantity,4);
+        await send({type:'result',ok:true,sequence:capped.sequence,snapshot:{...partial,player:{...partial.player,revision:10,slots:[{...entry,quantity:3},{...entry,slot:2,quantity:10}]}}});
         await byButton('Apfel × 1 aufheben').click();
-        const pickup = await action(2);
+        const pickup = await action(5);
         assert.equal(pickup.data.drop, 'g_apple');
         await send({ type: 'result', ok: false, sequence: pickup.sequence, message: 'Du bist zu weit entfernt.' });
         await page.getByText('Du bist zu weit entfernt.').waitFor();
@@ -72,7 +94,7 @@ async function run() {
         await page.locator('body').waitFor({ state: 'hidden' });
         await send({ type: 'open', data: state });
         await page.locator('body').waitFor({ state: 'visible' });
-        await byButton('Schließen (Esc)').click();
+        await byButton('Close (Esc)').click();
         await page.locator('body').waitFor({ state: 'hidden' });
         assert.deepEqual(errors, []);
         console.log('Frontier Inventory browser contract passed');
