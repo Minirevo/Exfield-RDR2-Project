@@ -2,16 +2,16 @@
 <body hidden><main><header><h1>Frontier Handel</h1><button id="propertyMarket" type="button">Grundstücksmarkt</button><button id="close">Schließen (Esc)</button></header>
 <label>Markt <select id="market"></select></label> <button id="refresh">Aktualisieren</button>
 <label>Produktfilter <select id="filter"></select></label>
-<form id="create"><h2>Kaufgesuch erstellen</h2><label>Ware <select id="product"></select></label>
+<nav id="tradeTabs" aria-label="Handelsbereiche"><button type="button" data-trade="market">Markt</button><button type="button" data-trade="create">Angebote erstellen</button><button type="button" data-trade="contracts">Verträge</button><button type="button" data-trade="collections">Abholungen</button><button type="button" data-trade="prices">Preise</button></nav><form id="create" data-page="create"><h2>Kaufgesuch erstellen</h2><label>Ware <select id="product"></select></label>
 <label>Menge <input id="quantity" type="number" min="1" max="1000" required></label>
 <label>Cent je Stück <input id="price" type="number" min="1" max="10000" required></label>
 <label>Preisobergrenze (optional) <input id="cap" type="number" min="1" max="10000"></label>
-<button>Einreichen</button></form>
+<button>Kaufgesuch einreichen</button><button id="sell" type="button">Ware anbieten</button></form>
 <p id="status" role="status"></p>
-<section><h2>Kaufgesuche</h2><div id="requests"></div></section>
-<section><h2>Verkaufsangebote</h2><button id="sell" type="button">Ware mit Menge und Preis aus dem Formular anbieten</button><div id="offers"></div></section>
-<section><h2>Marktkäufe</h2><div id="sales"></div></section>
-<section><h2>Verträge</h2><div id="contracts"></div></section>
-<section><h2>Lieferungen und Zahlungen</h2><div id="deliveries"></div></section>
-<section><h2>Preisverlauf des Marktes</h2><div id="prices"></div></section>
+<section data-page="market"><h2>Kaufgesuche</h2><div id="requests"></div></section>
+<section data-page="market"><h2>Verkaufsangebote</h2><div id="offers"></div></section>
+<section data-page="collections"><h2>Marktkäufe</h2><div id="sales"></div></section>
+<section data-page="contracts"><h2>Verträge</h2><div id="contracts"></div></section>
+<section data-page="collections"><h2>Lieferungen und Zahlungen</h2><div id="deliveries"></div></section>
+<section data-page="prices"><h2>Preisverlauf des Marktes</h2><div id="prices"></div></section>
 </main></body></html>

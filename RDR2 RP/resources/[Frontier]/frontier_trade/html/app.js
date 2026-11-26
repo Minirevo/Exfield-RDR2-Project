@@ -129,3 +129,7 @@ byId('sell').addEventListener('click',() => {
 nui('ready').catch(() => {});
 
 byId('propertyMarket').addEventListener('click',()=>nui('propertyMarket').catch(()=>status('Grundstücksmarkt nicht erreichbar.')));
+
+let tradePage='market';
+function showTradePage(page){tradePage=page;for(const panel of document.querySelectorAll('[data-page]'))panel.hidden=panel.dataset.page!==page;for(const b of document.querySelectorAll('[data-trade]'))b.setAttribute('aria-pressed',String(b.dataset.trade===page));document.querySelector('main').scrollTop=0}
+for(const b of document.querySelectorAll('[data-trade]'))b.addEventListener('click',()=>showTradePage(b.dataset.trade));showTradePage(tradePage);

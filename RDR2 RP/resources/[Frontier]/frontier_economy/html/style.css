@@ -166,3 +166,16 @@ footer {
 #retry {
     margin-top: 10px;
 }
+
+/* Frontier ledger palette; keep the resource-specific interaction layout. */
+body{color:#e8dcc3;font-family:system-ui,sans-serif}
+main{background:#211e19;color:#e8dcc3;border-color:#c5a36b;border-radius:5px;box-shadow:0 12px 50px #0008;box-sizing:border-box}
+h1,h2,h3{font-family:Georgia,serif;font-weight:normal;color:#e8dcc3}
+button,input,select{font-family:inherit;color:#e8dcc3;background:#403629;border:1px solid #726044;border-radius:4px;padding:8px}
+button:hover:not(:disabled),button[aria-pressed=true],button.active{background:#685334;border-color:#c5a36b;color:#fff4db}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #c5a36b;outline-offset:2px}
+button:disabled{opacity:.5;cursor:default}
+section,form,header,article,footer,.controls{border-color:#524634}
+progress{accent-color:#a7b67b}
+
+.balances div,th{background:#302b23;border-color:#524634}#character,dt,#empty,kbd{color:#b3a58e}td,th{border-color:#524634}
