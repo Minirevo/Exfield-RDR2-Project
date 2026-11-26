@@ -873,3 +873,80 @@ trusted('CheckFarmBatch',function(resource,storage,changes)
  for _,v in ipairs(changes) do if v.count>0 then local put,err=Inventory.Place(box,{item=v.item,quantity=v.count,metadata=Inventory.items[v.item].metadata});if not put then return false,err,{item=v.item,required=v.count} end end end
  return true
 end)
+
+
+-- Only the gathering resource may consume condition and award materials in a single inventory commit.
+local selectedBelt={}
+RegisterNetEvent(events..'selectBelt',function(slot)
+ local src=source
+ if not Inventory.Int(slot,Config.BeltSlots) then return end
+ local now=GetGameTimer();local prior=selectedBelt[src]
+ if prior and now-prior.time<300 then return end
+ local id=Inventory.Session(src);if not id then return end
+ local ok,belt=Inventory.Belt(src,id);if not ok then return end
+ local entry=belt.slots[slot]
+ if not entry then selectedBelt[src]=nil;TriggerClientEvent(events..'notice',src,'Toolbelt slot empty.');return end
+ if prior and prior.id==id and prior.instance==entry.instance then
+  selectedBelt[src]=nil;TriggerClientEvent(events..'notice',src,'Tool put away.');return
+ end
+ selectedBelt[src]={id=id,instance=entry.instance,time=now}
+ TriggerClientEvent(events..'notice',src,'Selected '..Inventory.items[entry.item].name)
+end)
+AddEventHandler('playerDropped',function() selectedBelt[source]=nil end)
+local function findGatherTool(source,id,bag,belt,kind,instance)
+ local preferred=selectedBelt[source];local best,bestBox,bestSlot,bestScore
+ for _,box in ipairs({belt,bag}) do for slot,e in pairs(box.slots) do
+  local def=Inventory.items[e.item]
+  if def and def.classification=='tool' and e.instance and e.item:match('^gather_'..kind..'_') and (not instance or e.instance==instance) then
+   local m=json.decode(e.metadata)
+   if m and type(m.uses)=='number' and m.uses>=1 and type(m.maxUses)=='number' and m.maxUses>=m.uses and type(m.quality)=='number' and m.quality>=0 and m.quality<=100 and type(m.yield)=='number' and m.yield>=.5 and m.yield<=2.2 then
+    local score=(preferred and preferred.id==id and preferred.instance==e.instance) and 10000 or (box==belt and 1000 or 0)+m.yield*100+m.uses/m.maxUses
+    if not bestScore or score>bestScore then best,bestBox,bestSlot,bestScore=e,box,slot,score end
+   end
+  end
+ end end
+ return best,bestBox,bestSlot
+end
+local function gatheringBoxes(source)
+ local id,err=Inventory.Session(source);if not id then return nil,err end
+ local ok,bag=Inventory.Player(source,id);if not ok then return nil,bag end
+ local loaded,belt=Inventory.Belt(source,id);if not loaded then return nil,belt end
+ return id,bag,belt
+end
+trusted('GetGatheringTool',function(owner,source,kind)
+ if owner~='frontier_gathering' or not Inventory.Id(kind,24) then return false,'forbidden' end
+ local id,bag,belt=gatheringBoxes(source);if not id then return false,bag end
+ local e=findGatherTool(source,id,bag,belt,kind)
+ if not e then return false,'tool_missing' end
+ return true,{item=e.item,instance=e.instance,metadata=json.decode(e.metadata)}
+end)
+trusted('GatheringCommit',function(owner,source,character,kind,instance,item,count,wear,key,preview)
+ if owner~='frontier_gathering' or not requestKey(key) or (kind~=nil and (not Inventory.Id(kind,24) or type(instance)~='string')) or type(count)~='number' or count%1~=0 or count<0 or count>100 or type(wear)~='number' or wear<0 or wear>1 then return false,'invalid_request' end
+ if count>0 and (not Inventory.items[item] or not Inventory.items[item].stackable) then return false,'invalid_item' end
+ local actor='resource:'..owner
+ local fingerprint=json.encode({'gather',character,kind or false,instance or false,item or false,count,wear})
+ if not preview then
+  local ok,replay=Inventory.Replay(key,actor,fingerprint);if not ok then return false,replay end;if replay then return true,key end
+ end
+ local generation=Inventory.Generation(source)
+ local id,bag,belt=gatheringBoxes(source);if not id then return false,bag end
+ if id~=character then return false,'character' end
+ local changed=bag
+ if kind then
+  local e,box,slot=findGatherTool(source,id,bag,belt,kind,instance)
+  if not e then return false,'tool_missing' end
+  local m=json.decode(e.metadata)
+  if wear>0 then
+   m.uses=math.max(0,m.uses-wear);m.condition=math.ceil(m.uses/m.maxUses*100)
+   e.metadata=json.encode(m);box.slots[slot]=e;changed=box
+  end
+ end
+ if count>0 then
+  local def=Inventory.items[item];local ok,err=Inventory.Place(bag,{item=item,quantity=count,metadata=def.metadata})
+  if not ok then return false,err end
+ end
+ if preview then return true end
+ if Inventory.Session(source)~=id or Inventory.Generation(source)~=generation then return false,'character' end
+ if changed==belt then return Inventory.Commit(key,actor,fingerprint,bag,belt) end
+ return Inventory.Commit(key,actor,fingerprint,bag)
+end)

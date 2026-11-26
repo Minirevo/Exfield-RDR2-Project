@@ -78,7 +78,7 @@ local function batch(f,s,changes)
  check(ok,stockError(err))
 end
 local function tool(src,key)
- local ok,has=inv:HasItem(src,C.tools[key],1);check(ok and has,'Required in personal inventory: '..itemName(C.tools[key]))
+ local ok,has=inv:HasTool(src,C.tools[key]);check(ok and has,'Required in satchel or toolbelt: '..itemName(C.tools[key]))
 end
 
 local function horsePending(id)
@@ -160,7 +160,7 @@ local function view(src,preferred)
   local found=false;for _,v in ipairs(result) do if v.building.id==preferred then found=true;break end end
   check(found,'Approach an authorized farm facility')
  end
- local tools={};for k,id in pairs(C.tools) do local ok,has=inv:HasItem(src,id,1);tools[k]=ok and has or false end
+ local tools={};for k,id in pairs(C.tools) do local ok,has=inv:HasTool(src,id);tools[k]=ok and has or false end
  TriggerClientEvent(E..'menu',src,{facilities=result,selected=preferred,crops=C.crops,species=C.species,capacity=C.fieldCapacity,tools=tools,items=C.items,trainingInterval=C.horseTrainingInterval,now=os.time()})
 end
 

@@ -188,3 +188,12 @@ end)
 exports('CloseForProperty',function()
     if GetInvokingResource()=='frontier_property' and active then close() end
 end)
+
+-- Quick selection uses remappable commands; avoid overriding RedM's weapon keys.
+for i=1,6 do
+ local slot=i;local name='frontier_belt_'..slot
+ RegisterCommand(name,function()
+  if not active and not otherNuiFocused() and not IsPauseMenuActive() then TriggerServerEvent(E..'selectBelt',slot) end
+ end,false)
+ if type(RegisterKeyMapping)=='function' then pcall(RegisterKeyMapping,name,'Select toolbelt slot '..slot,'keyboard','') end
+end
