@@ -67,3 +67,11 @@ FarmConfig.scenarios={plant='WORLD_HUMAN_FARMER_RAKE',clearCrop='WORLD_HUMAN_FAR
 FarmConfig.supplierModel='a_m_m_valtownfolk_01'
 FarmConfig.supplyPrices.farm_wheat=12
 FarmConfig.supplyPrices.farm_corn=12
+
+-- Rectangular crop groups are aligned with the actual footprint, not a square grid.
+FarmConfig.cropRows={
+ corn={x=6.4,y=1.8},potato={x=6.1,y=1.85},carrot={x=2.4,y=1.5},
+ wheat={x=1.35,y=1.1},tobacco={x=1.6,y=1.35},cotton={x=1.75,y=1.5},
+ broccoli={x=1.8,y=1.5},artichoke={x=2.7,y=1.8}
+}
+FarmConfig.cornMatureModels={'crp_cornstalks_ab_sim','crp_cornstalks_ac_sim'}

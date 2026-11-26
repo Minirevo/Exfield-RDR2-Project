@@ -361,7 +361,7 @@ local function action(src,a,d,score)
  if a=='horseMarket' then return horseMarket(src) end
  if a=='buyHorse' then return buyHorse(src,d) end
  if a=='buySupply' then return buySupply(src,d) end
- if a=='cancelWork' then unlock(src);waterWork[src]=nil;if d.reopen then return view(src) end;return end
+ if a=='cancelWork' then unlock(src);waterWork[src]=nil;TriggerClientEvent(E..'workEnd',src);if d.reopen then return view(src) end;return end
  if a=='slaughterFinish' then
   local w=sessions[src];check(w and w.actor==who and w.phase=='slaughter' and d.token==w.token,'No slaughter session')
   local f=row(w.id);local b=f and current(src,f);check(b and not pending(w.id),'Facility unavailable')
@@ -404,7 +404,7 @@ local function action(src,a,d,score)
    return action(src,w.action,w.data,w.hits)
   end
   w.started=GetGameTimer();w.target=math.random(25,75)/100
-  TriggerClientEvent(E..'workRound',src,{token=w.token,target=w.target,round=w.round})
+  TriggerClientEvent(E..'workRound',src,{token=w.token,target=w.target,round=w.round,action=w.action})
   return
  end
  check(type(d.id)=='string' and #d.id==32,'Invalid facility')
@@ -419,11 +419,14 @@ local function action(src,a,d,score)
  end
  local f=row(b.id);check(f,'Register facility first');b=current(src,f)
  check(not locked(f.id),'Facility busy or pending transaction')
- local s=state(f);R.advance(s,os.time(),b.size);save(f,s)
+ local s=state(f)
+ -- Keep the validated action snapshot stable for the five-round work session.
+ if score==nil then R.advance(s,os.time(),b.size);save(f,s) end
  if workLocks[f.id] then error('Facility is being worked',0) end
  if score==nil and (C.work[a] or a=='fill' or a=='fertilizer') then validateWork(src,f,b,s,a,d) end
  if C.work[a] and score==nil and not (a=='collect' and s.species=='chicken') then
   check(not sessions[src],'Finish your current work first')
+  if a=='water' or a=='feed' then d.quantity=R.supply(s,b,a,d.quantity).units end
   local w={id=f.id,plot=f.plot,actor=who,token=uuid(),action=a,data=d,hits=0,round=1,started=GetGameTimer(),expires=GetGameTimer()+60000,target=math.random(25,75)/100}
   sessions[src]=w;workLocks[f.id]=src
   TriggerClientEvent(E..'workRound',src,{token=w.token,target=w.target,round=1,action=a})
