@@ -63,6 +63,22 @@ function Inventory.Player(source, id)
     return true, container
 end
 
+-- Private container: deliberately not in the public s_ storage namespace.
+function Inventory.Belt(source,id)
+    local owner='b_'..id
+    local ok,box=Inventory.Load(owner)
+    if not ok and box=='not_found' then
+        ok,box=Inventory.Ensure(owner,'storage',Config.BeltSlots,Config.BeltWeightGrams)
+        if ok then ok,box=Inventory.Load(owner) end
+    end
+    if not ok then return false,box end
+    if Inventory.Session(source)~=id then return false,'character' end
+    return true,box
+end
+function Inventory.BeltEligible(item)
+    local def=Inventory.items[item]
+    return def and def.maxStack==1 and (def.classification=='tool' or Config.BeltTools[item]==true)
+end
 function Inventory.Storage(source, id)
     if not Inventory.Id(id, 48) then return false, 'invalid_request' end
     if id:match('^property_') then
@@ -211,6 +227,23 @@ function Inventory.Act(ctx, action, data)
     local ok, player = Inventory.Player(ctx.source, ctx.id)
     if not ok then return false, player end
     if not revise(player, data.revision) then return false, 'conflict' end
+
+    if action=='beltStore' or action=='beltRetrieve' or action=='beltMove' or action=='beltUse' then
+        local loaded,belt=Inventory.Belt(ctx.source,id)
+        if not loaded then return false,belt end
+        if not revise(belt,data.beltRevision) then return false,'conflict' end
+        if action=='beltUse' then return use(ctx,belt,data.slot) end
+        local stack=(action=='beltStore' and player or belt).slots[data.slot]
+        if not stack then return false,'not_found' end
+        local moved,issue
+        if action=='beltStore' then
+            if not Inventory.BeltEligible(stack.item) then return false,'forbidden' end
+            moved,issue=moveBetween(player,belt,data.slot,data.quantity,data.target,'store')
+        elseif action=='beltRetrieve' then moved,issue=moveBetween(belt,player,data.slot,data.quantity,data.target)
+        else moved,issue=Inventory.Move(belt,data.slot,data.target,data.quantity,false) end
+        if not moved then return false,issue end
+        return commit(ctx,player,belt)
+    end
 
     if action == 'sort' then
         local sorted = Inventory.Present(player).slots

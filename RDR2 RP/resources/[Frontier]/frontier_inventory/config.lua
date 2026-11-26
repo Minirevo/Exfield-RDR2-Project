@@ -4,6 +4,9 @@ InventoryConfig = {
     DefaultKey = 'F6',
     PickupKey = 'F7',
     Slots = 30,
+    BeltSlots = 6,
+    BeltWeightGrams = 15000,
+    BeltTools = { lantern=true, property_hammer=true, property_saw=true, farm_hoe=true, farm_sickle=true, farm_watering_can=true, farm_bucket=true, farm_pitchfork=true, farm_milking_kit=true, farm_shears=true, farm_knife=true },
     WeightGrams = 25000,
     TransferDistance = 20.0,
     PickupDistance = 2.5,
@@ -19,6 +22,7 @@ InventoryConfig = {
     IncapacitatedHealth = 0, -- Set a server-side health threshold or use SetRestricted.
     TrustedResources = {
         frontier_production = true,
+        frontier_gathering = true,
         frontier_farming = true,
         frontier_property = true,
         frontier_business = true,

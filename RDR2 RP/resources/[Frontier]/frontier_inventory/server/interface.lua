@@ -66,7 +66,9 @@ end
 local function snapshot(source, id, storageId)
     local ok, player = Inventory.Player(source, id)
     if not ok then return false, player end
-    local state = { player = Inventory.Present(player, true) }
+    local loaded,belt=Inventory.Belt(source,id)
+    if not loaded then return false,belt end
+    local state = { player = Inventory.Present(player, true), belt=Inventory.Present(belt,true) }
     if storageId then
         local loaded, storage = Inventory.Storage(source, storageId)
         if not loaded then return false, storage end
@@ -110,12 +112,12 @@ local function normalize(action, data)
         return
     end
     local needsDestination = action == 'move' or action == 'split' or action == 'storageMove'
-        or action == 'storageSplit' or action == 'store' or action == 'retrieve'
-    if not needsDestination and action ~= 'use' and action ~= 'give' and action ~= 'drop' then return end
-    if not Inventory.Int(data.slot, 200) or (action ~= 'use' and not Inventory.Int(data.quantity, 10000))
+        or action == 'storageSplit' or action == 'store' or action == 'retrieve' or action=='beltStore' or action=='beltRetrieve' or action=='beltMove'
+    if not needsDestination and action ~= 'beltUse' and action ~= 'use' and action ~= 'give' and action ~= 'drop' then return end
+    if not Inventory.Int(data.slot, 200) or (action ~= 'use' and action~='beltUse' and not Inventory.Int(data.quantity, 10000))
         or (needsDestination and not Inventory.Int(data.target, 200))
         or (action == 'give' and not Inventory.Int(data.recipient, 2147483647)) then return end
-    return { slot = data.slot, quantity = action ~= 'use' and data.quantity or nil,
+    return { slot = data.slot, quantity = action ~= 'use' and action~='beltUse' and data.quantity or nil,
         target = needsDestination and data.target or nil, recipient = action == 'give' and data.recipient or nil }
 end
 
@@ -124,8 +126,10 @@ local function revision(value)
 end
 
 local function fingerprint(action, data, storage)
-    return json.encode({ action, data.slot or false, data.target or false, data.quantity or false,
-        data.recipient or false, data.drop or false, data.revision or false, data.storageRevision or false, storage or false })
+    local parts={ action, data.slot or false, data.target or false, data.quantity or false,
+        data.recipient or false, data.drop or false, data.revision or false, data.storageRevision or false, storage or false }
+    if action:sub(1,4)=='belt' then parts[#parts+1]=data.beltRevision or false end
+    return json.encode(parts)
 end
 
 RegisterNetEvent(events .. 'open', function(viewId)
@@ -161,6 +165,8 @@ RegisterNetEvent(events .. 'request', function(ticket, seq, action, payload)
             Inventory.Log('DEBUG', 'Rejected malformed inventory browser action')
             return false, 'invalid_request'
         end
+        if action:sub(1,4)=='belt' and not revision(payload.beltRevision) then return false,'invalid_request' end
+        data.beltRevision=payload.beltRevision
         data.revision = payload.revision
         data.storageRevision = view.storage and payload.storageRevision or nil
         local applied, issue = Inventory.Act({ id = view.id, source = source, storage = view.storage,
@@ -286,6 +292,17 @@ trusted('HasItem', function(_, source, item, quantity)
     local ok, count = itemCount(source, item)
     if not ok then return false, count end
     return true, count >= quantity
+end)
+-- Tools in either personal container; ordinary consumable counts remain bag-only.
+trusted('HasTool',function(_,source,item)
+    if not Inventory.BeltEligible(item) then return false,'invalid_item' end
+    local id,issue=Inventory.Session(source);if not id then return false,issue end
+    local ok,bag=Inventory.Player(source,id);if not ok then return false,bag end
+    local loaded,belt=Inventory.Belt(source,id);if not loaded then return false,belt end
+    for _,box in ipairs({belt,bag}) do for _,entry in pairs(box.slots) do
+        if entry.item==item then local m=json.decode(entry.metadata);if not m or m.condition~=0 then return true,true end end
+    end end
+    return true,false
 end)
 trusted('RegisterItem', Inventory.Register)
 trusted('RegisterUsableItem', function(owner, item, callback, policy)
