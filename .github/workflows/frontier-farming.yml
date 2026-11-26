@@ -16,8 +16,13 @@ jobs:
       - name: Parse changed resources
         working-directory: RDR2 RP/resources/[Frontier]
         run: |
-          find frontier_farming frontier_property frontier_business frontier_inventory frontier_trade frontier_economy frontier_production -name '*.lua' -print0 | xargs -0 -n1 luac5.4 -p
+          find frontier_gathering frontier_skills frontier_farming frontier_property frontier_business frontier_inventory frontier_trade frontier_economy frontier_production -name '*.lua' -print0 | xargs -0 -n1 luac5.4 -p
           node --check frontier_farming/html/app.js
       - name: Farming rule tests
         working-directory: RDR2 RP/resources/[Frontier]/frontier_farming
         run: lua5.4 tests/rules.lua
+      - name: Gathering and skill rule tests
+        working-directory: RDR2 RP/resources/[Frontier]
+        run: |
+          (cd frontier_gathering && lua5.4 tests/rules.lua)
+          (cd frontier_skills && lua5.4 tests/rules.lua)
