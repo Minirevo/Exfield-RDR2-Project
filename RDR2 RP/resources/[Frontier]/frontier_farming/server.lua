@@ -389,7 +389,7 @@ while GetGameTimer() < validationDeadline do
     if GetEntityType(ped) == 1
         and NetworkGetEntityOwner(ped) == src
         and GetEntityModel(ped) == joaat(w.model)
-        and GetEntityHealth(ped) > 0 then
+        then
         break
     end
 
@@ -496,7 +496,7 @@ end
    if w.action=='slaughter' then
     local ss=state(f);local n=tonumber(w.data.count);local sex=w.data.sex
     check(ss.species and ss.species~='horse' and (sex=='male' or sex=='female') and n and n%1==0 and n>=1 and n<=ss[sex],'Invalid selection')
-    local model=C.species[ss.species][sex];local amount=math.max(1,math.ceil(n*C.slaughterFractions[w.hits+1]))
+    local model=C.species[ss.species][sex];local amount=n
     -- RedM client native loads the model and creates the networked ped.
     -- Server chooses all models/locations, records preexisting peds and validates replication.
     w.animals={};w.points={};w.model=model;w.existing={}
@@ -506,7 +506,7 @@ end
      w.points[i]={x=x,y=y,z=b.z,heading=b.heading}
     end
     w.phase='spawning';w.expires=GetGameTimer()+30000
-    TriggerClientEvent(E..'slaughterSpawn',src,{token=w.token,model=model,points=w.points});return
+    TriggerClientEvent(E..'slaughterSpawn',src,{token=w.token,model=model,points=w.points,facility=w.id});return
    end
    unlock(src);TriggerClientEvent(E..'workEnd',src)
    return action(src,w.action,w.data,w.hits)

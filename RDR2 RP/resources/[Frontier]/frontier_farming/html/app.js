@@ -116,9 +116,9 @@ function render(){
  }else actionPanel(work,f,'Fill well water','fill',{tool:'bucket',output:'Deposits 10 farm water units into linked chest.'});
  button(root,'Refresh','open');const release=el('button','Release empty facility',root);release.onclick=()=>{if(confirm('Release this empty facility?'))send('release')}
 }
-window.addEventListener('message',e=>{const d=e.data;if(d.type==='menu'){data=d.data;document.body.hidden=false;render()}else if(d.type==='close')document.body.hidden=true;else if(d.type==='notice')$('notice').textContent=d.message});
+window.addEventListener('message',e=>{const d=e.data;if(d.type==='menu'){data=d.data;document.body.hidden=false;document.querySelector('main').hidden=false;render()}else if(d.type==='close'){document.body.hidden=true;document.querySelector('main').hidden=false};else if(d.type==='notice')$('notice').textContent=d.message});
 function close(){cancelAnimationFrame(workFrame);workToken=null;fetch('https://'+GetParentResourceName()+'/close',{method:'POST',body:'{}'});document.body.hidden=true}
-$('close').onclick=close;document.addEventListener('keydown',e=>{if(e.key==='Escape')close()});
+$('close').onclick=close;document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!document.querySelector('main').hidden)close()});
 
 function workRound(d){
  cancelAnimationFrame(workFrame);workToken=d.token;
@@ -143,7 +143,7 @@ window.addEventListener('message',e=>{
  for(const j of d.orders||[])el('p',j.item+' × '+j.quantity+' · '+j.phase+' (automatically retried)',root);
 });
 
-window.addEventListener('message',e=>{if(e.data.type==='slaughter'){cancelAnimationFrame(workFrame);workToken=e.data.data.token;document.body.hidden=true}});
+window.addEventListener('message',e=>{if(e.data.type==='slaughter'){cancelAnimationFrame(workFrame);workToken=e.data.data.token;document.body.hidden=false;document.querySelector('main').hidden=true}});
 
 window.addEventListener('message',e=>{
  if(e.data.type!=='horseMarket')return;
@@ -152,4 +152,18 @@ window.addEventListener('message',e=>{
  const d=e.data.data;const dest=select(root,(d.destinations||[]).map(v=>[v.id,v.name+' · '+v.id]));
  if(!dest.options.length)el('p','Approach your registered empty or horse enclosure to buy.',root);
  for(const v of d.listings||[]){const h=v.horse;const box=el('section',null,root);el('p',h.breed+' · '+h.sex+' · $'+(v.price/100).toFixed(2),box);el('p','Speed '+h.genes.speed+' / Stamina '+h.genes.stamina+' / Health '+h.genes.health+' · Care '+Math.round(h.care)+'% · Training '+h.training,box);el('small',h.id,box);if(dest.options.length)button(box,'Buy certificate and horse','buyHorse',()=>({source:v.facility,dest:dest.value,horse:h.id,price:v.price}))}
+});
+
+window.addEventListener('message',e=>{
+ const d=e.data,hud=$('slaughterHud'),markers=$('slaughterMarkers');
+ if(d.type==='slaughterProgress'){
+  document.body.hidden=false;document.querySelector('main').hidden=true;hud.hidden=false;
+  $('slaughterCount').textContent=d.dead+' / '+d.total+' slaughtered';
+  $('slaughterBar').max=d.total;$('slaughterBar').value=d.dead;
+  $('slaughterStatus').textContent=d.finishing?'Completing slaughter…':'Butcher the marked animals';
+  markers.replaceChildren();
+  for(const p of d.markers){const m=el('span','▼',markers);m.style.left=(p.x*100)+'%';m.style.top=(p.y*100)+'%'}
+ }else if(d.type==='slaughterHudEnd'){
+  hud.hidden=true;markers.replaceChildren();document.body.hidden=true;document.querySelector('main').hidden=false;
+ }
 });
