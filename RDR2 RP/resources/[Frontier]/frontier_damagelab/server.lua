@@ -1,6 +1,6 @@
 local L=FrontierDamageLab
 local E='frontier_damagelab:'
-local sessions={}
+local sessions,ending={},{}
 local function enabled()
  return GetConvarInt('frontier_damagelab_enabled',0)==1
 end
@@ -22,6 +22,7 @@ local function stop(src,why)
  local s=sessions[src]
  if not s then return end
  sessions[src]=nil
+ ending[src]={id=s.id,mode=s.mode,expires=GetGameTimer()+10000}
  TriggerClientEvent(E..'stop',src,s.id,why)
  notice(src,'Trial ended: '..why)
 end
@@ -43,8 +44,9 @@ RegisterCommand('damagelab',function(src,args)
 end,false)
 RegisterNetEvent(E..'result',function(id,summary)
  local src=source;local s=sessions[src]
- if not s or s.id~=id or type(summary)~='string' or #summary>400 or summary:find('[\r\n]') then return end
- sessions[src]=nil
+ if not s or s.id~=id then s=ending[src] end
+ if not s or s.id~=id or type(summary)~='string' or #summary>400 or summary:find('[%c]') then return end
+ if sessions[src]==s then sessions[src]=nil else ending[src]=nil end
  notice(src,'Client trial result ['..s.mode..'] '..summary)
 end)
 -- Observe but NEVER cancel damage. Network damage events may omit NPC/environmental hits.
@@ -69,12 +71,13 @@ CreateThread(function()
  while true do
   Wait(500)
   local ok=isolated()
+  for src,s in pairs(ending) do if GetGameTimer()>=s.expires then ending[src]=nil end end
   for src,s in pairs(sessions) do
    if not authorized(src) or not ok or GetGameTimer()>=s.expires then stop(src,'expired, disabled or conflicting resource started') end
   end
  end
 end)
-AddEventHandler('playerDropped',function() sessions[source]=nil end)
+AddEventHandler('playerDropped',function() sessions[source]=nil;ending[source]=nil end)
 AddEventHandler('onResourceStop',function(name)
  if name==GetCurrentResourceName() then
   for src in pairs(sessions) do stop(src,'resource stopping') end
