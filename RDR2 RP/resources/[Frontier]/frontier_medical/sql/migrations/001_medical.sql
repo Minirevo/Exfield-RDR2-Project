@@ -1,0 +1,13 @@
+CREATE TABLE IF NOT EXISTS frontier_medical_state (
+ character_id VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+ state MEDIUMTEXT NOT NULL, revision BIGINT UNSIGNED NOT NULL DEFAULT 0
+) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS frontier_medical_treatments (
+ request_key VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+ patient VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+ life INT UNSIGNED NOT NULL, item VARCHAR(48) NOT NULL, region VARCHAR(24) NOT NULL,
+ actor VARCHAR(100) NOT NULL, fingerprint TEXT NOT NULL,
+ applied BOOLEAN NOT NULL DEFAULT FALSE,
+ created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ KEY idx_med_pending(applied,created_at)
+) ENGINE=InnoDB;

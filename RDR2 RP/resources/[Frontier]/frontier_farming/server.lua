@@ -294,9 +294,17 @@ local function siteNear(src)
   if (v.x-q.x)^2+(v.y-q.y)^2+(v.z-q.z)^2<=C.waterSiteRadius^2 then return q end
  end
 end
+local function farmWork(src,a,key)
+ check(GetResourceState('frontier_needs')=='started','Needs unavailable')
+ local ok,why
+ if key then ok,why=exports.frontier_needs:SpendLabour(src,a,key,1)
+ else ok,why=exports.frontier_needs:CanWork(src,a,1) end
+ check(ok,why)
+end
 local function beginWater(src)
  tool(src,'bucket');check(not waterWork[src],'Already filling a bucket')
  local q=siteNear(src);check(q,'Approach an approved river or lake collection point')
+ farmWork(src,'fill')
  local w={actor=cid(src),id=uuid(),site=q.id,started=GetGameTimer()}
  waterWork[src]=w;TriggerClientEvent(E..'waterWork',src,{token=w.id,ms=C.waterFillMs})
 end
@@ -304,6 +312,7 @@ local function finishWater(src,d)
  local w=waterWork[src];check(w and w.actor==cid(src) and w.id==d.token,'Water collection expired')
  local t=GetGameTimer()-w.started;check(t>=C.waterFillMs and t<=C.waterFillMs+15000,'Invalid filling duration')
  local q=siteNear(src);check(q and q.id==w.site,'Remain near the water source');tool(src,'bucket')
+ farmWork(src,'fill',w.id)
  local ok,e=inv:FarmSupplyDelivery(w.actor,'farm_water',10,'farm_water_'..w.id)
  check(ok,e);waterWork[src]=nil;notice(src,'Filled 10 water units. Carry them back to your farm stock.')
 end
@@ -356,7 +365,7 @@ local function validateWork(src,f,b,s,a,d)
  if #changes>0 then preflight(f,changes) end
 end
 
-local function action(src,a,d,score)
+local function action(src,a,d,score,workKey)
  local who=cid(src);check(who,'Select a character first')
  if a=='open' then return view(src) end
  if a=='openFacility' then
@@ -489,7 +498,7 @@ check(GetEntityModel(ped) == joaat(w.model), 'Animal model mismatch')
 
     unlock(src)
 
-    return action(src, 'slaughter', payload, hits + 10)
+    return action(src, 'slaughter', payload, hits + 10,w.token)
 end
  if a=='workHit' then
   local w=sessions[src];check(w and w.phase==nil and w.actor==who and w.token==d.token,'Work session expired')
@@ -518,7 +527,7 @@ end
     TriggerClientEvent(E..'slaughterSpawn',src,{token=w.token,model=model,points=w.points,facility=w.id});return
    end
    unlock(src);TriggerClientEvent(E..'workEnd',src)
-   return action(src,w.action,w.data,w.hits)
+   return action(src,w.action,w.data,w.hits,w.token)
   end
   w.started=GetGameTimer();w.target=math.random(25,75)/100
   TriggerClientEvent(E..'workRound',src,{token=w.token,target=w.target,round=w.round,action=w.action})
@@ -540,7 +549,8 @@ end
  -- Keep the validated action snapshot stable for the five-round work session.
  if score==nil then R.advance(s,os.time(),b.size);save(f,s) end
  if workLocks[f.id] then error('Facility is being worked',0) end
- if score==nil and (C.work[a] or a=='fill' or a=='fertilizer') then validateWork(src,f,b,s,a,d) end
+ local physical=C.work[a] or a=='fill' or a=='fertilizer'
+ if physical then validateWork(src,f,b,s,a,d);farmWork(src,a) end
  if C.work[a] and score==nil and not (a=='collect' and s.species=='chicken') then
   check(not sessions[src],'Finish your current work first')
   if a=='water' or a=='feed' then d.quantity=R.supply(s,b,a,d.quantity).units end
@@ -549,6 +559,7 @@ end
   TriggerClientEvent(E..'workRound',src,{token=w.token,target=w.target,round=1,action=a})
   return
  end
+ if physical then farmWork(src,a,workKey or uuid()) end
  if a=='link' then
   check(biz:FarmStockValid(f.plot,f.owner_type,f.owner_id,d.storage),'Invalid stock chest')
   MySQL.update.await('UPDATE ff_facilities SET storage=? WHERE id=?',{d.storage,f.id})

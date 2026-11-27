@@ -7,6 +7,7 @@ for _,n in ipairs({8,9}) do
 end
 local main=l.main()
 assert(#main==9 and main[1].kind=='disabled' and main[9].target=='character')
+assert(main[6].kind=='page' and main[6].target=='medicine')
 local guns={{kind='weapon',target=1},{kind='weapon',target=2}}
 main=l.main(guns);assert(main[1].target==2 and main[2].target==1)
 local t=l.tools({{kind='pickaxe',name='Pickaxe',quality=80}})

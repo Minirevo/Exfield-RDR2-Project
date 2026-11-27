@@ -9,18 +9,18 @@ end
 function M.step(old,activity,basal,locked)
  local h,t,e,s=clamp(old.hunger),clamp(old.thirst),clamp(old.energy),clamp(old.stamina)
  if basal then h=clamp(h-C.basalHunger);t=clamp(t-C.basalThirst) end
- s=math.min(s,M.capacity(e,t))
+ -- A lowered capacity limits new recovery; it must not drain stored stamina while idle.
  local drain=activity=='sprint' and C.sprintDrain or activity=='jog' and C.jogDrain or activity=='swim' and C.swimDrain or 0
  local restored=0
  if drain>0 then
   s=math.max(0,s-drain)
  elseif activity=='idle' or activity=='walk' or activity=='mounted' then
   local rate=activity=='walk' and C.walkStamina or C.idleStamina
-  restored=math.min(rate,M.capacity(e,t)-s,e*C.staminaPerEnergy)
+  restored=math.max(0,math.min(rate,M.capacity(e,t)-s,e*C.staminaPerEnergy))
   -- A recovery step cannot spend energy and replenish it simultaneously.
   if restored>0 then
    e=e-math.ceil(restored/C.staminaPerEnergy)
-   s=math.min(s+restored,M.capacity(e,t))
+   s=math.max(s,math.min(s+restored,M.capacity(e,t)))
   else
    local rate=activity=='walk' and C.walkEnergyRecovery or C.energyRecovery
    -- Energy can only be rebuilt from available food AND water.
@@ -35,7 +35,6 @@ function M.step(old,activity,basal,locked)
   end
  end
  local cap=M.capacity(e,t)
- s=math.min(s,cap)
  if s<=0 then locked=true elseif locked and s>=C.resumeSprint then locked=false end
  return {hunger=h,thirst=t,energy=e,stamina=s,capacity=cap,locked=locked==true}
 end

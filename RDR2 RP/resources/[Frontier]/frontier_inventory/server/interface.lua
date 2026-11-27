@@ -15,6 +15,7 @@ local messages = {
     stack_conflict = 'Die Stapel passen nicht zusammen oder der Zielplatz ist belegt.',
     forbidden = 'Diese Aktion ist nicht erlaubt.', distance = 'Du bist zu weit entfernt.',
     recipient = 'Der Empfänger ist nicht verfügbar.', unusable = 'Dieser Gegenstand kann nicht benutzt werden.',
+    no_injury = 'No eligible injury to treat.',
     use_failed = 'Der Gegenstand konnte nicht benutzt werden.', conflict = 'Das Inventar hat sich geändert. Prüfe die Plätze erneut.',
     orphan_checkout = 'A previous firearm checkout needs recovery. Reconnect to return its ammunition.',
     weapon_drawn = 'Put away your firearm before moving it or equipping a tool.', no_ammo = 'No compatible ammunition or weapon already full.', cancelled = 'Reload cancelled.',
@@ -1282,17 +1283,18 @@ RegisterNetEvent(events..'wheelOpen',function(sequence)
    local e=belt.slots[i]
    slots[i].equipped=active and e and e.instance==active.instance or false
   end
-  local consumables={food={},drink={}}
+  local consumables={food={},drink={},medicine={}}
   local byItem={}
   for i=1,bag.slot_limit do
    local e=bag.slots[i]
    local d=e and Inventory.items[e.item]
-   if d and d.usable and Inventory.handlers[e.item] and consumables[d.classification] then
+   local category=d and ((e.item=='bandage' or e.item=='splint' or e.item=='tonic') and 'medicine' or d.classification)
+   if d and d.usable and Inventory.handlers[e.item] and consumables[category] then
     local prior=byItem[e.item]
     if prior then prior.quantity=prior.quantity+e.quantity
     else
      local row={name=d.name,item=e.item,slot=i,quantity=e.quantity,kind='consume'}
-     byItem[e.item]=row;table.insert(consumables[d.classification],row)
+     byItem[e.item]=row;table.insert(consumables[category],row)
     end
    end
   end

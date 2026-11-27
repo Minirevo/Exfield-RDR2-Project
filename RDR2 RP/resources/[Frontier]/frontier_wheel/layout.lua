@@ -7,7 +7,7 @@ function FrontierWheelLayout.main(guns)
   guns and guns[2] or entry('Primary','disabled'),
   guns and guns[1] or entry('Sidearm','disabled'),
   entry('Tools','page','tools'),entry('Food','page','food'),
-  entry('Drinks','page','drink'),entry('Medicine','disabled'),
+  entry('Drinks','page','drink'),entry('Medicine','page','medicine'),
   entry('Utility','disabled'),entry('Unarmed','holster'),
   entry('Character','page','character')
  }

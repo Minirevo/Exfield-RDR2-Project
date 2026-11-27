@@ -238,6 +238,12 @@ local function use(ctx, container, slot)
         if not queued then return false,why or 'use_failed' end
         if Inventory.Generation(ctx.source)~=ctx.generation or not latest(ctx.source,ctx.id,ctx.guard) then return false,'character' end
     end
+    if handler.consume and (stack.item=='bandage' or stack.item=='splint' or stack.item=='tonic') then
+        if GetResourceState('frontier_medical')~='started' then return false,'not_ready' end
+        local queued,why=exports.frontier_medical:QueueConsumption(ctx.source,ctx.id,stack.item,ctx.key,ctx.actor,ctx.fingerprint)
+        if not queued then return false,why or 'use_failed' end
+        if Inventory.Generation(ctx.source)~=ctx.generation or not latest(ctx.source,ctx.id,ctx.guard) then return false,'character' end
+    end
     if handler.consume then Inventory.Take(container, slot, 1) end
     local saved, result, replayed = commit(ctx, container)
     if saved and not replayed then TriggerEvent('frontier:inventoryItemUsed', ctx.source, ctx.id, stack.item, ctx.key) end

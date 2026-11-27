@@ -107,6 +107,11 @@ end
 local function companyStockRight(st,who,perm)
  return st.owner_type~='company' or B:HasCompanyPermission(st.owner_id,who,perm)==true
 end
+local function labour(src,skill,batches,key)
+ if GetResourceState('frontier_needs')~='started' then return false,'Needs unavailable' end
+ if key then return exports.frontier_needs:SpendLabour(src,skill,key,batches) end
+ return exports.frontier_needs:CanWork(src,skill,batches)
+end
 local function start(src,st,p,owns,d,key)
  local who=cid(src);local r=C.recipes[d.recipe];local n=tonumber(d.batches)
  check(r and r.station==p.kind and n and n%1==0 and n>=1 and n<=C.maxBatches,'Invalid recipe or batch count')
@@ -119,6 +124,7 @@ local function start(src,st,p,owns,d,key)
  else
   check(count(st.id)==0 and not characterBusy(who),'Finish the current work first')
   check(owns or (d.input=='bag' and d.output=='bag'),'Members must use their own inventory')
+  local fit,why=labour(src,r.skill,n);check(fit,why)
  end
  local input=npc and 's_'..st.input_stock or stockRoute(st,d,'input',src)
  local output=npc and 's_'..st.output_stock or stockRoute(st,d,'output',src)
@@ -239,6 +245,8 @@ RegisterNetEvent(E..'finish',function(k)
   if elapsed<w.ms then return end -- early finish request cannot consume or cancel an active batch
   if not p or elapsed>w.ms+12000 then state(j,'return','Work interrupted');clearWork(src,'Work interrupted; ingredients will be returned');return end
   local r=d.recipeSnapshot or C.recipes[d.recipe];check(r,'Recipe unavailable')
+  local paid,why=labour(src,d.skill,d.batches,j.id)
+  if not paid then state(j,'return',why);clearWork(src,why..'; ingredients will be returned');return end
   local scores={};for batch=1,d.batches do scores[batch]=R.batchScore(w.scores,batch,w.rounds) end
   d.outputs=R.outputs(r,d.batches,d.level,'manual',scores,d.equipment,d.maker)
   U("UPDATE frontier_production_station_jobs SET payload=?,state='output',due_at=0,retry_at=0 WHERE id=? AND state='manual'",{json.encode(d),k})
@@ -270,6 +278,7 @@ local function step(j)
   else
    local src=intents[j.id];intents[j.id]=nil
    if not src or cid(src)~=j.actor or not canUse(src,st) then return state(j,'return','Player unavailable') end
+   local fit,why=labour(src,d.skill,d.batches);if not fit then return state(j,'return',why) end
    local rounds=d.rounds or 1;local roundMs=d.roundMs or C.roundMs;local sweepMs=d.sweepMs or C.sweepMs
    local targets={};for i=1,rounds*d.batches do targets[i]=math.random(25,75)/100 end
    local w={id=j.id,actor=j.actor,ms=roundMs*#targets,rounds=rounds,roundMs=roundMs,sweepMs=sweepMs,targets=targets,scores={},station=j.station_id}

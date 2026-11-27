@@ -33,6 +33,7 @@ local defaults = {
     bread = { name = 'Brot', description = 'Ein Laib Brot.', grams = 350, maxStack = 10, category = 'Nahrung', usable = true, classification = 'food' },
     water = { name = 'Wasserflasche', description = 'Eine Flasche Trinkwasser.', grams = 550, maxStack = 10, category = 'Getränke', usable = true, classification = 'drink' },
     apple = { name = 'Apfel', description = 'Ein frischer Apfel.', grams = 150, maxStack = 20, category = 'Nahrung', usable = true, classification = 'food' },
+    splint = { name='Splint',description='A wooden first-aid splint.',grams=250,maxStack=10,category='Medizin',usable=true },
     bandage = { name = 'Verband', description = 'Ein sauberer Stoffverband.', grams = 80, maxStack = 15, category = 'Medizin', usable = true },
     tonic = { name = 'Heiltonikum', description = 'Eine Flasche mit etikettiertem Inhalt.', grams = 280,
         maxStack = 5, category = 'Medizin', usable = true, metadata = '{"charge":"standard"}' },
@@ -243,7 +244,10 @@ function Inventory.BootItems()
             return GetResourceState('frontier_needs')=='started'
         end}
     end
-    Inventory.handlers.bandage = { owner = Inventory.resource, consume = true, callback = function() return true end }
-    Inventory.handlers.tonic = { owner = Inventory.resource, consume = true, callback = function() return true end }
+    for _,id in ipairs({'bandage','splint','tonic'}) do
+        Inventory.handlers[id]={owner=Inventory.resource,consume=true,callback=function()
+            return GetResourceState('frontier_medical')=='started'
+        end}
+    end
     return true
 end

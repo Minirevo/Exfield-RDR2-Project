@@ -77,6 +77,14 @@ end
 local function pending(id)
  return MySQL.single.await('SELECT * FROM frontier_gather_claims WHERE character_id=? AND phase<2 ORDER BY created LIMIT 1',{id})
 end
+local function canWork(src,kind)
+ if GetResourceState('frontier_needs')~='started' then return false,'Needs unavailable' end
+ return exports.frontier_needs:CanWork(src,kind,1)
+end
+local function spendWork(src,kind,key)
+ if GetResourceState('frontier_needs')~='started' then return false,'Needs unavailable' end
+ return exports.frontier_needs:SpendLabour(src,kind,key,1)
+end
 local function commitHarvest(src,character,d,key,preview)
  return inv:GatheringCommit(src,character,{kind=d.kind,instance=d.instance,item=d.item,count=tonumber(d.count),wear=tonumber(d.wear),key=key,preview=preview==true,extra=d.extra,metadata=d.metadata})
 end
@@ -138,6 +146,7 @@ RegisterNetEvent(E..'begin',function(d)
   end
   local current,why=position(src);if not current then return reject(src,positionError(src,why)) end
   if cid(src)~=id or current.bucket~=w.bucket or not R.inReach(n.action,current,n) then return reject(src,'Character changed or moved away') end
+  local fit,why=canWork(src,n.action);if not fit then return reject(src,why) end
   w.tool,w.skill=tool,skill
   w.token=uuid();w.duration=n.action=='herbalism' and C.herbMs or C.workMs
   w.target=math.random(27,73)/100;w.started=GetGameTimer();w.expires=w.started+w.duration+7000
@@ -167,6 +176,7 @@ RegisterNetEvent(E..'finish',function(token)
    if not d.instance then d.metadata=R.encodeQuality(d.material,math.floor(w.skill.level*.4+score*40+workshop.equipment*.2+.5),workshop.name) end
    local fits,err=inv:GatheringSmith(src,w.actor,d,'preview:'..src,true)
    if not fits then return reject(src,'Smithing failed: '..tostring(err)) end
+   local paid,why=spendWork(src,'blacksmithing',w.token);if not paid then return reject(src,why) end
    local row=makeClaim(src,w.actor,'blacksmithing',d)
    release(src);TriggerClientEvent(E..'end',src);if row then recover(src,row) else notice(src,'Could not reserve work') end;return
   end
@@ -180,6 +190,7 @@ RegisterNetEvent(E..'finish',function(token)
   if not fits then return reject(src,'Cannot complete: '..tostring(issue)) end
   local current,why=position(src);if not current then return reject(src,positionError(src,why)) end
   if cid(src)~=w.actor or current.bucket~=w.bucket or not R.inReach(n.action,current,n) then return reject(src,'Character changed or moved away') end
+  local paid,why=spendWork(src,n.action,w.token);if not paid then return reject(src,why) end
   local row=makeClaim(src,w.actor,n.action,d,n,left-1)
   if not row then return reject(src,'Could not reserve resource') end
   if left==1 then TriggerClientEvent(E..'depleted',-1,{id=n.id,action=n.action,model=n.model,x=n.x,y=n.y,z=n.z,next_at=os.time()+C.actions[n.action].regen}) end
@@ -272,6 +283,7 @@ local function nativeClaim(src,net,skill,toolKind,lookup,dead,reportedModel,repo
  if cid(src)~=id then return false end
  local checked,reason=nativeEntity(src,net,lookup,dead,reportedModel,reportedDead)
  if not checked or checked~=ent then catchFailure(src,net,checked and 'animal changed' or reason);return false end
+ local paid,why=spendWork(src,skill,uuid());if not paid then notice(src,why);return false end
  entityClaims[net]={ent=ent}
  local row=makeClaim(src,id,skill,d)
  if not row then entityClaims[net]=nil;return false end
@@ -290,6 +302,7 @@ RegisterNetEvent(E..'fishStart',function()
   local p=pending(id);if p and not recover(src,p) then return end
   local ok,tool=inv:GetGatheringTool(src,'rod',false,true);if not ok then return notice(src,'Equip your Frontier fishing rod first') end
   local has,bait=inv:HasItem(src,'gather_bait',1);if not has or not bait then return notice(src,'Fishing bait required') end
+  local fit,why=canWork(src,'fishing');if not fit then return notice(src,why) end
   local key=uuid();local removed,err=inv:RemoveItem(src,'gather_bait',1,nil,'bait:'..key)
   if not removed then return notice(src,err) end
   if cid(src)~=id then return end
@@ -351,6 +364,7 @@ RegisterNetEvent(E..'smithBegin',function(kind,material,repair)
   if not fits then return notice(src,'Requires '..d.cost..' '..d.metal..' and 1 wood; '..tostring(err)) end
   local ok,skill=skills:GetSkill(src,'blacksmithing');if not ok then return notice(src,'Skills unavailable') end
   local node={id='smith:'..workshop.id,x=pos.x,y=pos.y,z=pos.z};if locks[node.id] then return notice(src,'Workshop is busy') end
+  local fit,why=canWork(src,'blacksmithing');if not fit then return notice(src,why) end
   local token=uuid();local now=GetGameTimer()
   local w={actor=id,node=node,bucket=pos.bucket,smith=d,workshop=workshop,token=token,skill=skill,duration=C.workMs,target=math.random(27,73)/100,started=now,expires=now+C.workMs+7000}
   sessions[src]=w;locks[node.id]=src

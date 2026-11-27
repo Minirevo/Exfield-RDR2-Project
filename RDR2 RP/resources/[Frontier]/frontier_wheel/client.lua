@@ -87,12 +87,12 @@ local function renderPage()
  elseif page=='character' then
   entries=layout.character()
   for _,item in ipairs(entries) do if item.resource and GetResourceState(item.resource)~='started' then item.kind='disabled' end end
- elseif page=='food' or page=='drink' then entries=layout.consumables(consumables and consumables[page])
+ elseif page=='food' or page=='drink' or page=='medicine' then entries=layout.consumables(consumables and consumables[page])
  else entries=layout.tools(toolSlots) end
  SendNUIMessage({type='page',page=page,slots=entries,loading=page=='tools' and not toolSlots,selected=selected})
 end
 local function switchPage(target)
- if not opened or not ({main=true,tools=true,character=true,food=true,drink=true})[target] then return end
+ if not opened or not ({main=true,tools=true,character=true,food=true,drink=true,medicine=true})[target] then return end
  page=target;selected=0;x,y=0,0;hoveredAt=GetGameTimer()
  renderPage()
  trace('page '..page)
@@ -113,7 +113,7 @@ end)
 RegisterNetEvent(E..'wheelSnapshot',function(seq,t,data,food,guns)
  if source~=65535 or not opened or seq~=sequence or type(t)~='string' or type(data)~='table' then return end
  token,toolSlots=t,data;consumables=food;inventoryGuns=guns
- if page=='main' or page=='tools' or page=='food' or page=='drink' then renderPage() end
+ if page=='main' or page=='tools' or page=='food' or page=='drink' or page=='medicine' then renderPage() end
  trace('toolbelt snapshot received')
 end)
 RegisterNetEvent(E..'wheelError',function(seq,msg)

@@ -29,6 +29,7 @@ local function activity()
  if mounted(p) then return 'mounted' end
  if truth(native('IsPedSwimming',p)) or truth(native('IsPedSwimmingUnderWater',p)) then return 'swim' end
  local speed=tonumber(native('GetEntitySpeed',p)) or 0
+ if speed<C.walkSpeed then return 'idle' end
  if truth(native('IsPedSprinting',p)) or speed>=C.sprintSpeed then return 'sprint' end
  if truth(native('IsPedRunning',p)) or speed>=C.jogSpeed then return 'jog' end
  if speed>=C.walkSpeed then return 'walk' end
@@ -59,6 +60,7 @@ RegisterNetEvent('frontier_needs:consequence',function(percent)
  local health,maximum=GetEntityHealth(p),GetEntityMaxHealth(p)
  if type(health)=='number' and type(maximum)=='number' and health>0 and maximum>0 then
   local damage=math.max(1,math.ceil(maximum*percent/100))
+  TriggerEvent('frontier_medical:ignoreDamage',damage)
   SetEntityHealth(p,math.max(0,health-damage),0)
  end
 end)
