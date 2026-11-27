@@ -913,60 +913,24 @@ end
 -- =========================================================
 
 function L.store(src, w)
-    L.check(
-        w
-        and L.right(src, w, 'trade')
-        and L.stationary(w)
-        and L.near(
-            src,
-            L.point(w),
-            C.InteractionDistance
-        )
-        and L.dealer(src)
-        and not L.wagonBusy(w.id),
-        'Approach stationary wagon at yard'
-    )
+    L.check(w and L.right(src,w,'trade') and w.state=='world'
+        and L.stationary(w) and not L.wagonBusy(w.id),
+        'Approach stationary wagon at yard')
 
-    L.check(
-        tonumber(w.stolen) == 0,
-        'Resolve stolen wagon report first'
-    )
+    local p = L.point(w)
+    local yard = L.dealer(src)
+    L.check(p and yard and L.near(src,p,C.InteractionDistance),
+        'Approach stationary wagon at yard')
+    L.check(tonumber(w.stolen)==0,'Resolve stolen wagon report first')
+    L.check(L.dist(p,yard)<=C.DepotDistance
+        or (yard.spawn and L.dist(p,yard.spawn)<=C.DepotDistance),
+        'Wagon outside yard')
 
-    
-	local yard=L.dealer(src)
+    local ok, box = L.I:LogisticsRead(L.route(w.id))
+    L.check(ok and #box.slots==0 and #L.freight(w.id)==0,
+        'Unload all cargo first')
 
-	L.check(
-		yard and (
-			L.dist(p,yard)<=C.DepotDistance
-			or (
-				yard.spawn
-				and L.dist(p,yard.spawn)<=C.DepotDistance
-			)
-		),
-		'Wagon outside yard'
-	)
-
-
-    local ok, box = L.I:LogisticsRead(
-        L.route(w.id)
-    )
-
-    L.check(
-        ok
-        and #box.slots == 0
-        and #L.freight(w.id) == 0,
-        'Unload all cargo first'
-    )
-
-    setWagonState(
-        w,
-        'stored',
-        p,
-        GetEntityHeading(
-            L.entities[w.id].vehicle
-        )
-    )
-
+    setWagonState(w,'stored',p,GetEntityHeading(L.entities[w.id].vehicle))
     cleanup(w.id)
 end
 
@@ -1119,26 +1083,19 @@ function L.worldTick()
             end
 
             local p = L.point(w)
-            local health = GetEntityHealth(e.vehicle)
 
-            -- A missing entity alone is not destruction.
-
-            
-			if p then
-
-				if type(health) == 'number'
-					and health <= 0
-					and not e.healthWarning then
-
-					print(
-						'[frontier_logistics] Wagon '..
-						w.id..
-						' reported zero health. Automatic destruction ignored.'
-					)
-
-					e.healthWarning = true
-				end
-
+            -- RedM server health may report zero for a live wagon.
+            -- Automatic wreck detection is disabled until independently verified.
+            -- Position persistence must continue even if health is unavailable.
+            if p then
+                if type(GetEntityHealth)=='function' and not e.healthWarning then
+                    local ok,health = pcall(GetEntityHealth,e.vehicle)
+                    if ok and type(health)=='number' and health<=0 then
+                        print('[frontier_logistics] Wagon '..w.id..
+                            ' reported zero health. Automatic destruction ignored.')
+                        e.healthWarning = true
+                    end
+                end
 
                 if L.now() - e.lastSave >= 5 then
 
