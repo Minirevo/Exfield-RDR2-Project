@@ -11,3 +11,5 @@ Treatments prepare a durable outbox and apply only after matching completed inve
 
 ## Test
 From frontier_medical: lua5.4 tests/model.lua. Live test separately: small injury, gunshot, fall and limb bone detection, two players in same/different buckets, treatment with/without items, interrupted treatment, repeated receipt, persistence on reconnect, gradual bleeding, unconsciousness/wake and fatal native damage, VORP respawn, labour gating, medical wheel. Native control and SQL integration require a live RedM test.
+
+Unconsciousness also blocks inventory item use, firearm draw/reload and quick-tool selection on the server without obstructing firearm release or recovery. Unstabilised arm fractures restrict firing client-side. Moving away closes the examination automatically. These controls still require live validation.

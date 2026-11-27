@@ -1083,6 +1083,7 @@ RegisterNetEvent(events..'weaponDraw',function(token,slot,request)
  if type(token)~='string' or #token>80 or not WR.integer(slot,1,2) or not WR.integer(request,1,2147483646) then return end
  local response
  local ok,err=admit(src,gunLast,function()
+  if GetResourceState('frontier_medical')=='started' and not exports.frontier_medical:CanAct(src) then return false,'restricted' end
   for _,name in ipairs({'vorp_inventory','vorp_weaponsv2'}) do
    local state=GetResourceState(name)
    if state=='started' or state=='starting' then return false,'forbidden' end
@@ -1143,6 +1144,7 @@ RegisterNetEvent(events..'weaponReload',function(token,request,version,remaining
  if not s then TriggerClientEvent(events..'weaponReset',src,'Weapon session expired.');return end
  local pending,delay
  local ok,err=admit(src,gunLast,function()
+  if GetResourceState('frontier_medical')=='started' and not exports.frontier_medical:CanAct(src) then return false,'restricted' end
   if lease(src,token)~=s or s.pending or s.releasing or version~=s.version then return false,'busy' end
   local n=WR.remaining(s.rounds,remaining);if n==nil then return false,'invalid_request' end
   local id,e,b=weaponState(src);if not id then return false,e end
@@ -1317,6 +1319,7 @@ RegisterNetEvent(events..'wheelSelect',function(token,slot)
   local v=wheelViews[src];wheelViews[src]=nil
   if not v or token~=v.token or GetGameTimer()>v.expires or Inventory.Session(src)~=v.id then return false,'conflict' end
   if slot==0 then clearEquipped(src);return true end
+  if GetResourceState('frontier_medical')=='started' and not exports.frontier_medical:CanAct(src) then return false,'restricted' end
   return selectTool(src,'belt',slot,nil,v.revision)
  end)
  if not ok then TriggerClientEvent(events..'notice',src,message(err)) end

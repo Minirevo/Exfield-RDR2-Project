@@ -23,4 +23,8 @@ s=full();s.thirst=1;s.energy=999;s.stamina=250
 s=M.step(s,'idle',false,false);assert(s.thirst>=0 and s.energy<=1000)
 assert(M.capacity(1000,1000)==1000 and M.capacity(0,1000)==250)
 assert(M.damage(0,1000)==2 and M.damage(1000,1000)==0)
+s=full();s.energy=30;s.thirst=100;s.stamina=950
+local before=s.stamina
+for i=1,20 do s=M.step(s,'idle',i%5==0,s.locked);assert(s.stamina>=before);before=s.stamina end
+s=full();s.stamina=0;s=M.step(s,'idle',false,true);assert(s.locked and s.stamina==50)
 print('Needs model: sprint, recovery fuel, basal decay, exhaustion and starvation tests passed')

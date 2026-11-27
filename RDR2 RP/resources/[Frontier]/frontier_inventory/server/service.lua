@@ -211,6 +211,7 @@ local function revise(container, revision)
 end
 
 local function use(ctx, container, slot)
+    if GetResourceState('frontier_medical')=='started' and not exports.frontier_medical:CanAct(ctx.source) then return false,'restricted' end
     local stack = container.slots[slot]
     if not stack then return false, 'not_found' end
     local def = Inventory.items[stack.item]

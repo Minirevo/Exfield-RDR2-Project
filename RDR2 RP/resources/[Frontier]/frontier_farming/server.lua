@@ -550,7 +550,7 @@ end
  if score==nil then R.advance(s,os.time(),b.size);save(f,s) end
  if workLocks[f.id] then error('Facility is being worked',0) end
  local physical=C.work[a] or a=='fill' or a=='fertilizer'
- if physical then validateWork(src,f,b,s,a,d);farmWork(src,a) end
+ if physical then validateWork(src,f,b,s,a,d);if score==nil then farmWork(src,a) end end
  if C.work[a] and score==nil and not (a=='collect' and s.species=='chicken') then
   check(not sessions[src],'Finish your current work first')
   if a=='water' or a=='feed' then d.quantity=R.supply(s,b,a,d.quantity).units end

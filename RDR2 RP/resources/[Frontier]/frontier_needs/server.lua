@@ -132,10 +132,30 @@ exports('CanWork',function(src,kind,units)
 end)
 exports('SpendLabour',function(src,kind,key,units)
  local owner=GetInvokingResource()
- if not owner or type(key)~='string' or #key>64 or not key:match('^[%w_:%-]+
+ if not owner or type(key)~='string' or #key>64 or not key:match('^[%w_:%-]+$') then return false,'Invalid work key' end
+ local id,cost=workState(src,owner,kind,units or 1)
+ if not id then return false,cost end
+ key=owner..':'..key
+ local existing=db('single','SELECT character_id,cost,applied FROM frontier_needs_labour WHERE request_key=?',{key})
+ if existing then
+  if existing.character_id~=id or tonumber(existing.cost)~=cost then return false,'Work receipt conflict' end
+  if truth(existing.applied) or existing.applied=='1' then return true end
+ else
+  if db('update','INSERT IGNORE INTO frontier_needs_labour(request_key,character_id,cost) VALUES (?,?,?)',{key,id,cost})==nil then return false,'Needs database unavailable' end
+ end
+ if cid(src)~=id then return false,'Character changed' end
+ -- Atomic debit and receipt marker; retrying the same operation cannot debit twice.
+ local changed=db('update',[[UPDATE frontier_needs_state n JOIN frontier_needs_labour l ON l.character_id=n.character_id
+ SET n.stamina=n.stamina-l.cost,l.applied=TRUE
+ WHERE l.request_key=? AND l.character_id=? AND l.cost=? AND l.applied=FALSE AND n.stamina>=l.cost]],{key,id,cost})
+ if changed and changed>0 then return true end
+ existing=db('single','SELECT character_id,cost,applied FROM frontier_needs_labour WHERE request_key=?',{key})
+ if existing and existing.character_id==id and tonumber(existing.cost)==cost and (truth(existing.applied) or existing.applied=='1') then return true end
+ return false,'Too exhausted or needs unavailable'
+end)
+local function activityFor(ped,r)
  local recent=GetGameTimer()-r.sampleAt<3500 and r.sampleAt>0
  local activity=recent and r.activity or 'unknown'
- -- A fresh stationary client sample wins over stale server speed.
  if activity=='idle' then return 'idle' end
  -- Prefer reliable client movement classification for RDR3-only natives.
  -- Corroborate clearly fast on-foot movement when server speed exists.
@@ -170,7 +190,7 @@ local function tick(p)
  local phase=(r.phase+1)%C.basalEvery
  local activity=activityFor(ped,r)
  local locked=r.locked
- if locked==nil then locked=old.stamina<C.resumeSprint end
+ if old.stamina==0 then locked=true elseif locked==nil then locked=old.stamina<C.resumeSprint end
  local next=M.step(old,activity,phase==0,locked)
  if cid(src)~=id or runtime[src]~=r then return end
  if old.hunger~=next.hunger or old.thirst~=next.thirst or old.energy~=next.energy or old.stamina~=next.stamina then
@@ -211,118 +231,6 @@ MySQL.ready(function()
   local c=db('query','SELECT request_key FROM frontier_needs_labour LIMIT 0')
   ready=a~=nil and b~=nil and c~=nil
   if not ready then print('[frontier_needs] Apply sql/migrations/001_needs.sql, 002_stamina.sql and 003_labour.sql');Wait(5000) end
- end
- CreateThread(function() while true do if not legacyRunning() then applyQueue() end;Wait(1000) end end)
- while true do
-  Wait(C.tickMs)
-  if legacyRunning() then
-   -- Do not let clients continue using stale state while legacy needs is active.
-   runtime={}
-  else
-   for _,p in pairs(core:GetPlayers()) do
-    local ok,err=pcall(tick,p)
-    if not ok then print('[frontier_needs] Tick failed: '..tostring(err)) end
-   end
-  end
- end
-end)
-) then return false,'Invalid work key' end
- local id,cost=workState(src,owner,kind,units or 1)
- if not id then return false,cost end
- key=owner..':'..key
- local existing=db('single','SELECT character_id,cost,applied FROM frontier_needs_labour WHERE request_key=?',{key})
- if existing then
-  if existing.character_id~=id or tonumber(existing.cost)~=cost then return false,'Work receipt conflict' end
-  if truth(existing.applied) or existing.applied=='1' then return true end
- else
-  if db('update','INSERT IGNORE INTO frontier_needs_labour(request_key,character_id,cost) VALUES (?,?,?)',{key,id,cost})==nil then return false,'Needs database unavailable' end
- end
- if cid(src)~=id then return false,'Character changed' end
- -- Atomic debit and receipt marker; retrying the same operation cannot debit twice.
- local changed=db('update',[[UPDATE frontier_needs_state n JOIN frontier_needs_labour l ON l.character_id=n.character_id
- SET n.stamina=n.stamina-l.cost,l.applied=TRUE
- WHERE l.request_key=? AND l.character_id=? AND l.cost=? AND l.applied=FALSE AND n.stamina>=l.cost]],{key,id,cost})
- if changed and changed>0 then return true end
- existing=db('single','SELECT character_id,cost,applied FROM frontier_needs_labour WHERE request_key=?',{key})
- if existing and existing.character_id==id and tonumber(existing.cost)==cost and (truth(existing.applied) or existing.applied=='1') then return true end
- return false,'Too exhausted or needs unavailable'
-end)
-local function activityFor(ped,r)
- local recent=GetGameTimer()-r.sampleAt<3500 and r.sampleAt>0
- local activity=recent and r.activity or 'unknown'
- -- Prefer reliable client movement classification for RDR3-only natives.
- -- Corroborate clearly fast on-foot movement when server speed exists.
- if activity=='mounted' or truth(native('IsPedOnMount',ped)) or truth(native('IsPedInAnyVehicle',ped,false)) then return 'mounted' end
- if activity=='swim' or truth(native('IsPedSwimming',ped)) then return 'swim' end
- local speed=tonumber(native('GetEntitySpeed',ped))
- if speed and speed>=C.sprintSpeed then return 'sprint' end
- if speed and speed>=C.jogSpeed and (activity=='idle' or activity=='walk' or activity=='unknown') then return 'jog' end
- if activity=='unknown' and speed and speed>=C.walkSpeed then return 'walk' end
- return activity
-end
-local function tick(p)
- local src,id=p.source,p.frontierCharacterId
- if cid(src)~=id then return end
- local ped=currentPed(src);if not ped then return end
- local r=session(src,id)
- if dead(ped,src) then knownDead[src]=id;return end
- if knownDead[src]==id then
-  if db('update','UPDATE frontier_needs_state SET hunger=1000,thirst=1000,energy=1000,stamina=1000 WHERE character_id=?',{id})~=nil then
-   knownDead[src]=nil;r.value=nil;r.phase=0;r.locked=false;r.damageAt=nil
-  end
-  return
- end
- local row=read(id)
- if not row then
-  if not ensure(id) then return end
-  row=read(id);if not row then return end
- end
- local old=values(row)
- for _,v in pairs(old) do if type(v)~='number' then return end end
- if old.stamina==nil or old.hunger==nil or old.thirst==nil or old.energy==nil then return end
- local phase=(r.phase+1)%C.basalEvery
- local activity=activityFor(ped,r)
- local locked=r.locked
- if locked==nil then locked=old.stamina<C.resumeSprint end
- local next=M.step(old,activity,phase==0,locked)
- if cid(src)~=id or runtime[src]~=r then return end
- if old.hunger~=next.hunger or old.thirst~=next.thirst or old.energy~=next.energy or old.stamina~=next.stamina then
-  -- Compare-and-swap: a concurrently applied consumption must not be overwritten.
-  local changed=db('update',[[UPDATE frontier_needs_state SET hunger=?,thirst=?,energy=?,stamina=?
-   WHERE character_id=? AND hunger=? AND thirst=? AND energy=? AND stamina=?]],
-   {next.hunger,next.thirst,next.energy,next.stamina,id,old.hunger,old.thirst,old.energy,old.stamina})
-  if changed~=1 then return end
- end
- if cid(src)~=id or runtime[src]~=r or currentPed(src)~=ped then return end
- r.value=next;r.phase=phase;r.locked=next.locked;r.lastActivity=activity
- local pct=M.damage(next.hunger,next.thirst)
- local now=GetGameTimer()
- if pct==0 then r.damageAt=nil
- elseif not r.damageAt then r.damageAt=now
- elseif now-r.damageAt>=C.damageIntervalMs then
-  r.damageAt=now
-  if not dead(ped,src) then TriggerClientEvent('frontier_needs:consequence',src,pct) end
- end
-end
-local function clear(src)
- requests[src]=nil;knownDead[src]=nil;runtime[src]=nil
-end
-AddEventHandler('playerDropped',function() clear(tonumber(source) or source) end)
-AddEventHandler('frontier:playerUnloaded',function(p) clear(p.source);cooldown[p.frontierCharacterId]=nil end)
-RegisterCommand('frontierneedsstatus',function(src)
- if src==0 then print('[frontier_needs] Run /frontierneedsstatus in-game.');return end
- local id=cid(src);local r=runtime[src]
- local v=r and r.id==id and r.value
- local msg=v and ('Activity=%s | Stamina=%d/%d | Energy=%d | Food=%d | Water=%d | Sprint locked=%s'):format(r.lastActivity or 'unknown',v.stamina,v.capacity,v.energy,v.hunger,v.thirst,tostring(v.locked))
-  or ('No state yet | ready=%s | legacy=%s | character=%s'):format(tostring(ready),tostring(legacyRunning()),tostring(id~=nil))
- TriggerClientEvent('frontier_needs:diagnostic',src,msg)
-end,false)
-MySQL.ready(function()
- while not ready do
-  local a=db('query','SELECT character_id,stamina FROM frontier_needs_state LIMIT 0')
-  local b=db('query','SELECT request_key FROM frontier_needs_consumptions LIMIT 0')
-  ready=a~=nil and b~=nil
-  if not ready then print('[frontier_needs] Apply sql/migrations/001_needs.sql and 002_stamina.sql');Wait(5000) end
  end
  CreateThread(function() while true do if not legacyRunning() then applyQueue() end;Wait(1000) end end)
  while true do

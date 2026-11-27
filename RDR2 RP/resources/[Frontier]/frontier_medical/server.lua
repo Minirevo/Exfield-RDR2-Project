@@ -115,6 +115,10 @@ local function applyTreatments()
   end
  end
 end
+local function validRegion(region)
+ for _,r in ipairs(C.regions) do if r==region then return true end end
+ return false
+end
 local function validView(src,v)
  return v and views[src]==v and v.expires>GetGameTimer() and cid(src)==v.actor and cid(v.target)==v.patient and nearby(src,v.target) and capable(src)
 end
@@ -143,7 +147,7 @@ RegisterNetEvent(E..'action',function(ticket,action,region,item)
  if not v or v.ticket~=ticket or not validView(src,v) or working[src] then return end
  local now=GetGameTimer();if lastAction[src] and now-lastAction[src]<600 then return end;lastAction[src]=now
  if action=='examine' then
-  if type(region)~='string' or not M.region(region) or not (function() for _,r in ipairs(C.regions) do if r==region then return true end end end)() then return end
+  if type(region)~='string' or not validRegion(region) then return end
   v.examined[region]=true;return snapshot(src,v)
  elseif action=='pulse' then v.pulse=true;return snapshot(src,v)
  elseif action~='treat' or type(region)~='string' or not C.items[item] or not v.examined[region] then return end
@@ -197,6 +201,9 @@ MySQL.ready(function()
   if not legacy() then
    for _,p in pairs(core:GetPlayers()) do local ok,err=pcall(tick,p);if not ok then print('[frontier_medical] '..tostring(err)) end end
   else cache={} end
+  for src,v in pairs(views) do
+   if not validView(src,v) then views[src]=nil;working[src]=nil;TriggerClientEvent(E..'closeView',src,v.ticket) end
+  end
   Wait(C.tickMs)
  end
 end)
