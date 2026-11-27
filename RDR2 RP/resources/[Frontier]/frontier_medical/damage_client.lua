@@ -2,7 +2,9 @@
 -- Guarded mode was validated in the dev lab on melee, firearm, knife, wolf, fall and drowning.
 FrontierMedicalAdapter={}
 local A,C,E=FrontierMedicalAdapter,FrontierMedicalConfig,'frontier_medical:'
+local D=FrontierMedicalDamageRules
 local state,received,guard,failedPed=nil,0,nil,nil
+local retryAt,lastError,fallbackLast=0,'none',nil
 local pending,queued,queuedRaw,water,seq=nil,{},0,false,0
 local nextSend,fallAt,fatalAt=0,-10000,-10000
 local totalRaw,acknowledged,drowningReports,lastKind=0,0,0,'none'
@@ -19,7 +21,7 @@ local function playing() return LocalPlayer.state.IsInSession==true end
 local function alive(p) return p~=0 and not truth(get('IsEntityDead',p)) and not truth(get('IsPlayerDead',PlayerId())) end
 local function health(p) return get('GetEntityHealth',p) end
 local function maximum(p) return get('GetEntityMaxHealth',p,false) end
-local function valid(n) return type(n)=='number' and n%1==0 and n>=1 and n<=1000000 end
+local valid=D.valid
 local function setMax(p,n)
  local ok=call('SetEntityMaxHealth',p,n)
  if not ok then ok=pcall(Citizen.InvokeNative,0x166E7CF68597D8B5,p,n) end
@@ -31,7 +33,7 @@ local function setHealth(p,n)
  return ok
 end
 local function restore()
- local g=guard;guard=nil
+ local g=guard;guard=nil;fallbackLast=nil
  if not g or not DoesEntityExist(g.ped) then return true end
  local p=g.ped;local success=true
  for flag,prior in pairs(g.flags) do
@@ -56,15 +58,18 @@ local function restore()
  -- ped's current native buffer after restoring its cap.
  if alive(p) then
   local h,m=health(p),maximum(p)
-  if valid(h) and valid(m) and h>m then setHealth(p,m) end
+  if valid(h) and valid(m) then
+   local limit=g.active and m or math.min(m,g.originalHealth)
+   if h>limit then setHealth(p,limit) end
+  end
  end
- if not success then failedPed=p;log('WARNING: guarded settings restoration not verified; reconnect') end
+ if not success then failedPed=p;lastError='guard cleanup failed; reconnect';log('WARNING: '..lastError) end
  return success
 end
 local function setup(p)
  local m,h=maximum(p),health(p)
  if not valid(m) or not valid(h) then return false,'native health unavailable' end
- local g={ped=p,original=m,flags={},request=math.max(m,C.nativeBuffer)}
+ local g={ped=p,original=m,originalHealth=h,flags={},request=math.max(m,C.nativeBuffer)}
  guard=g
  for _,flag in ipairs(C.nativeFlags) do
   local prior=get('GetPedConfigFlag',p,flag,true)
@@ -75,12 +80,17 @@ local function setup(p)
  if m<g.request then
   g.changedMax=true
   local ok,actual=setMax(p,g.request);g.readback=actual
-  if not ok or not valid(actual) or actual<g.request or actual>g.request*2 then return false,'native buffer rejected: '..tostring(actual) end
+  if not ok or not D.acceptCap(g.request,actual) then return false,('native buffer rejected: requested=%s actual=%s setter=%s'):format(tostring(g.request),tostring(actual),tostring(ok)) end
  else g.readback=m end
- g.target=g.readback
- if not setHealth(p,g.target) or health(p)~=g.target then return false,'initial refill failed' end
- g.last=g.target;g.checkAt=GetGameTimer()+1000
- log(('Guarded adapter active: original=%d effective=%d'):format(m,g.target))
+ g.cap=g.readback
+ local filled=setHealth(p,g.cap)
+ local actual=health(p)
+ if not filled or not D.acceptFill(g.request,g.cap,actual) then
+  return false,('initial refill failed: requested=%s actual=%s cap=%s'):format(tostring(g.cap),tostring(actual),tostring(g.cap))
+ end
+ g.target=actual;g.last=actual;g.checkAt=GetGameTimer()+1000;g.active=true
+ fallbackLast=nil;lastError='none'
+ log(('Guarded adapter active: original=%d effective=%d refill=%d'):format(m,g.cap,g.target))
  return true
 end
 local function resetQueue()
@@ -94,12 +104,12 @@ local function acknowledge()
  pending=nil
 end
 function A.reset()
- restore();state=nil;received=0;resetQueue()
+ restore();state=nil;received=0;resetQueue();retryAt=0;fallbackLast=nil
 end
 function A.update(v)
  if type(v.token)~='string' or type(v.seq)~='number' or type(v.life)~='number' then return end
  if not state or state.token~=v.token then
-  restore();resetQueue();seq=v.seq
+  restore();resetQueue();seq=v.seq;retryAt=GetGameTimer()+C.guardStartupMs;fallbackLast=nil
  elseif pending and v.seq>=pending.seq then acknowledge();seq=math.max(seq,v.seq)
  else seq=math.max(seq,v.seq) end
  state=v;received=GetGameTimer()
@@ -172,19 +182,38 @@ local function send(now)
  TriggerServerEvent(E..'damageBatch',state.token,pending.seq,pending.hits,pending.drowning)
 end
 local function fail(p,reason)
- log('Guarded adapter unavailable: '..tostring(reason)..'; native death fallback remains active')
- restore();failedPed=p
+ lastError=tostring(reason)
+ log('Guarded adapter unavailable: '..lastError..'; recording native damage until retry')
+ restore()
+ retryAt=GetGameTimer()+C.guardRetryMs
 end
+local function sampleFallback(p,now)
+ local h,m=health(p),maximum(p)
+ if truth(get('IsPedFalling',p)) then fallAt=now end
+ if valid(h) and valid(m) then
+  local current={ped=p,cap=m,hp=h}
+  local lost=D.loss(fallbackLast,current)
+  if lost>0 then queueLoss(p,lost) end
+  fallbackLast=current
+ else fallbackLast=nil end
+ send(now)
+end
+-- VORP may finish setting health and cores several seconds after selection.
+-- Do not permanently disable the adapter just because it ran too early.
+AddEventHandler('vorp_core:Client:OnPlayerSpawned',function()
+ if not guard and not failedPed then retryAt=GetGameTimer()+250 end
+end)
 CreateThread(function()
  while true do
   if not playing() or not state or GetGameTimer()-received>C.stateTimeoutMs then
    if guard then restore() end
-   if not playing() then state=nil;resetQueue() end
+   fallbackLast=nil
+   if not playing() then state=nil;resetQueue();retryAt=0 end
    Wait(100)
   else
    local p=PlayerPedId();local now=GetGameTimer()
    if guard and guard.ped~=p then restore() end
-   if failedPed and failedPed~=p then failedPed=nil end
+   if failedPed and failedPed~=p then failedPed=nil;lastError='none';retryAt=now+C.guardStartupMs;fallbackLast=nil end
    if state.dead then
     if guard then restore() end
     -- Only a server-persisted medical death authorises native fatal damage.
@@ -195,15 +224,25 @@ CreateThread(function()
     Wait(50)
    elseif not alive(p) then
     if guard then restore() end
+    fallbackLast=nil
     Wait(100)
-   elseif failedPed==p then
-    -- Fail open to the native engine rather than silently granting immunity.
-    Wait(250)
+   elseif not guard and (failedPed==p or now<retryAt) then
+    -- No protection here: preserve measurable injuries even if guard setup
+    -- temporarily fails. Never repeatedly modify a ped after cleanup failure.
+    local ok,err=pcall(sampleFallback,p,now)
+    if not ok then lastError='fallback sample: '..tostring(err);fallbackLast=nil end
+    Wait(0)
    else
     local ok,err=pcall(function()
      if not guard then
+      sampleFallback(p,now)
       local started,why=setup(p)
-      if not started then fail(p,why);return end
+      if not started then
+       fail(p,why)
+       local h,m=health(p),maximum(p)
+       if valid(h) and valid(m) then fallbackLast={ped=p,cap=m,hp=h} end
+       return
+      end
      end
      local g=guard
      if truth(get('IsPedFalling',p)) then fallAt=now end
@@ -214,19 +253,20 @@ CreateThread(function()
      if now>=g.checkAt or h<g.last then
       local m=maximum(p)
       if not valid(m) then fail(p,'maximum health unavailable');return end
-      if m~=g.target then
-       local previous=g.target
+      if m~=g.cap then
+       local previous=g.cap
        if m<g.request then
         g.changedMax=true
         local applied,actual=setMax(p,g.request)
-        if not applied or not valid(actual) or actual<g.request or actual>g.request*2 then fail(p,'could not re-establish native buffer');return end
+        if not applied or not D.acceptCap(g.request,actual) then fail(p,('could not re-establish native buffer: actual=%s'):format(tostring(actual)));return end
         m=actual
        end
-       if m<g.request or m>g.request*2 then fail(p,'native maximum outside tested range');return end
-       g.readback=m;g.target=m;g.last=m
-       if not setHealth(p,m) or health(p)~=m then fail(p,'buffer refresh failed');return end
-       h=m
-       log(('Native buffer refreshed: %d -> %d'):format(previous,m))
+       if not D.acceptCap(g.request,m) then fail(p,'native maximum outside tested range: '..tostring(m));return end
+       g.readback=m;g.cap=m
+       local filled=setHealth(p,m);local actual=health(p)
+       if not filled or not D.acceptFill(g.request,m,actual) then fail(p,'buffer refresh failed: '..tostring(actual));return end
+       g.target=actual;g.last=actual;h=actual
+       log(('Native buffer refreshed: %d -> %d (refill %d)'):format(previous,m,actual))
       end
       if now>=g.checkAt then
        g.checkAt=now+1000
@@ -239,8 +279,9 @@ CreateThread(function()
      end
      if h<g.last then queueLoss(p,g.last-h) end
      if h<g.target then
-      if not setHealth(p,g.target) or health(p)~=g.target then fail(p,'refill not verified');return end
-      h=g.target
+      local filled=setHealth(p,g.target);local actual=health(p)
+      if not filled or not D.acceptFill(g.request,g.cap,actual) then fail(p,('refill not verified: wanted=%s actual=%s'):format(tostring(g.target),tostring(actual)));return end
+      g.target=actual;h=actual
      end
      g.last=h
      send(now)
@@ -252,10 +293,12 @@ CreateThread(function()
  end
 end)
 RegisterCommand('frontiermedicalstatus',function()
- local g=guard
- local msg=('adapter=%s native=%s/%s state=%s rawTrauma=%d acknowledged=%d drowningReports=%d lastKind=%s queuedRaw=%d pending=%s'):format(
-  g and 'guarded' or 'inactive',tostring(health(PlayerPedId())),tostring(maximum(PlayerPedId())),
-  state and (state.dead and 'dead' or state.down and 'unconscious' or 'conscious') or 'loading',totalRaw,acknowledged,drowningReports,lastKind,queuedRaw,tostring(pending~=nil))
+ local g=guard;local now=GetGameTimer();local p=PlayerPedId()
+ local mode=g and 'guarded' or state and playing() and alive(p) and not state.dead and now-received<=C.stateTimeoutMs and 'fallback' or 'inactive'
+ local msg=('adapter=%s native=%s/%s state=%s rawTrauma=%d acknowledged=%d drowningReports=%d lastKind=%s queuedRaw=%d pending=%s stateAgeMs=%s retryInMs=%d lastError=%s'):format(
+  mode,tostring(health(p)),tostring(maximum(p)),
+  state and (state.dead and 'dead' or state.down and 'unconscious' or 'conscious') or 'loading',totalRaw,acknowledged,drowningReports,lastKind,queuedRaw,tostring(pending~=nil),
+  state and tostring(now-received) or 'none',math.max(0,retryAt-now),lastError)
  log(msg);TriggerEvent('chat:addMessage',{args={'Medical',msg}})
 end,false)
 AddEventHandler('onClientResourceStop',function(r) if r==GetCurrentResourceName() then restore() end end)

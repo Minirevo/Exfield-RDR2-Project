@@ -6,6 +6,6 @@ description 'Frontier Medical: guarded native damage adapter and persistent phys
 dependencies {'/onesync','oxmysql','frontier_core','frontier_inventory','frontier_needs'}
 shared_scripts {'config.lua','model.lua'}
 server_scripts {'@oxmysql/lib/MySQL.lua','server.lua'}
-client_scripts {'damage_client.lua','client.lua'}
+client_scripts {'damage_rules.lua','damage_client.lua','client.lua'}
 ui_page 'html/index.html'
 files {'html/index.html','html/style.css','html/app.js'}
