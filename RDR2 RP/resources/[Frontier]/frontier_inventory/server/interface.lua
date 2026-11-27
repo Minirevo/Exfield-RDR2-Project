@@ -1144,9 +1144,18 @@ RegisterNetEvent(events..'weaponReload',function(token,request,version,remaining
  local ok,err=admit(src,gunLast,function()
   if lease(src,token)~=s or s.pending or s.releasing or version~=s.version then return false,'busy' end
   local n=WR.remaining(s.rounds,remaining);if n==nil then return false,'invalid_request' end
-  s.rounds=n
   local id,e,b=weaponState(src);if not id then return false,e end
-  if not boundWeapon(e,s) then return false,'conflict' end
+  local row=boundWeapon(e,s);if not row then return false,'conflict' end
+  local c,m=Inventory.Checkout(row,s);if not c or n>c.rounds then return false,'conflict' end
+  -- Save the latest count before beginning a cancellable retrieval.
+  if n<c.rounds then
+   c.rounds=n;row.metadata=json.encode(m)
+   local key=Inventory.Uuid();if not key then return false,'database_error' end
+   local saved,why=weaponCommit(src,id,s.generation,key,'weaponReloadObserve:'..s.instance..':'..n,e)
+   if not saved then return false,why end
+   if lease(src,token)~=s then return false,'character' end
+  end
+  s.rounds=n
   local def=WR.models[s.item]
   local from,quantity=WR.plan(e,b,def.ammo,s.rounds,def.capacity)
   if not from then return false,'no_ammo' end

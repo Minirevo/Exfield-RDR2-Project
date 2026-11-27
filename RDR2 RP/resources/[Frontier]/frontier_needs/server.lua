@@ -8,6 +8,10 @@ local function db(method,sql,params)
  return res
 end
 local function cid(src) return core:GetPlayerCharacterId(src) end
+local function legacyRunning()
+ local state=GetResourceState('vorp_metabolism')
+ return state=='started' or state=='starting'
+end
 local function ensure(id)
  return db('update','INSERT IGNORE INTO frontier_needs_state(character_id) VALUES (?)',{id})~=nil
 end
@@ -30,7 +34,7 @@ local function currentPed(src)
  return p~=0 and DoesEntityExist(p) and p or nil
 end
 local function state(src,id,sequence)
- if not ready or cid(src)~=id or not ensure(id) then return end
+ if not ready or legacyRunning() or cid(src)~=id or not ensure(id) then return end
  local row=read(id)
  if row and cid(src)==id then
   TriggerClientEvent('frontier_needs:state',src,sequence,{hunger=tonumber(row.hunger),thirst=tonumber(row.thirst),energy=tonumber(row.energy)})
@@ -43,7 +47,7 @@ RegisterNetEvent('frontier_needs:request',function(sequence)
  local id=cid(src);if id then state(src,id,sequence) end
 end)
 exports('QueueConsumption',function(src,id,item,key,actor,fp)
- if GetInvokingResource()~='frontier_inventory' or not ready or cid(src)~=id or actor~='player:'..id then return false,'forbidden' end
+ if GetInvokingResource()~='frontier_inventory' or not ready or legacyRunning() or cid(src)~=id or actor~='player:'..id then return false,'forbidden' end
  local e=C.effects[item]
  if not e or type(key)~='string' or #key>80 or type(fp)~='string' or #fp>8192 then return false,'invalid_request' end
  local p=currentPed(src)
@@ -119,9 +123,10 @@ MySQL.ready(function()
   ready=a~=nil and b~=nil
   if not ready then print('[frontier_needs] Apply sql/migrations/001_needs.sql');Wait(5000) end
  end
- CreateThread(function() while true do applyQueue();Wait(1000) end end)
+ CreateThread(function() while true do if not legacyRunning() then applyQueue() end;Wait(1000) end end)
  while true do
   Wait(C.tickMs)
-  for _,p in pairs(core:GetPlayers()) do tick(p) end
+  if legacyRunning() then print('[frontier_needs] Stop vorp_metabolism; Frontier decay is paused.')
+  else for _,p in pairs(core:GetPlayers()) do tick(p) end end
  end
 end)

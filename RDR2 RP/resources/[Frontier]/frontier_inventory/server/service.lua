@@ -266,6 +266,10 @@ function Inventory.Act(ctx, action, data)
         if not stack then return false,'not_found' end
         local weapon=Inventory.WeaponSessions[ctx.source]
         if weapon and weapon.id==id and stack.instance==weapon.instance then return false,'weapon_drawn' end
+        if FrontierWeaponRules.models[stack.item] then
+            local _,metadata=FrontierWeaponRules.loaded(stack,FrontierWeaponRules.models[stack.item])
+            if not metadata or metadata.checkout then return false,'orphan_checkout' end
+        end
         if from==to and data.slot==data.target then return false,'invalid_slot' end
         if to==equipment then
             local existing=to.slots[data.target]

@@ -25,9 +25,8 @@ local function boxes(id)
 end
 function Inventory.Checkout(row,s)
  local def=R.models[row.item]
- local loaded,m=def and R.loaded(row,def)
  if not def then return nil end
- loaded,m=R.loaded(row,def)
+ local loaded,m=R.loaded(row,def)
  local c=m and m.checkout
  if loaded~=0 or type(c)~='table' or c.token~=s.token or not R.integer(c.rounds,0,def.capacity) then return nil end
  return c,m

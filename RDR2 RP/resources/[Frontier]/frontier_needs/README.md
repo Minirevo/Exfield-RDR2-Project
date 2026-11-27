@@ -11,3 +11,5 @@ Normal holster/switch retains rounds for the session. Draw checkout and ammo deb
 
 ## Acceptance checks
 Test loaded holster and switch; partially fired gun reconnect while drawn and while holstered; both guns; full belt then satchel; full inventory overflow, claim and repeated relog; normal shutdown; check total ammo conservation and no duplicate credits. Food via wheel and inventory, clamp at 100%, hunger/thirst/energy decay, rest and running, zero needs and respawn, logout/reconnect persistence, queued receipt replay and failed inventory transaction, HUD values and resource stop. Existing VORP Metabolism must remain stopped. No live RedM or database integration tests performed during authoring.
+
+Standalone recovery regression fixture: `lua5.4 tests/ammo_recovery.lua` from frontier_inventory. Covers mixed loaded guns, belt/satchel priority, overflow, repeat recovery, and a simulated committed transaction whose response was lost. Needs refuses to decay or apply effects while legacy metabolism is still running.
