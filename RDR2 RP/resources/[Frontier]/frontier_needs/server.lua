@@ -208,7 +208,13 @@ local function tick(p)
  elseif not r.damageAt then r.damageAt=now
  elseif now-r.damageAt>=C.damageIntervalMs then
   r.damageAt=now
-  if not dead(ped,src) then TriggerClientEvent('frontier_needs:consequence',src,pct) end
+  if not dead(ped,src) then
+   if GetResourceState('frontier_medical')=='started' then
+    -- Medical owns physiological consequences; never damage its native buffer.
+    local ok,applied=pcall(function() return exports.frontier_medical:ApplyDeprivation(src,id,pct) end)
+    if not ok or not applied then print('[frontier_needs] Medical deprivation not applied; retry at next interval') end
+   else TriggerClientEvent('frontier_needs:consequence',src,pct) end
+  end
  end
 end
 local function clear(src)

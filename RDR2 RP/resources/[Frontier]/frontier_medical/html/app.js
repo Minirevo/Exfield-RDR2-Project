@@ -6,7 +6,7 @@ function select(r){region=r;render();}
 for(const [r,label] of Object.entries(labels)){const b=document.createElement('button');b.textContent=label;b.dataset.region=r;b.onclick=()=>select(r);document.querySelector('#regions').append(b);}
 document.querySelectorAll('svg [data-region]').forEach(n=>n.addEventListener('click',()=>select(n.dataset.region)));
 function render(){if(!data)return;
- document.querySelector('#patient').textContent=(data.self?'Self examination':'Patient #'+data.target)+' · '+data.status+' · Pulse: '+data.pulse;
+ document.querySelector('#patient').textContent=(data.self?'Self examination':'Patient #'+data.target)+' · '+data.status+' · Pulse: '+data.pulse+' · Breathing: '+(data.breathing||'Not checked');
  document.querySelector('#region').textContent=labels[region];
  const w=data.wounds?.[region];
  document.querySelector('#details').textContent=w?[w.kind,w.severity,w.bleeding&&'Bleeding: '+w.bleeding,w.fracture].filter(Boolean).join('\n'):'Not examined.';
