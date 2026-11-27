@@ -1,6 +1,6 @@
 'use strict';
 const root=document.querySelector('#wheel'), ring=document.querySelector('#ring');
-const name=document.querySelector('#name'), detail=document.querySelector('#detail');
+const nameEl=document.querySelector('#name'), detail=document.querySelector('#detail');
 let slots=[], selected=0, loaded=false;
 const ns='http://www.w3.org/2000/svg';
 function add(tag,attrs,text){const n=document.createElementNS(ns,tag);for(const [k,v] of Object.entries(attrs))n.setAttribute(k,v);if(text!==undefined)n.textContent=text;ring.append(n);return n;}
@@ -20,7 +20,7 @@ function render(){
  }
  add('circle',{cx:250,cy:250,r:107,fill:'#171613ed',stroke:'#7d6d59','stroke-width':1});
  const s=slots[selected-1];
- name.textContent=!loaded?'Loading…':selected===7?'Put tool away':selected===8?'Cancel':selected===0?'Keep current':s?.name||'Empty';
+ nameEl.textContent=!loaded?'Loading…':selected===7?'Put tool away':selected===8?'Cancel':selected===0?'Keep current':s?.name||'Empty';
  const condition=s&&Number.isFinite(s.uses)&&s.maxUses>0?Math.round(s.uses/s.maxUses*100):null;
  detail.textContent=!loaded?'Reading toolbelt':selected>=1&&selected<=6&&s?.kind?('Quality '+(s.quality??'—')+'% · Condition '+(condition??'—')+'%'):'Release TAB';
 }
@@ -31,4 +31,4 @@ window.addEventListener('message',({data:d})=>{
  if(d.type==='select'&&!root.hidden){selected=Number(d.slot)||0;render();}
  if(d.type==='close')root.hidden=true;
 });
-fetch('https://'+GetParentResourceName()+'/ready',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).catch(()=>{});
+async function ready(){try{const res=await fetch('https://'+GetParentResourceName()+'/ready',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});if(!res.ok)throw Error('ready '+res.status);await res.json();}catch(e){setTimeout(ready,500);}}ready();
