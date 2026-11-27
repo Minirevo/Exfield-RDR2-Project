@@ -58,48 +58,96 @@ function L.spawnLease(w,src)
  spawnStatus(w.id,'Spawning wagon and assigned horses...',src)
  TriggerClientEvent(L.E..'spawn',src,lease)
 end
-RegisterNetEvent(L.E..'spawnAck',function(id,token,net,horseNets)
- local src=source;if not L.id(id) then return end
+-- Receive acknowledgements immediately, even while the database worker is busy.
+-- Only the valid lease holder may submit; one immutable network team per lease.
+RegisterNetEvent(L.E..'spawnAck',function(id,token,net,horseNets,models)
+ local src=tonumber(source);if not L.id(id) or not src then return end
  local lease=L.leases[id];local registered=L.entities[id]
  if registered and registered.token==token and registered.spawnSource==src and registered.net==net and DoesEntityExist(registered.vehicle) then
   TriggerClientEvent(L.E..'spawnAccepted',src,token);return
  end
- if not lease or lease.src~=src or lease.token~=token or lease.untilTime<L.now() then return end
- if L.busy or not L.ready then return end
- L.run(src,function()
-  local valid,why=pcall(function()
-  L.check(L.leases[id]==lease and not L.entities[id],'Spawn lease expired')
-  L.check(type(net)=='number' and net%1==0 and type(horseNets)=='table' and #horseNets==#lease.horses,'Invalid spawn response')
-  local vehicle=NetworkGetEntityFromNetworkId(net)
-  L.check(vehicle~=0 and DoesEntityExist(vehicle) and GetEntityType(vehicle)==2 and NetworkGetEntityOwner(vehicle)==src and (GetEntityModel(vehicle)&0xffffffff)==modelHash(lease.model),'Invalid wagon entity')
-  L.check(L.dist(GetEntityCoords(vehicle),lease)<15,'Wagon spawn outside lease')
-  local horses={};local seen={[vehicle]=true}
-  for i,n in ipairs(horseNets) do
-   L.check(type(n)=='number' and n%1==0,'Invalid horse entity')
-   local h=NetworkGetEntityFromNetworkId(n)
-   L.check(h~=0 and not seen[h] and DoesEntityExist(h) and GetEntityType(h)==1 and NetworkGetEntityOwner(h)==src and (GetEntityModel(h)&0xffffffff)==modelHash(lease.horses[i].model) and L.dist(GetEntityCoords(h),lease)<25,'Invalid draft horse')
-   seen[h]=true;horses[#horses+1]=h
+ if not lease or tonumber(lease.src)~=src or lease.token~=token or lease.untilTime<L.now() then return end
+ if type(net)~='number' or net%1~=0 or net<=0 or net>65535 or type(horseNets)~='table' or #horseNets~=#lease.horses or type(models)~='table' or #models~=#lease.horses+1 then
+  spawnStatus(id,'Invalid spawn acknowledgement payload',src);return
+ end
+ local seen={[net]=true}
+ for _,n in ipairs(horseNets) do
+  if type(n)~='number' or n%1~=0 or n<=0 or n>65535 or seen[n] then spawnStatus(id,'Invalid or duplicate draft network ID',src);return end
+  seen[n]=true
+ end
+ for _,m in ipairs(models) do if type(m)~='number' or m%1~=0 or m==0 or m< -2147483648 or m>4294967295 then spawnStatus(id,'Invalid client model hash',src);return end end
+ if lease.ack then return end
+ lease.ack={src=src,net=net,horseNets=horseNets,models=models}
+ spawnStatus(id,'Server received wagon team; checking network entities',src)
+end)
+local function validateTeamEntity(net,src,lease,expected,clientModel,kind,label,radius)
+ local entity=NetworkGetEntityFromNetworkId(net)
+ L.check(entity and entity~=0 and DoesEntityExist(entity),label..' net='..net..' not yet visible to server')
+ local actualType=GetEntityType(entity)
+ L.check(actualType==kind,label..' entity type='..tostring(actualType)..' expected='..kind)
+ local actualOwner=tonumber(NetworkGetEntityOwner(entity))
+ L.check(actualOwner==src,label..' network owner='..tostring(actualOwner)..' expected='..src)
+ if type(GetEntityRoutingBucket)=='function' then
+  L.check(GetEntityRoutingBucket(entity)==0,label..' outside world routing bucket')
+ end
+ local p=GetEntityCoords(entity);local distance=L.dist(p,lease)
+ L.check(distance<=radius,label..' distance from lease='..('%.1f'):format(distance))
+ local serverModel=GetEntityModel(entity)
+ local ok,fallback=L.R.networkModel(serverModel,expected,clientModel,kind==1)
+ L.check(ok,label..' server model='..tostring(serverModel)..' expected='..tostring(expected)..' client='..tostring(clientModel))
+ return entity,fallback
+end
+local function registerTeam(id,lease)
+ local ack=lease.ack;local src=ack.src
+ L.check(L.leases[id]==lease and not L.entities[id] and lease.untilTime>=L.now(),'Spawn lease expired')
+ L.check(L.near(src,lease,C.StreamDistance),'Spawn player left saved location or world')
+ local v=validateTeamEntity(ack.net,src,lease,modelHash(lease.model),ack.models[1],2,'Wagon',15)
+ local horses,unverified={},{};local seen={[v]=true}
+ for i,n in ipairs(ack.horseNets) do
+  local h,fb=validateTeamEntity(n,src,lease,modelHash(lease.horses[i].model),ack.models[i+1],1,'Horse slot '..lease.horses[i].slot_no,25)
+  L.check(not seen[h],'Duplicate resolved entity');seen[h]=true;horses[i]=h
+  if fb then unverified[#unverified+1]=lease.horses[i].slot_no end
+ end
+ -- Reject any entity already registered to a different wagon team.
+ for otherId,other in pairs(L.entities) do
+  L.check(not seen[other.vehicle],'Vehicle already assigned to another wagon')
+  for _,h in ipairs(other.horses or {}) do L.check(not seen[h],'Horse already assigned to another wagon') end
+ end
+ if type(SetEntityOrphanMode)=='function' then
+  pcall(SetEntityOrphanMode,v,2);for _,h in ipairs(horses) do pcall(SetEntityOrphanMode,h,2) end
+ end
+ -- Initial cargo interaction state publication is separate from registration.
+ for i,h in ipairs(horses) do Entity(h).state:set('frontierDraftHorse',{wagon=id,horse=lease.horses[i].horse_id},true) end
+ Entity(v).state:set('frontierWagonId',id,true)
+ L.entities[id]={vehicle=v,horses=horses,net=ack.net,seen=L.now(),lastSave=0,token=lease.token,spawnSource=src,publishPending=true}
+ L.leases[id]=nil
+ TriggerClientEvent(L.E..'spawnAccepted',src,lease.token)
+ local suffix=#unverified>0 and (' (RedM horse model unavailable on server, slots '..table.concat(unverified,',')..'; client model verified)') or ''
+ spawnStatus(id,'Wagon registered and ready'..suffix,src)
+end
+-- Process queued acknowledgements independently of contract and inventory polling.
+-- No SQL awaits inside registerTeam; identity changes remain serialized.
+CreateThread(function()
+ while true do
+  Wait(200)
+  if L.ready and not L.busy then
+   L.run(nil,function()
+    for id,lease in pairs(L.leases) do
+     if lease.ack and lease.untilTime>=L.now() then
+      local ok,why=pcall(registerTeam,id,lease)
+      if not ok then spawnStatus(id,'Registration pending: '..tostring(why),lease.ack.src) end
+     end
+    end
+   end)
   end
-  if type(SetEntityOrphanMode)=='function' then
-   pcall(SetEntityOrphanMode,vehicle,2);for _,h in ipairs(horses) do pcall(SetEntityOrphanMode,h,2) end
-  end
-  Entity(vehicle).state:set('frontierWagonId',id,true)
-  for i,h in ipairs(horses) do Entity(h).state:set('frontierDraftHorse',{wagon=id,horse=lease.horses[i].horse_id},true) end
-  L.entities[id]={vehicle=vehicle,horses=horses,net=net,seen=L.now(),lastSave=0,token=token,spawnSource=src}
-  L.leases[id]=nil
-  TriggerClientEvent(L.E..'spawnAccepted',src,token)
-  spawnStatus(id,'Wagon registered and ready',src)
-  local w=L.wagon(id);local published,err=pcall(L.broadcastWagon,w)
-  if not published then print('[frontier_logistics/spawn] Cargo state publication: '..tostring(err)) end
-  end)
-  if not valid then spawnStatus(id,'Registration pending: '..tostring(why),src) end
- end)
+ end
 end)
 RegisterNetEvent(L.E..'spawnFailed',function(id,token,why)
  local src=source;local a=L.leases[id]
  if a and a.src==src and a.token==token then
-  a.untilTime=L.now()+8
-  spawnStatus(id,'Spawn failed: '..tostring(why):sub(1,200),src)
+  a.ack=nil;a.untilTime=L.now()+8
+  local previous=(L.spawnStatus or {})[id] or ''
+  spawnStatus(id,'Spawn failed: '..tostring(why):sub(1,140)..' | last server check: '..previous:sub(1,180),src)
  end
 end)
 function L.deploy(src,w)
@@ -146,6 +194,10 @@ function L.worldTick()
  for _,w in ipairs(L.Q("SELECT * FROM fl_wagons WHERE state='world'")) do
   local e=L.entities[w.id]
   if e and DoesEntityExist(e.vehicle) then
+   if e.publishPending then
+    local ok,why=pcall(L.broadcastWagon,w)
+    if ok then e.publishPending=nil else spawnStatus(w.id,'Registered; cargo state pending: '..tostring(why)) end
+   end
    local p=L.point(w);local health=GetEntityHealth(e.vehicle)
    -- A missing entity is not destruction. Only a live server-observed dead vehicle qualifies.
    if L.now()-e.seen>=10 and type(health)=='number' and health<=0 then L.wreck(w,p)

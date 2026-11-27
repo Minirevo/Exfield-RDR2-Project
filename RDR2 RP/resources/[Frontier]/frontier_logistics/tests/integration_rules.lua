@@ -19,3 +19,14 @@ for n=1,100 do
  assert(sum==n*90)
 end
 print('Logistics configuration and recovery invariants passed')
+
+-- Known animal hash issue is not permission to accept a mismatching wagon or horse.
+local horse=1066034872;local wagon=-1753201617
+local ok,fallback=R.networkModel(0,horse,horse,true);assert(ok and fallback)
+assert(not R.networkModel(0,wagon,wagon,false))
+assert(not R.networkModel(123,horse,horse,true))
+assert(not R.networkModel(0,horse,123,true))
+assert(not R.networkModel(nil,horse,horse,true))
+assert(R.networkModel(2541765679,wagon,wagon,false))
+assert(R.networkModel(horse,horse,horse,true))
+print('Network model validation rules passed')
