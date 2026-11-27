@@ -2,7 +2,8 @@ local C,M=FrontierMedicalConfig,FrontierMedicalModel
 local core,inv=exports.frontier_core,exports.frontier_inventory
 local E='frontier_medical:'
 local ready=false
-local cache,views,working,lastHit,lastOpen,lastAction={},{},{},{},{},{}
+local cache,views,working,reports,lastOpen,lastAction={},{},{},{},{},{}
+local reportCounter=0
 local function db(method,sql,args)
  local ok,v=pcall(MySQL[method].await,sql,args)
  if not ok then print('[frontier_medical] Database error: '..method);return nil end
@@ -18,7 +19,8 @@ local function death(src)
   local c=u and u.getUsedCharacter
   if c then return c.isdead end
  end)
- return ok and (v==true or v==1 or v=='1' or v=='true')
+ if not ok or v==nil then return nil end
+ return v==true or v==1 or v=='1' or v=='true'
 end
 local function read(id)
  local row=db('single','SELECT state,revision FROM frontier_medical_state WHERE character_id=?',{id})
@@ -29,18 +31,32 @@ local function read(id)
  if not row then return end
  local ok,s=pcall(json.decode,row.state)
  if not ok or type(s)~='table' or type(s.wounds)~='table' then return end
- return s,tonumber(row.revision)
+ return M.normalize(s),tonumber(row.revision)
 end
 local function write(id,s,rev)
  local n=db('update','UPDATE frontier_medical_state SET state=?,revision=revision+1 WHERE character_id=? AND revision=?',{json.encode(s),id,rev})
  return n==1
 end
 local function notify(src,msg) TriggerClientEvent(E..'notice',src,tostring(msg)) end
-local function publish(src,id,s)
+local function reportSession(src,id,life)
+ local q=reports[src]
+ if not q or q.id~=id or q.life~=life then
+  reportCounter=reportCounter+1
+  q={id=id,life=life,token=('%d:%d:%d:%d'):format(src,os.time(),GetGameTimer(),reportCounter)}
+  reports[src]=q
+ end
+ return q
+end
+local function publish(src,id,s,rev)
  if cid(src)~=id then return end
- local r=M.restrictions(s);cache[src]={id=id,state=s}
+ local previous=cache[src]
+ if previous and previous.id==id and previous.revision>rev then return end
+ local q=reportSession(src,id,s.life)
+ local r=M.restrictions(s)
+ r.life=s.life;r.token=q.token;r.seq=s.reportToken==q.token and (s.reportSeq or 0) or 0
+ r.dead=s.dead==true;r.fatal=r.dead and not s.nativeSeen
+ cache[src]={id=id,state=s,revision=rev}
  TriggerClientEvent(E..'state',src,r)
- if s.blood<=0 and not s.dead then TriggerClientEvent(E..'fatal',src) end
 end
 local function nearby(a,b)
  if not cid(a) or not cid(b) or GetPlayerRoutingBucket(a)~=GetPlayerRoutingBucket(b) then return false end
@@ -65,19 +81,47 @@ end)
 exports('CanAct',function(src)
  local ok,r=capable(src);return ok,ok and nil or r
 end)
-RegisterNetEvent(E..'hit',function(region,kind,damage)
- local src=source
- if not ready or legacy() or death(src) or type(damage)~='number' or damage%1~=0 or damage<1 or damage>C.maxDamageReport then return end
- if type(region)~='string' or #region>24 or type(kind)~='string' or #kind>16 then return end
- local now=GetGameTimer();if lastHit[src] and now-lastHit[src]<C.reportInterval then return end
- lastHit[src]=now
- local id=cid(src);if not id or GetPlayerPed(src)==0 then return end
- -- Only the reporting player's own character can be injured; report is bounded.
- for i=1,4 do
-  local s,rev=read(id);if not s or cid(src)~=id then return end
-  if not M.injure(s,region,kind,damage,os.time()) then return end
-  if write(id,s,rev) then publish(src,id,s);return end
+-- One bounded, sequenced batch per 500ms; only the victim's own character.
+-- Apply the batch and its receipt in the same revision CAS, including retries.
+RegisterNetEvent(E..'damageBatch',function(token,seq,hits,drowning)
+ local src=source;local q=reports[src]
+ if not ready or legacy() or death(src) or not q or q.token~=token or q.id~=cid(src) or q.busy then return end
+ if type(seq)~='number' or seq%1~=0 or seq<1 or seq>2147483646 or not M.validReport(hits,drowning) then return end
+ local now=GetGameTimer()
+ if q.lastAt and now-q.lastAt<C.reportMinMs then return end
+ q.lastAt=now;q.busy=true
+ local ok,err=pcall(function()
+  for i=1,5 do
+   local s,rev=read(q.id)
+   if not s or reports[src]~=q or cid(src)~=q.id or s.life~=q.life then return end
+   local last=s.reportToken==q.token and (s.reportSeq or 0) or 0
+   if seq<=last then TriggerClientEvent(E..'damageAck',src,token,seq);return end
+   if seq~=last+1 or s.dead or death(src) then return end
+   local timestamp=os.time()
+   for _,hit in ipairs(hits) do if not s.dead then M.applyRaw(s,hit.region,hit.kind,hit.raw,timestamp) end end
+   if drowning and not s.dead then M.drown(s,timestamp) end
+   s.reportToken=q.token;s.reportSeq=seq
+   if write(q.id,s,rev) then
+    if reports[src]==q and cid(src)==q.id then
+     publish(src,q.id,s,rev+1);TriggerClientEvent(E..'damageAck',src,token,seq)
+    end
+    return
+   end
+  end
+ end)
+ q.busy=false
+ if not ok then print('[frontier_medical] Damage batch failed: '..tostring(err)) end
+end)
+-- Trusted Needs server calls this on its existing starvation/dehydration cadence.
+exports('ApplyDeprivation',function(src,id,pct)
+ if GetInvokingResource()~='frontier_needs' or not ready or legacy() or cid(src)~=id or death(src) then return false end
+ if type(pct)~='number' or pct%1~=0 or pct<1 or pct>5 then return false end
+ for i=1,5 do
+  local s,rev=read(id);if not s or cid(src)~=id or s.dead then return false end
+  if not M.deprive(s,pct,os.time()) then return false end
+  if write(id,s,rev) then publish(src,id,s,rev+1);return true end
  end
+ return false
 end)
 local function queue(id,s,item,region,key,actor,fp)
  if not M.eligible(s,item,region,os.time()) then return false,'No eligible injury' end
@@ -110,7 +154,7 @@ local function applyTreatments()
    JOIN frontier_inventory_receipts r ON r.request_key=t.request_key AND r.completed=TRUE AND BINARY r.actor=BINARY t.actor AND BINARY r.fingerprint=BINARY t.fingerprint
    SET m.state=?,m.revision=m.revision+1,t.applied=TRUE WHERE t.request_key=? AND t.applied=FALSE AND m.revision=?]],{json.encode(s),t.request_key,rev})
    if n and n>0 and changed then
-    for _,p in pairs(core:GetPlayers()) do if p.frontierCharacterId==t.patient then publish(p.source,t.patient,s);notify(p.source,C.items[t.item]..' applied') end end
+    for _,p in pairs(core:GetPlayers()) do if p.frontierCharacterId==t.patient then publish(p.source,t.patient,s,rev+1);notify(p.source,C.items[t.item]..' applied') end end
    end
   end
  end
@@ -126,7 +170,7 @@ local function snapshot(src,v)
  if not validView(src,v) then return end
  local s=read(v.patient);if not s then return end
  local wounds={};for r in pairs(v.examined) do wounds[r]=M.exam(s,r,os.time()) end
- TriggerClientEvent(E..'view',src,{ticket=v.ticket,target=v.target,self=src==v.target,status=M.status(s,os.time()),wounds=wounds,pulse=v.pulse and M.pulse(s,os.time()) or 'Not checked',busy=working[src]~=nil})
+ TriggerClientEvent(E..'view',src,{ticket=v.ticket,target=v.target,self=src==v.target,status=M.status(s,os.time()),wounds=wounds,pulse=v.pulse and M.pulse(s,os.time()) or 'Not checked',breathing=v.breathing and M.breathing(s) or 'Not checked',busy=working[src]~=nil})
 end
 RegisterNetEvent(E..'open',function(target)
  local src=source
@@ -150,6 +194,7 @@ RegisterNetEvent(E..'action',function(ticket,action,region,item)
   if type(region)~='string' or not validRegion(region) then return end
   v.examined[region]=true;return snapshot(src,v)
  elseif action=='pulse' then v.pulse=true;return snapshot(src,v)
+ elseif action=='breathing' then v.breathing=true;return snapshot(src,v)
  elseif action~='treat' or type(region)~='string' or not C.items[item] or not v.examined[region] then return end
  local s=read(v.patient);if not s or not M.eligible(s,item,region,os.time()) then return notify(src,'No eligible injury for that treatment') end
  local ok,has=inv:HasItem(src,item,1);if not ok or not has then return notify(src,'Missing '..C.items[item]) end
@@ -178,17 +223,18 @@ local function tick(p)
  if cid(src)~=id then return end
  local s,rev=read(id);if not s then return end
  local before=json.encode(s)
- if death(src) then s.dead=true;s.down=true
- elseif s.dead then s=M.new(s.life+1)
- else
+ local providerDead=death(src)
+ local wasDead=s.dead
+ s=M.reconcileProvider(s,providerDead)
+ if not wasDead and not s.dead then
   local n=db('single','SELECT hunger,thirst FROM frontier_needs_state WHERE character_id=?',{id})
   M.tick(s,os.time(),n and tonumber(n.hunger)>100 and tonumber(n.thirst)>100)
  end
  if cid(src)~=id then return end
- if before~=json.encode(s) and not write(id,s,rev) then return end
- publish(src,id,s)
+ if before~=json.encode(s) then if not write(id,s,rev) then return end;rev=rev+1 end
+ publish(src,id,s,rev)
 end
-local function clear(src) cache[src]=nil;views[src]=nil;working[src]=nil;lastHit[src]=nil;lastOpen[src]=nil;lastAction[src]=nil end
+local function clear(src) cache[src]=nil;views[src]=nil;working[src]=nil;reports[src]=nil;lastOpen[src]=nil;lastAction[src]=nil end
 AddEventHandler('playerDropped',function() clear(tonumber(source) or source) end)
 AddEventHandler('frontier:playerUnloaded',function(p) clear(p.source) end)
 MySQL.ready(function()
@@ -200,7 +246,7 @@ MySQL.ready(function()
  while true do
   if not legacy() then
    for _,p in pairs(core:GetPlayers()) do local ok,err=pcall(tick,p);if not ok then print('[frontier_medical] '..tostring(err)) end end
-  else cache={} end
+  else cache={};reports={} end
   for src,v in pairs(views) do
    if not validView(src,v) then views[src]=nil;working[src]=nil;TriggerClientEvent(E..'closeView',src,v.ticket) end
   end

@@ -2,7 +2,6 @@ local C,E=FrontierMedicalConfig,'frontier_medical:'
 local state,received,ticket=nil,0,nil
 local opened=false
 local requestAt=0
-local ignore,ignoreUntil=0,0
 local function truth(v) return v==true or v==1 end
 local function native(name,...)
  local fn=_G[name];if type(fn)~='function' then return nil end
@@ -20,57 +19,13 @@ RegisterNetEvent(E..'notice',function(msg)
 end)
 RegisterNetEvent(E..'state',function(v)
  if source~=65535 or not playing() or type(v)~='table' then return end
- state=v;received=GetGameTimer()
+ local previous=state
+ state=v;received=GetGameTimer();FrontierMedicalAdapter.update(v)
+ if previous and previous.life==v.life and previous.down~=v.down and not v.dead then
+  local msg=v.down and 'You have lost consciousness.' or 'You have regained consciousness.'
+  TriggerEvent('chat:addMessage',{args={'Medical',msg}})
+ end
  if v.down and opened then close() end
-end)
-RegisterNetEvent(E..'fatal',function()
- if source~=65535 or not playing() then return end
- local p=PlayerPedId()
- if p~=0 and not truth(IsEntityDead(p)) then SetEntityHealth(p,0,0) end
-end)
-AddEventHandler('frontier_medical:ignoreDamage',function(amount)
- if type(amount)=='number' and amount>0 then ignore=amount;ignoreUntil=GetGameTimer()+1000 end
-end)
-local function region(p)
- local ok,bone=native('GetPedLastDamageBone',p)
- if truth(ok) and type(bone)=='number' then return C.bones[bone] or 'chest' end
- return 'chest'
-end
-local known={}
-for _,name in ipairs({'WEAPON_REVOLVER_CATTLEMAN','WEAPON_REPEATER_WINCHESTER','WEAPON_REVOLVER_DOUBLEACTION','WEAPON_REVOLVER_SCHOFIELD','WEAPON_PISTOL_VOLCANIC','WEAPON_RIFLE_BOLTACTION','WEAPON_RIFLE_SPRINGFIELD','WEAPON_REPEATER_CARBINE','WEAPON_REPEATER_HENRY','WEAPON_SHOTGUN_DOUBLEBARREL','WEAPON_BOW'}) do known[joaat(name)]=true end
-local function kind(p,fall)
- -- A cause-of-death hash can be stale on live peds. Prefer a recent weapon damage flag when exposed.
- for hash in pairs(known) do
-  if truth(native('HasEntityBeenDamagedByWeapon',p,hash,0)) then return 'penetrating' end
- end
- if truth(native('HasEntityBeenDamagedByWeapon',p,joaat('WEAPON_MELEE_KNIFE'),0)) then return 'cut' end
- local hash=native('GetPedCauseOfDeath',p)
- if known[hash] then return 'penetrating' end
- if hash==joaat('WEAPON_MELEE_KNIFE') then return 'cut' end
- return fall and 'fall' or 'blunt'
-end
-CreateThread(function()
- local lastPed,lastHealth,fallAt=0,nil,-10000
- while true do
-  Wait(400)
-  local p=PlayerPedId()
-  if not playing() or p==0 or truth(IsEntityDead(p)) then lastPed=0;lastHealth=nil;ignore=0
-  else
-   if truth(native('IsPedFalling',p)) or truth(native('IsPedRagdoll',p)) then fallAt=GetGameTimer() end
-   local h=GetEntityHealth(p);local max=GetEntityMaxHealth(p)
-   if lastPed==p and lastHealth and h<lastHealth and max>0 then
-    local lost=lastHealth-h
-    if ignoreUntil>=GetGameTimer() then local amount=math.min(ignore,lost);lost=lost-amount;ignore=ignore-amount else ignore=0 end
-    if lost>0 then
-     local dmg=math.max(1,math.min(C.maxDamageReport,math.floor(lost/max*100+.5)))
-     TriggerServerEvent(E..'hit',region(p),kind(p,GetGameTimer()-fallAt<1500),dmg)
-     native('ClearEntityLastWeaponDamage',p)
-     native('ClearPedLastDamageBone',p)
-    end
-   end
-   lastPed=p;lastHealth=h
-  end
- end
 end)
 local sprint=joaat('INPUT_SPRINT')
 local blocked={sprint,joaat('INPUT_MOVE_LR'),joaat('INPUT_MOVE_UD'),joaat('INPUT_ATTACK'),joaat('INPUT_AIM'),joaat('INPUT_JUMP'),joaat('INPUT_MELEE_ATTACK'),joaat('INPUT_ENTER'),joaat('INPUT_RELOAD')}
@@ -115,5 +70,5 @@ RegisterNUICallback('action',function(d,cb)
  if opened and ticket and type(d)=='table' then TriggerServerEvent(E..'action',ticket,d.action,d.region,d.item) end
  cb({ok=true})
 end)
-RegisterNetEvent('vorp:SelectedCharacter',function() state=nil;received=0;requestAt=0;if opened then close() end end)
+RegisterNetEvent('vorp:SelectedCharacter',function() state=nil;received=0;requestAt=0;FrontierMedicalAdapter.reset();if opened then close() end end)
 AddEventHandler('onClientResourceStop',function(r) if r==GetCurrentResourceName() and opened then close() end end)

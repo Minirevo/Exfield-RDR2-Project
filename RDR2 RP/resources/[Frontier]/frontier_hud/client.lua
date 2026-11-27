@@ -47,7 +47,7 @@ CreateThread(function()
    if p~=0 and not truth(IsPauseMenuActive()) and not truth(IsHudHidden()) and not truth(IsRadarHidden()) and not truth(NetworkIsInSpectatorMode()) and showVorp then
     local n=needs()
     SendNUIMessage({type='status',cash=balances and balances.cash,bank=balances and balances.bank,
-     health=pct(native('GetEntityHealth',p),native('GetEntityMaxHealth',p)),
+     medical=GetResourceState('frontier_medical')=='started',health=GetResourceState('frontier_medical')~='started' and pct(native('GetEntityHealth',p),native('GetEntityMaxHealth',p)) or nil,
      endurance=pct(n.stamina,1000),deadeye=core(p,2),hunger=pct(n.hunger,1000),thirst=pct(n.thirst,1000),energy=pct(n.energy,1000),
      dead=truth(IsEntityDead(p))})
    else SendNUIMessage({type='hide'}) end

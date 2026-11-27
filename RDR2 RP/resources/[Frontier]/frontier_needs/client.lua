@@ -54,13 +54,12 @@ CreateThread(function()
  end
 end)
 RegisterNetEvent('frontier_needs:consequence',function(percent)
- if source~=65535 or not playing() or not alive(PlayerPedId()) then return end
+ if source~=65535 or not playing() or not alive(PlayerPedId()) or GetResourceState('frontier_medical')=='started' then return end
  if type(percent)~='number' or percent<=0 or percent>C.starvePct+C.dehydratePct then return end
  local p=PlayerPedId()
  local health,maximum=GetEntityHealth(p),GetEntityMaxHealth(p)
  if type(health)=='number' and type(maximum)=='number' and health>0 and maximum>0 then
   local damage=math.max(1,math.ceil(maximum*percent/100))
-  TriggerEvent('frontier_medical:ignoreDamage',damage)
   SetEntityHealth(p,math.max(0,health-damage),0)
  end
 end)

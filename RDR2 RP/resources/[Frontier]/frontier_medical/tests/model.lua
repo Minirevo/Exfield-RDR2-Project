@@ -19,4 +19,42 @@ s.blood=300;M.updateDown(s,20);assert(s.down)
 s.blood=500;s.pain=0;M.updateDown(s,21);assert(not s.down)
 s.blood=0;M.updateDown(s,22);assert(M.status(s,22)=='dead' and not M.treat(s,'bandage','chest',22))
 assert(M.new(s.life+1).life==2)
-print('Medical model checks passed')
+-- Existing V1 JSON remains readable, with new reserves initialized once.
+local old=M.normalize({life=1,blood=500,pain=20,wounds={},dead=false})
+assert(old.blood==500 and old.oxygen==1000 and old.trauma==0 and not old.nativeSeen)
+assert(M.normalize({dead=true}).nativeSeen==true)
+-- The lab's melee scale must cause downing even without catastrophic bleeding.
+s=M.new()
+for i=1,14 do assert(M.applyRaw(s,'chest','blunt',12,0)) end
+assert(s.down and not s.dead and s.trauma==672)
+for i=1,7 do M.applyRaw(s,'chest','blunt',12,0) end
+assert(s.dead and s.down and not s.nativeSeen and M.status(s,0)=='dead')
+assert(not M.applyRaw(s,'chest','blunt',12,0))
+-- The provider must observe native death before an alive report starts a new life.
+assert(M.reconcileProvider(s,false)==s and s.dead and not s.nativeSeen)
+assert(M.reconcileProvider(s,nil)==s)
+assert(M.reconcileProvider(s,true)==s and s.nativeSeen)
+assert(M.reconcileProvider(s,nil)==s and s.dead)
+local respawned=M.reconcileProvider(s,false)
+assert(respawned.life==s.life+1 and not respawned.dead and respawned.trauma==0)
+local bypass=M.new();assert(M.reconcileProvider(bypass,true)==bypass and bypass.dead and bypass.nativeSeen)
+s=M.new();M.applyRaw(s,'chest','penetrating',29,0)
+assert(s.trauma==116 and M.bleed(s)>0)
+s=M.new()
+for i=1,9 do M.drown(s,i) end
+assert(s.down and s.oxygen==325 and not next(s.wounds))
+M.tick(s,10,true);assert(s.oxygen==325)
+for i=15,40,5 do M.tick(s,i,true) end
+assert(s.oxygen>=650 and not s.down)
+s=M.new();for i=1,14 do M.drown(s,i) end;assert(s.dead and s.oxygen==0)
+s=M.new();for i=1,17 do assert(M.deprive(s,5,i)) end
+assert(s.down and not s.dead and not next(s.wounds))
+for i=18,20 do M.deprive(s,5,i) end;assert(s.dead)
+assert(M.validReport({{region='chest',kind='blunt',raw=12}},false))
+assert(M.validReport({},true) and not M.validReport({},false))
+assert(not M.validReport({{region='x',kind='blunt',raw=12}},false))
+assert(not M.validReport({{region='chest',kind='blunt',raw=2001}},false))
+assert(not M.validReport({{region='chest',kind='blunt',raw=0/0}},false))
+local tooMuch={};for i=1,5 do tooMuch[i]={region='chest',kind='blunt',raw=2000} end
+assert(not M.validReport(tooMuch,false))
+print('Medical model checks passed: V1 injuries, guarded raw trauma, drowning, deprivation, report bounds')
