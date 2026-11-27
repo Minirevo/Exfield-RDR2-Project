@@ -1,6 +1,9 @@
 -- Station recipes are separate from legacy orders, which retain their frozen snapshots.
 StationConfig={maxQueue=3,maxBatches=10,tickMs=1000,equipment=75,recipes={},items={}}
 local C=StationConfig
+C.roundMs=3000 -- 2.4s sweep, 0.6s result display
+C.sweepMs=2400
+C.targetWidth=.12
 -- Same material tiers and quality curve as gathering. Regression test compares both.
 local materials={crude={label='Crude iron',uses=60,yield=.85},iron={label='Iron',uses=120,yield=1},steel={label='Steel',uses=220,yield=1.2},hardened={label='Hardened steel',uses=350,yield=1.4}}
 local toolNames={axe='Axe',pickaxe='Pickaxe',shovel='Shovel',pan='Gold pan',knife='Hunting knife',rod='Fishing rod'}
@@ -78,6 +81,14 @@ recipe('extract','apothecary','medicine','Prepare herbal extract',{gather_herbs=
 recipe('tonic','apothecary','medicine','Prepare tonic',{prod_herbal_extract=1,prod_bottle=1},'tonic',1,8,90)
 recipe('ring','jewellery','jewellery','Make gold ring',{prod_gold=1},'prod_gold_ring',1,10,180,true)
 
+-- Complexity determines the number of timed actions per batch, not the number of output units.
+local tiers={saw=1,handle=1,nails=1,smelt=2,copper=2,refine_gold_dust=2,refine_gold_flakes=2,refine_gold_nugget=2,refine_gold_ore=2,steel=2,horseshoe=2,tan_pelt=2,tan_hide=2,tan_farm_hide=2,leather_strap=1,leather_pouch=3,carpentry_chest=3,table=3,chair=2,cook=1,cook_farm=1,meal=2,preserve_fish=1,bake=2,mill=1,brick=2,shape=1,pottery=3,glass=2,bottle=2,extract=1,tonic=3,ring=4}
+local toolTiers={crude=2,iron=3,steel=4,hardened=5}
+for id,r in pairs(C.recipes) do
+ r.rounds=assert(r.material and toolTiers[r.material] or tiers[id],'Missing production tier: '..id)
+ r.manual=r.rounds*C.roundMs/1000
+end
+
 StationRules={}
 local R=StationRules
 R.encodeTool=encodeTool
@@ -90,6 +101,17 @@ end
 function R.score(elapsed,target)
  return math.max(0,1-math.abs((elapsed%1600)/1600-target)/.185)
 end
+-- A single sweep per round, with a hard time window. Missing rounds count as zero.
+function R.roundScore(elapsed,round,roundMs,sweepMs,target)
+ local relative=elapsed-(round-1)*roundMs
+ if relative<0 or relative>sweepMs then return nil end
+ return math.max(0,1-math.abs(relative/sweepMs-target)/.18)
+end
+function R.batchScore(scores,batch,rounds)
+ local total=0
+ for i=(batch-1)*rounds+1,batch*rounds do total=total+(scores[i] or 0) end
+ return total/rounds
+end
 function R.materials(recipe,n)
  local out={}
  for id,count in pairs(recipe.inputs) do out[#out+1]={id=id,count=count*n} end
@@ -99,7 +121,8 @@ function R.outputs(recipe,n,level,mode,score,equipment,maker)
  if not recipe.quality then return {{id=recipe.output,count=recipe.quantity*n}} end
  local out={}
  for j=1,recipe.quantity*n do
-  local q=mode=='npc' and R.npcQuality(level) or R.manualQuality(level,score,equipment)
+  local performance=type(score)=='table' and (score[math.floor((j-1)/recipe.quantity)+1] or 0) or score
+  local q=mode=='npc' and R.npcQuality(level) or R.manualQuality(level,performance,equipment)
   local meta=recipe.quality=='tool' and encodeTool(recipe.material,q,maker) or json.encode({quality=q,manufacturer=maker})
   out[#out+1]={id=recipe.output,count=1,metadata=meta}
  end

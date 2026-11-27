@@ -50,8 +50,8 @@ RegisterNetEvent(E..'work',function(d)
  if source~=65535 or work then return end
  close()
  if IsNuiFocused() or IsPedDeadOrDying(PlayerPedId(),true) or IsPedOnMount(PlayerPedId()) or IsPedInAnyVehicle(PlayerPedId(),false) then TriggerServerEvent(E..'cancel',d.id);return end
- work=d;d.started=GetGameTimer()
- ui({type='stationWork',label=d.label,ms=d.ms,target=d.target,width=.11})
+ work=d;d.started=GetGameTimer();d.hits={}
+ ui({type='stationWork',label=d.label,ms=d.ms,targets=d.targets,rounds=d.rounds,batches=d.batches,roundMs=d.roundMs,sweepMs=d.sweepMs,width=d.width})
  pcall(TaskStartScenarioInPlace,PlayerPedId(),GetHashKey(scenarios[d.kind] or 'WORLD_HUMAN_HAMMER'),d.ms,true,false,false,false)
  CreateThread(function()
   local lastSend=0
@@ -59,7 +59,13 @@ RegisterNetEvent(E..'work',function(d)
    local elapsed=GetGameTimer()-d.started
    if IsPedDeadOrDying(PlayerPedId(),true) or IsControlJustPressed(0,0x156F7119) then TriggerServerEvent(E..'cancel',d.id);clear();return end
    DisableControlAction(0,0xD9D0E1C0,true)
-   if not d.hit and elapsed<d.ms and IsDisabledControlJustPressed(0,0xD9D0E1C0) then d.hit=true;TriggerServerEvent(E..'strike',d.id);ui({type='stationStrike'}) end
+   local round=math.floor(elapsed/d.roundMs)+1
+   local relative=elapsed-(round-1)*d.roundMs
+   if round<=#d.targets and relative<=d.sweepMs and not d.hits[round] and IsDisabledControlJustPressed(0,0xD9D0E1C0) then
+    d.hits[round]=true
+    TriggerServerEvent(E..'strike',d.id,round)
+    ui({type='stationStrike',round=round,position=relative/d.sweepMs})
+   end
    if elapsed>=d.ms+200 and elapsed-lastSend>=1000 then
     lastSend=elapsed;TriggerServerEvent(E..'finish',d.id)
    end
@@ -67,6 +73,9 @@ RegisterNetEvent(E..'work',function(d)
    Wait(0)
   end
  end)
+end)
+RegisterNetEvent(E..'strikeResult',function(id,round,score)
+ if source==65535 and work and work.id==id then ui({type='stationStrikeResult',round=round,score=score}) end
 end)
 RegisterNetEvent(E..'end',function(msg)if source==65535 then clear();if msg~='' then tell(msg) end end end)
 AddEventHandler('onClientResourceStop',function(r)if r==GetCurrentResourceName() then close();clear() end end)

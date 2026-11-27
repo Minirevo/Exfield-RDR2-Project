@@ -20,12 +20,12 @@ let lastOrder;
 function button(label,fn){const b=document.createElement('button');b.type='button';b.textContent=label;b.onclick=fn;b.disabled=waiting||!!retry;return b}
 function recipe(){return rows(state?.recipes).find(r=>r.id===$('st-recipe').value)}
 function preview(){
- const r=recipe(), npc=$('st-mode').value==='npc', n=npc?Number($('st-batches').value):1;
- $('st-batches').disabled=!npc||waiting;$('st-input').disabled=npc||waiting;$('st-output').disabled=npc||waiting;
+ const r=recipe(), npc=$('st-mode').value==='npc', n=Number($('st-batches').value);
+ $('st-batches').disabled=waiting||!!retry;$('st-input').disabled=npc||waiting;$('st-output').disabled=npc||waiting;
  if(!r)return;
  const counts=npc||$('st-input').value==='storage'?state.inputCounts:state.bag;
  const needs=Object.entries(r.inputs).map(([id,count])=>{const have=Number(counts?.[id]||0);return id.replaceAll('_',' ')+' '+have+' / '+count*n});
- $('st-preview').textContent=needs.join(' · ')+' | '+r.quantity*n+' × '+r.output.replaceAll('_',' ')+' | '+sec((npc?r.npc:r.manual)*n)+(npc?' | wage '+money(Math.ceil(r.npc*n*state.wage/state.wageInterval)):' | skill '+state.skill);
+ $('st-preview').textContent=needs.join(' · ')+' | '+r.quantity*n+' × '+r.output.replaceAll('_',' ')+' | '+sec((npc?r.npc:r.manual)*n)+(npc?' | wage '+money(Math.ceil(r.npc*n*state.wage/state.wageInterval)):' | '+r.rounds*n+' QTE round'+(r.rounds*n===1?'':'s')+' ('+r.rounds+'/batch) | skill '+state.skill);
  const valid=Object.entries(r.inputs).every(([id,count])=>Number(counts?.[id]||0)>=count*n);
  $('st-start').disabled=waiting||!!retry||!valid||!Number.isInteger(n)||n<1||n>state.maxBatches||(npc&&!state.canNpc);
 }
@@ -60,14 +60,16 @@ function render(){
 }
 $('st-close').onclick=()=>post('stationClose');$('st-refresh').onclick=()=>request('refresh');
 $('st-retry').onclick=()=>{if(retry)request(retry.action,retry.data,true)};
-$('st-start').onclick=()=>{if(recipe())request('start',{recipe:recipe().id,mode:$('st-mode').value,batches:$('st-mode').value==='npc'?Number($('st-batches').value):1,input:$('st-input').value,output:$('st-output').value})};
+$('st-start').onclick=()=>{if(recipe())request('start',{recipe:recipe().id,mode:$('st-mode').value,batches:Number($('st-batches').value),input:$('st-input').value,output:$('st-output').value})};
 $('st-link').onclick=()=>request('link',{input:$('st-link-input').value,output:$('st-link-output').value});
 $('st-owner').onclick=()=>{request('setup',{company:$('st-company').value})};
 $('st-hire').onclick=()=>request(state.station.employee?'dismiss':'hire');
 $('st-release').onclick=()=>{request('release')};
 for(const id of ['st-recipe','st-batches','st-mode','st-input','st-output'])$(id).addEventListener('change',preview);
+$('st-batches').addEventListener('input',preview);
 document.addEventListener('keydown',e=>{if((active||working)&&e.key==='Escape'){e.stopImmediatePropagation();e.preventDefault();if(active)post('stationClose')}},true);
-function hide(){active=false;working=false;root.hidden=true;hud.hidden=true;old.hidden=false;document.body.hidden=true;cancelAnimationFrame(frame)}
+let qte=null;
+function hide(){qte=null;active=false;working=false;root.hidden=true;hud.hidden=true;old.hidden=false;document.body.hidden=true;cancelAnimationFrame(frame)}
 window.addEventListener('message',({data:d})=>{
  if(d.type==='stationOpen'){
   active=true;working=false;state=d.snapshot;waiting=false;retry=null;old.hidden=true;hud.hidden=true;root.hidden=false;document.body.hidden=false;status('');render();
@@ -77,11 +79,31 @@ window.addEventListener('message',({data:d})=>{
  else if(d.type==='stationClose'){hide()}
  else if(d.type==='stationWork'){
   active=false;working=true;root.hidden=true;old.hidden=true;hud.hidden=false;document.body.hidden=false;
-  $('st-work-label').textContent=d.label;$('st-instruction').textContent='Press SPACE in the green zone · Backspace to cancel';
-  $('st-target').style.left=(d.target-d.width)*100+'%';$('st-target').style.width=d.width*200+'%';
-  const start=performance.now();let last=0;cancelAnimationFrame(frame);
-  const tick=t=>{last=Math.max(0,t-start);$('st-progress').value=Math.min(1,last/d.ms);$('st-marker').style.left=(last%1600)/16+'%';if(last<d.ms&&working)frame=requestAnimationFrame(tick)};frame=requestAnimationFrame(tick);
- }else if(d.type==='stationStrike'){$('st-instruction').textContent='Strike recorded'}
+  $('st-work-label').textContent=d.label;
+  const start=performance.now();cancelAnimationFrame(frame);
+  qte={round:0,hits:{},results:{}};
+  $('st-round-dots').replaceChildren(...Array.from({length:d.rounds},()=>{const dot=document.createElement('span');dot.className='st-dot';return dot}));
+  const tick=t=>{
+   if(!working||!qte)return;
+   const elapsed=Math.max(0,t-start),round=Math.min(d.targets.length,Math.floor(elapsed/d.roundMs)+1);
+   const relative=elapsed-(round-1)*d.roundMs, batch=Math.floor((round-1)/d.rounds)+1, localRound=(round-1)%d.rounds+1;
+   if(qte.round!==round){
+    qte.round=round;$('st-target').style.left=(d.targets[round-1]-d.width)*100+'%';$('st-target').style.width=d.width*200+'%';
+    $('st-round').textContent='Batch '+batch+' / '+d.batches+' · Round '+localRound+' / '+d.rounds;
+   }
+   const hit=qte.hits[round],score=qte.results[round],expired=relative>d.sweepMs;
+   $('st-marker').style.left=(hit===undefined?Math.min(1,relative/d.sweepMs):hit)*100+'%';
+   $('st-instruction').textContent=score!==undefined?(score>=.75?'Excellent strike':score>0?'Strike recorded':'Missed'):(hit!==undefined?'Checking strike…':expired?'Missed · next round shortly':'Press SPACE in the green zone');
+   $('st-instruction').dataset.result=score!==undefined?(score>=.75?'good':score>0?'partial':'miss'):(expired&&hit===undefined?'miss':'');
+   [...$('st-round-dots').children].forEach((dot,i)=>{
+    const k=(batch-1)*d.rounds+i+1,s=qte.results[k];
+    dot.dataset.state=s!==undefined?(s>=.75?'good':s>0?'partial':'miss'):k<round?'miss':k===round?(expired&&hit===undefined?'miss':'active'):'pending';
+   });
+   $('st-progress').value=Math.min(1,elapsed/d.ms);
+   if(elapsed<d.ms)frame=requestAnimationFrame(tick);else $('st-instruction').textContent='Finishing production…';
+  };frame=requestAnimationFrame(tick);
+ }else if(d.type==='stationStrike'&&qte){qte.hits[d.round]=d.position}
+ else if(d.type==='stationStrikeResult'&&qte){qte.results[d.round]=d.score}
  else if(d.type==='stationEnd'){hide()}
 });
 // Refresh is explicit so it never resets partially edited ownership or storage links.
