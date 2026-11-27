@@ -18,3 +18,7 @@ assert(R.assemblyQuality({{quality=50,quantity=1},{quality=80,quantity=2}})==70)
 assert(C.Models.crate==C.Models.recoveryCrate and not C.Models.timber)
 for _,v in pairs(C.Wagons) do assert(v.horses>=1 and v.horses<=4 and v.grams>0 and v.slots>0) end
 print('Logistics rules passed')
+
+local tested=C.ValidatedModels.supplywagon
+assert(tested.wagonHash==-1753201617 and #tested.harnesses==2 and #tested.cargo==2)
+for i,v in ipairs(tested.cargo) do local p=C.CargoOffsets.supplywagon[i];assert(v.x==p.x and v.y==p.y and v.z==p.z) end

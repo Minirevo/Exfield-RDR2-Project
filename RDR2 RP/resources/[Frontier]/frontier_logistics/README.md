@@ -35,3 +35,6 @@ NPC journeys and insurance are subsequent scope.
 References for experimental native calls:
 - https://www.rdr2mods.com/nativedb/index/_namespace79/_0x316cdb5b6e8f4110-r6425/ (horse, wagon, harness index)
 - https://the-lab.oxdev.fr/redm/natives/vehicle/create_vehicle (draft animal suppression flag)
+
+## Verified local model test (2026-11-27)
+Server owner reports all tests working. Export identifies `supplywagon` (signed hash -1753201617) with two `a_c_horse_shire_darkbay` horses (hash 1066034872), harness slots 0 and 1. Two `p_crate02x` attachments verified at (0,-0.99,0.2) and (0,0,0.2), heading 0. Crate dimensions 1.16285 × 0.83414 × 1.00064 m. Configuration now records the measured offsets instead of applying generic positions to this wagon. Only these exact harness/offset combinations are established by the export; no barrel/sack offsets or other wagon models are inferred. Local success does not yet verify networked entity persistence, migration of ownership, or theft/damage across clients.
