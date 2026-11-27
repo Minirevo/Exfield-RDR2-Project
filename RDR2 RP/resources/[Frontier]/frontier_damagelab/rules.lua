@@ -5,6 +5,18 @@ L.modes={observe={},refill={refill=true},buffer={refill=true,buffer=true},guarde
 L.flags={263,340,388}
 L.bufferMax=5000
 L.durationMs=180000
+-- Only these fixed test scenarios are permitted. No arbitrary models or targets.
+L.npcs={
+ melee={model='A_M_M_VALTOWNFOLK_01',distance=4.0},
+ knife={model='A_M_M_VALTOWNFOLK_01',distance=4.0,weapon='WEAPON_MELEE_KNIFE'},
+ revolver={model='A_M_M_VALTOWNFOLK_01',distance=8.0,weapon='WEAPON_REVOLVER_CATTLEMAN'},
+ wolf={model='A_C_WOLF',distance=5.0,animal=true}
+}
+function L.npcAction(name)
+ if type(name)~='string' then return nil end
+ if name=='stop' or name=='clear' then return 'clear' end
+ return L.npcs[name] and name or nil
+end
 -- Always return explicit values, even if a native is unavailable or throws.
 -- tostring(readNative(...)) must never become tostring() with zero arguments.
 function L.readNative(fn,...)

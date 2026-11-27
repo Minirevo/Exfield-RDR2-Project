@@ -31,3 +31,14 @@ Reference: https://github.com/femga/rdr3_discoveries/tree/master/AI/EVENTS and h
 Standalone pure helper test: lua5.4 tests/rules.lua. No production medical changes in this PR.
 
 Troubleshooting: the server now logs a separate `Client START` acknowledgement once setup succeeds. Result includes matching trial ID, stop reason and last diagnostic error; absent optional natives are logged as nil rather than terminating a trial. Compare only matching trial IDs. If guarded fails, send the exact flag number or wanted/actual health value from the result.
+
+
+## Controlled NPC trials
+Once Client START is confirmed, stand on flat open ground and run:
+- /damagelabnpc melee — unarmed human.
+- /damagelabnpc knife — same human with knife.
+- /damagelabnpc revolver — same human with revolver.
+- /damagelabnpc wolf — wolf.
+- /damagelabnpc stop or /damagelabnpc clear — cancel pending spawn and delete attacker, without ending health trial.
+
+Only one attacker at a time; a new spawn replaces the previous attacker. Server checks trial ID, START acknowledgement, ACE, isolation and expiry. Model load and ground probe have deadlines. The ped is client-local to avoid OneSync entity lockdown and replication problems; other players will not see the attacker, and this cannot validate network-only damage events. The explicit attack task targets the tester only, but local ambient AI can react to it. No global relationship groups are changed. NPC is cleared when trial ends, player dies, attacker dies or moves beyond 30m, resource stops or mode switches; failed deletions retry while the resource runs. The log marks npc-melee, npc-knife, npc-revolver or npc-wolf automatically. F8 and server console report spawn/weapon/ground failures. Native model loading, AI combat and cleanup remain live tests. If attacker does not fight, report NPC spawn and damage logs.

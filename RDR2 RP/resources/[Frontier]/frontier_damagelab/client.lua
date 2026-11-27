@@ -36,10 +36,30 @@ local function localIsolation()
  end
  return true
 end
+-- Client-local mission ped: no network entity, no inventory integration.
+-- Retain a failed deletion for cleanup retry rather than losing its handle.
+local pendingDelete={}
+local function deleteNpc(p)
+ if not p or p==0 then return true end
+ if not DoesEntityExist(p) then pendingDelete[p]=nil;return true end
+ call('ClearPedTasksImmediately',p)
+ call('FreezeEntityPosition',p,true)
+ call('SetEntityAsMissionEntity',p,true,true)
+ call('DeletePed',p)
+ if DoesEntityExist(p) then call('DeleteEntity',p) end
+ if DoesEntityExist(p) then pendingDelete[p]=true;return false end
+ pendingDelete[p]=nil;return true
+end
+local function clearNpc(t)
+ t.npcGeneration=(t.npcGeneration or 0)+1
+ local p=t.npc;t.npc=nil
+ if p and not deleteNpc(p) then log('WARNING: NPC deletion pending; retrying') end
+end
 local function finish(reason)
  local t=trial
  if not t then return end
  trial=nil
+ clearNpc(t)
  local p=t.ped
  -- Undo only settings this trial changed. Never resurrect an engine-dead ped.
  if DoesEntityExist(p) then
@@ -121,10 +141,108 @@ RegisterNetEvent(E..'start',function(id,mode,duration)
  end
  log(('START trial=%s mode=%s original=%s/%s actual=%s/%s invincible=%s'):format(id,mode,tostring(h),tostring(m),tostring(t.lastHealth),tostring(maximum(p)),tostring(get('GetPlayerInvincible',PlayerId()))))
  TriggerServerEvent(E..'started',id,t.lastHealth,maximum(p))
- log('Use /damagelabmark npc-punch (or any test label), /damagelabstatus and /damagelab off.')
+ log('Use /damagelabnpc melee|knife|revolver|wolf|clear, /damagelabstatus and /damagelab off.')
 end)
 RegisterNetEvent(E..'stop',function(id,reason)
  if source==65535 and trial and trial.id==id then finish(tostring(reason)) end
+end)
+local function npcResult(t,action,msg)
+ msg=tostring(msg):gsub('[%c]',' '):sub(1,220)
+ log(('NPC [%s] trial=%s %s'):format(action,t.id,msg))
+ if trial==t then TriggerServerEvent(E..'npcResult',t.id,action,msg) end
+end
+local function npcCurrent(t,generation)
+ return trial==t and t.npcGeneration==generation and PlayerPedId()==t.ped
+  and LocalPlayer.state.IsInSession and localIsolation() and not dead(t.ped) and GetGameTimer()<t.expires
+end
+local function spawnNpc(t,action)
+ clearNpc(t)
+ if next(pendingDelete) then return npcResult(t,action,'Previous attacker cleanup pending; retry shortly') end
+ local generation=t.npcGeneration
+ local cfg=L.npcs[action]
+ local model=joaat(cfg.model)
+ t.mark='npc-'..action
+ log(('MARK trial=%s mode=%s mark=%s t=%d'):format(t.id,t.mode,t.mark,GetGameTimer()))
+ CreateThread(function()
+  local p
+  local ok,err=pcall(function()
+   if not truth(IsModelValid(model)) then error('Invalid model '..cfg.model) end
+   RequestModel(model)
+   local deadline=GetGameTimer()+6000
+   while not HasModelLoaded(model) and GetGameTimer()<deadline and npcCurrent(t,generation) do Wait(25) end
+   if not npcCurrent(t,generation) then return end
+   if not HasModelLoaded(model) then error('Model load timed out') end
+   local pos=GetOffsetFromEntityInWorldCoords(t.ped,0.0,cfg.distance,0.0)
+   RequestCollisionAtCoord(pos.x,pos.y,pos.z)
+   local found,z
+   deadline=GetGameTimer()+2000
+   repeat
+    found,z=get('GetGroundZFor_3dCoord',pos.x,pos.y,pos.z+3.0,false)
+    if not truth(found) then Wait(50) end
+   until truth(found) or GetGameTimer()>=deadline or not npcCurrent(t,generation)
+   if not npcCurrent(t,generation) then return end
+   if not truth(found) or type(z)~='number' or math.abs(z-pos.z)>4.0 then error('No suitable ground ahead; move to open flat ground') end
+   p=CreatePed(model,pos.x,pos.y,z,(GetEntityHeading(t.ped)+180.0)%360.0,false,false,false,false)
+   if not p or p==0 or not DoesEntityExist(p) then error('CreatePed failed') end
+   t.npc=p
+   SetEntityAsMissionEntity(p,true,true)
+   -- Apply a visible metaped outfit, as in the existing farming resource.
+   pcall(Citizen.InvokeNative,0x283978A15512B2FE,p,true)
+   if truth(get('NetworkGetEntityIsNetworked',p)) then error('Unexpected networked NPC; refusing trial') end
+   SetBlockingOfNonTemporaryEvents(p,true)
+   call('SetPedFleeAttributes',p,0,false)
+   call('SetPedCombatAttributes',p,46,true)
+   if not cfg.animal then
+    if cfg.weapon then
+     local hash=joaat(cfg.weapon)
+     GiveWeaponToPed(p,hash,action=='revolver' and 24 or 1,true,false,0,false,0.5,1.0,0,false,0.0,false)
+     if not truth(HasPedGotWeapon(p,hash,0,false)) then error('Native weapon grant failed: '..cfg.weapon) end
+     SetCurrentPedWeapon(p,hash,true,0,false,false)
+    else
+     SetCurrentPedWeapon(p,joaat('WEAPON_UNARMED'),true,0,false,false)
+    end
+   end
+   if not npcCurrent(t,generation) then deleteNpc(p);return end
+   -- Explicit target, no global relationship changes or area-wide hostile tasks.
+   if action=='melee' or cfg.animal then
+    local tasked=call('TaskPutPedDirectlyIntoMelee',p,t.ped,0.0,-1.0,0.0,0)
+    if not tasked then TaskCombatPed(p,t.ped,0,16) end
+   else TaskCombatPed(p,t.ped,0,16) end
+   npcResult(t,action,('spawned local ped=%s model=%s; attack task issued'):format(tostring(p),cfg.model))
+  end)
+  call('SetModelAsNoLongerNeeded',model)
+  if not ok then
+   if t.npc==p then t.npc=nil end
+   if p then deleteNpc(p) end
+   npcResult(t,action,'FAILED: '..tostring(err))
+  end
+ end)
+end
+RegisterNetEvent(E..'npc',function(id,action)
+ local t=trial
+ if source~=65535 or not t or t.id~=id or not L.npcAction(action) then return end
+ if action=='clear' then
+  clearNpc(t);npcResult(t,'clear','attack stopped; attacker removed or pending cleanup')
+ elseif L.npcs[action] then spawnNpc(t,action) end
+end)
+CreateThread(function()
+ while true do
+  Wait(500)
+  for p in pairs(pendingDelete) do deleteNpc(p) end
+  local t=trial
+  if t and t.npc then
+   local p=t.npc
+   if not DoesEntityExist(p) or truth(get('IsEntityDead',p)) then
+    clearNpc(t);npcResult(t,'clear','attacker dead or no longer exists')
+   elseif PlayerPedId()~=t.ped or dead(t.ped) then clearNpc(t)
+   else
+    local a,b=GetEntityCoords(p),GetEntityCoords(t.ped)
+    if (a.x-b.x)^2+(a.y-b.y)^2+(a.z-b.z)^2>900 then
+     clearNpc(t);npcResult(t,'clear','attacker exceeded test range (30m)')
+    end
+   end
+  end
+ end
 end)
 -- These are independent candidate signals. Never add their values together as damage.
 local function eventHash(name) return joaat(name)&0xffffffff end
@@ -213,5 +331,8 @@ CreateThread(function()
  end
 end)
 AddEventHandler('onClientResourceStop',function(name)
- if name==GetCurrentResourceName() then finish('resource stopped') end
+ if name==GetCurrentResourceName() then
+  finish('resource stopped')
+  for p in pairs(pendingDelete) do deleteNpc(p) end
+ end
 end)

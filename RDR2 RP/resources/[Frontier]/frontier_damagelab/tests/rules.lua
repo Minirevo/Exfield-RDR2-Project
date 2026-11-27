@@ -15,4 +15,10 @@ assert(tostring(L.readNative(function() error('native failure') end))=='nil')
 assert(tostring(L.readNative(function() end))=='nil')
 local a,b=L.readNative(function(n) return false,n end,42)
 assert(a==false and b==42)
-print('Damage lab rules and missing-native regression passed')
+for _,mode in ipairs({'melee','knife','revolver','wolf'}) do
+ assert(L.npcAction(mode)==mode and type(L.npcs[mode].model)=='string')
+end
+assert(L.npcAction('clear')=='clear' and L.npcAction('stop')=='clear')
+assert(L.npcAction('arbitrary')==nil and L.npcAction({})==nil)
+assert(L.npcs.melee.weapon==nil and L.npcs.wolf.animal and L.npcs.revolver.weapon)
+print('Damage lab rules, NPC whitelist and missing-native regression passed')

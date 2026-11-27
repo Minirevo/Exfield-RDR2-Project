@@ -42,6 +42,26 @@ RegisterCommand('damagelab',function(src,args)
  TriggerClientEvent(E..'start',src,id,mode,L.durationMs)
  notice(src,'Trial granted: '..mode..' (180s). F8 console for full diagnostics.')
 end,false)
+RegisterCommand('damagelabnpc',function(src,args)
+ if src==0 then return notice(src,'Use /damagelabnpc in-game.') end
+ local action=L.npcAction((args[1] or ''):lower())
+ if not action then return notice(src,'NPC modes: melee, knife, revolver, wolf, stop, clear') end
+ local s=sessions[src]
+ if not s then return notice(src,'Start a Damage Lab trial first.') end
+ -- Emergency cleanup always remains available even if permission was revoked.
+ if action=='clear' then TriggerClientEvent(E..'npc',src,s.id,'clear');return end
+ if not authorized(src) or not isolated() or not s.started or GetGameTimer()>=s.expires then return notice(src,'Need an active authorised and initialised trial.') end
+ local now=GetGameTimer()
+ if s.lastNpc and now-s.lastNpc<1500 then return notice(src,'Wait briefly before changing attacker.') end
+ s.lastNpc=now
+ TriggerClientEvent(E..'npc',src,s.id,action)
+ notice(src,'NPC requested: '..action)
+end,false)
+RegisterNetEvent(E..'npcResult',function(id,action,msg)
+ local src=source;local s=sessions[src]
+ if not s or s.id~=id or not L.npcAction(action) or type(msg)~='string' or #msg>240 or msg:find('[%c]') then return end
+ notice(src,('NPC [%s] trial=%s %s'):format(action,id,msg))
+end)
 RegisterNetEvent(E..'started',function(id,h,m)
  local src=source;local s=sessions[src]
  if not s or s.id~=id or s.started or type(h)~='number' or type(m)~='number' or not (h>0 and m>0 and h<=1000000 and m<=1000000) then return end
