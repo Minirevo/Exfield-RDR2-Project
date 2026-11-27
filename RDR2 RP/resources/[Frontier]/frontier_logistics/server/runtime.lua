@@ -101,7 +101,9 @@ end
 function L.ownerWagons(src)
  local who=L.cid(src);local out={}
  for _,w in ipairs(L.Q("SELECT * FROM fl_wagons WHERE state<>'destroyed' ORDER BY name,id")) do
-  if w.owner_type=='character' and w.owner_id==who or w.owner_type=='company' and L.right(src,w,'trade') then out[#out+1]=w end
+  if w.owner_type=='character' and w.owner_id==who or w.owner_type=='company' and L.right(src,w,'trade') then
+   w.spawnStatus=(L.spawnStatus or {})[w.id];w.spawned=L.entities[w.id]~=nil;out[#out+1]=w
+  end
  end
  return out
 end

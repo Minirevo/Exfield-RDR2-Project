@@ -133,6 +133,7 @@ RegisterNetEvent(L.E..'request',function(ticket,seq,a,d)
     return 'Purchase queued'
    elseif a=='assign' and v.mode=='registry' then L.assign(src,w,d.horses);return 'Harnesses updated'
    elseif a=='deploy' and v.mode=='registry' then L.deploy(src,w);return 'Deployment requested'
+   elseif a=='retrySpawn' and v.mode=='registry' then return L.retrySpawn(src,w)
    elseif a=='store' and v.mode=='cargo' then L.store(src,w);L.views[src]=nil;TriggerClientEvent(L.E..'close',src);return 'Wagon stored'
    elseif a=='lock' and (v.mode=='cargo' or v.mode=='locked') then
     L.check(w and L.right(src,w,'trade') and L.stationary(w) and not L.wagonBusy(w.id),'Management permission required')
@@ -173,6 +174,9 @@ end,false)
 RegisterCommand('logisticsdiagnostics',function(src)
  if src~=0 and not L.Core:HasPermission(src,'frontier.logistics.admin') then return end
  L.run(src==0 and nil or src,function()
+  for _,w in ipairs(L.Q("SELECT * FROM fl_wagons WHERE state='world' ORDER BY id LIMIT 100")) do
+   local a=L.assignments(w.id);L.tell(src==0 and nil or src,('%s wagon=%s horses=%d at %.1f %.1f %.1f | %s'):format(w.id,w.model,#a,w.x,w.y,w.z,(L.spawnStatus or {})[w.id] or (L.entities[w.id] and 'registered' or 'waiting for nearby player')))
+  end
   for _,j in ipairs(L.Q("SELECT id,kind,state,issue FROM fl_jobs WHERE state NOT IN ('complete','cancelled','failed') LIMIT 100")) do L.tell(src==0 and nil or src,j.id..' '..j.kind..' '..j.state..' '..j.issue) end
   for _,c in ipairs(L.Q("SELECT id,state,issue FROM fl_contracts WHERE state NOT IN ('complete','cancelled','failed') LIMIT 100")) do L.tell(src==0 and nil or src,c.id..' freight '..c.state..' '..c.issue) end
  end)

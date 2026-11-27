@@ -25,7 +25,7 @@ LogisticsConfig={
     EnabledModels={supplywagon=true},
     PriceMinor={supplywagon=10500},
     Depots={{name='Valentine freight yard',x=-366.0,y=789.0,z=116.2,heading=90},{name='Blackwater freight yard',x=-864.5,y=-1367.0,z=43.3,heading=0}},
-    DepotDistance=12,InteractionDistance=5,LoadDistance=10,StreamDistance=150,SpawnLeaseSeconds=25,
+    DepotDistance=12,InteractionDistance=5,LoadDistance=10,StreamDistance=150,SpawnLeaseSeconds=60,
     LockpickMs=4500,LockpickItem='logistics_lockpick',
     Assembly={logistics_frame=1,logistics_wheel=4,logistics_axle=2,logistics_fittings=4,logistics_harness=2},
     Repair={logistics_wheel=1,logistics_fittings=1},
