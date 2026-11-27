@@ -278,7 +278,7 @@ CreateThread(function()
       lastReport=now
       local n=count(s)
       if n>s.upper then abandon('Unexpected native ammunition; weapon isolated.')
-      elseif n<s.upper then s.upper=n;TriggerServerEvent(E..'weaponReport',s.lease,s.version,n) end
+      else s.upper=n;TriggerServerEvent(E..'weaponReport',s.lease,s.version,n) end
      end
     end
    end

@@ -200,12 +200,3 @@ end
 
 RegisterCommand('toolholster',function()if not active then TriggerServerEvent(E..'holsterTool') end end,false)
 
--- Only a successful server inventory commit applies nutrition. VORP remains the needs engine.
-RegisterNetEvent('frontier_inventory:nutrition',function(item,effects)
- if source~=65535 or type(effects)~='table' then return end
- for key,value in pairs(effects) do
-  if (key=='Hunger' or key=='Thirst') and type(value)=='number' then
-   TriggerEvent('vorpmetabolism:changeValue',key,value)
-  end
- end
-end)

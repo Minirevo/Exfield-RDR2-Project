@@ -34,7 +34,7 @@ dofile('../frontier_lib/shared/utils.lua')
 dofile('../frontier_lib/server/logger.lua')
 dofile('config.lua')
 dofile('weapons.lua')
-for _, name in ipairs({ 'database', 'items', 'slots', 'service', 'interface' }) do
+for _, name in ipairs({ 'database', 'items', 'slots', 'service', 'ammo_recovery', 'interface' }) do
     dofile('server/' .. name .. '.lua')
 end
 InventoryConfig.TrustedResources.fixture = true

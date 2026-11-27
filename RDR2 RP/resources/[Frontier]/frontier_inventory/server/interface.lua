@@ -16,6 +16,7 @@ local messages = {
     forbidden = 'Diese Aktion ist nicht erlaubt.', distance = 'Du bist zu weit entfernt.',
     recipient = 'Der Empfänger ist nicht verfügbar.', unusable = 'Dieser Gegenstand kann nicht benutzt werden.',
     use_failed = 'Der Gegenstand konnte nicht benutzt werden.', conflict = 'Das Inventar hat sich geändert. Prüfe die Plätze erneut.',
+    orphan_checkout = 'A previous firearm checkout needs recovery. Reconnect to return its ammunition.',
     weapon_drawn = 'Put away your firearm before moving it or equipping a tool.', no_ammo = 'No compatible ammunition or weapon already full.', cancelled = 'Reload cancelled.',
     busy = 'Bitte warte einen Moment.', request_conflict = 'Diese Anfrage wurde bereits anders verwendet.',
     database_error = 'Das Ergebnis ist unklar. Wiederhole denselben Auftrag oder aktualisiere das Inventar.',
@@ -38,6 +39,7 @@ local function unload(source)
     Inventory.generations[source] = nil
     selectedBelt[source]=nil
     Inventory.WeaponSessions[source]=nil
+    Inventory.AmmoRecovered[source]=nil
     TriggerClientEvent(events..'weaponReset',source,'Character session ended.')
     TriggerClientEvent(events..'equipped',source,false)
     if view then TriggerClientEvent(events .. 'close', source) end
@@ -50,7 +52,13 @@ local function admit(source, channel, fn, interval)
         return false, 'busy'
     end
     channel[source], inFlight[source] = now, true
+    local character=core:GetPlayerCharacterId(source)
+    if character then Inventory.AmmoWrites[character]=(Inventory.AmmoWrites[character] or 0)+1 end
     local ok, result, code = pcall(fn)
+    if character then
+        local left=(Inventory.AmmoWrites[character] or 1)-1
+        Inventory.AmmoWrites[character]=left>0 and left or nil
+    end
     inFlight[source] = nil
     if not ok then
         Inventory.Log('ERROR', 'Inventory request failed', { errorType = type(result) })
@@ -80,6 +88,8 @@ local function snapshot(source, id, storageId)
     if not got then return false,equipment end
     state.equipment=Inventory.Present(equipment,true)
     state.equipment.ammoCapacity=Config.QuickAmmoCapacity or 30
+    local pending,refunds=Inventory.PendingAmmo(id)
+    state.pendingAmmo=pending and Inventory.PendingAmmoCount(refunds) or nil
     state.equipped=equipped(source,id,player,belt) or false
     if storageId then
         local loaded, storage = Inventory.Storage(source, storageId)
@@ -231,10 +241,26 @@ RegisterNetEvent(events .. 'pickup', function(drop)
 end)
 
 local function provision(player)
-    if Inventory.ready and Inventory.Id(player.frontierCharacterId, 64) then
-        Inventory.Ensure('p_' .. player.frontierCharacterId, 'player', Config.Slots, Config.WeightGrams)
-    end
+    local id,src=player.frontierCharacterId,player.source
+    if not Inventory.ready or not Inventory.Id(id,64) or Inventory.AmmoRecovered[src]==id
+        or Inventory.AmmoRecoveryBusy[id] or Inventory.AmmoWrites[id] or core:GetPlayerCharacterId(src)~=id then return end
+    Inventory.AmmoRecoveryBusy[id]=true
+    local ok,saved,pending=pcall(Inventory.RecoverAmmo,id,false)
+    Inventory.AmmoRecoveryBusy[id]=nil
+    if ok and saved and core:GetPlayerCharacterId(src)==id then
+        Inventory.AmmoRecovered[src]=id
+        if pending>0 then TriggerClientEvent(events..'notice',src,('%d returned rounds waiting for space. Use /frontierclaimammo.'):format(pending)) end
+    elseif not ok then Inventory.Log('ERROR','Session ammunition recovery failed',{reason=tostring(saved)}) end
 end
+RegisterCommand('frontierclaimammo',function(src)
+ if src==0 then return end
+ local ok,result=admit(src,last,function()
+  local id,why=Inventory.Session(src);if not id then return false,why end
+  if Inventory.AmmoRecoveryBusy[id] then return false,'busy' end
+  return Inventory.RecoverAmmo(id,true)
+ end)
+ TriggerClientEvent(events..'notice',src,ok and ('Pending ammunition: '..result..' rounds. Refresh inventory.') or message(result))
+end,false)
 AddEventHandler('frontier:playerLoaded', provision)
 AddEventHandler('frontier:playerUnloaded', function(player) unload(player.source) end)
 AddEventHandler('playerDropped', function()
@@ -245,7 +271,8 @@ AddEventHandler('playerDropped', function()
 end)
 AddEventHandler('onResourceStop', function(name)
     if name == 'frontier_core' then
-        for source in pairs(views) do unload(source) end
+        for src in pairs(Inventory.AmmoRecovered) do unload(src) end
+        for src in pairs(views) do unload(src) end
     end
     for item, handler in pairs(Inventory.handlers) do
         if handler.owner == name then Inventory.handlers[item] = nil end
@@ -257,6 +284,7 @@ MySQL.ready(function()
         local ok, seeded = pcall(Inventory.BootItems)
         if ok and seeded then
             local available = not Config.TestStorage or Inventory.CreateStorage(Config.TestStorage)
+            Inventory.RecoveryEnforced = available == true
             Inventory.ready = available == true
         end
         if not Inventory.ready then
@@ -264,7 +292,12 @@ MySQL.ready(function()
             Wait(5000)
         end
     end
-    for _, player in pairs(core:GetPlayers()) do provision(player) end
+    CreateThread(function()
+        while true do
+            for _, player in pairs(core:GetPlayers()) do provision(player) end
+            Wait(2000)
+        end
+    end)
     while true do
         Wait(Config.CleanupMs)
         local ok, count = Inventory.Db('update', [[
@@ -1005,7 +1038,7 @@ local wheelViews,wheelLast={},{}
 -- A normal holster returns remaining rounds; a lost lease deliberately forfeits
 -- checked-out ammunition. Never restore client-reported rounds above the lease.
 local WR=FrontierWeaponRules
-local gunLast,gunReleaseLast,gunCommitLast,gunReportLast={},{},{},{}
+local gunLast,gunReleaseLast,gunCommitLast,gunReportLast,gunReportWrites={},{},{},{},{}
 local function gunNotice(src,code) TriggerClientEvent(events..'notice',src,message(code)) end
 local function weaponState(src)
  local id=Inventory.Session(src);if not id then return nil,'character' end
@@ -1062,9 +1095,10 @@ RegisterNetEvent(events..'weaponDraw',function(token,slot,request)
   if not def or def.slot~=slot or row.instance~=v.weapons[slot] then return false,'conflict' end
   local rounds,m=WR.loaded(row,def)
   if rounds==nil or (m.condition and m.condition<=0) then return false,'unusable' end
+  if m.checkout then return false,'orphan_checkout' end
   local t=Inventory.Uuid();if not t then return false,'database_error' end
   local generation=Inventory.Generation(src)
-  m.loaded=0;row.metadata=json.encode(m)
+  m.loaded=0;m.checkout={token=t,rounds=rounds};row.metadata=json.encode(m)
   local saved,issue=weaponCommit(src,id,generation,t..':draw','weaponDraw:'..row.instance,e)
   if not saved then return false,issue end
   if Inventory.Session(src)~=id or Inventory.Generation(src)~=generation then return false,'character' end
@@ -1083,7 +1117,20 @@ RegisterNetEvent(events..'weaponReport',function(token,version,remaining)
  if gunReportLast[src] and now-gunReportLast[src]<150 then return end
  gunReportLast[src]=now
  local n=WR.remaining(s.rounds,remaining)
- if n~=nil then s.rounds=n end
+ if n==nil or n==s.rounds then return end
+ -- Persist decreasing observations; heartbeat retries a busy/failed write.
+ admit(src,gunReportWrites,function()
+  if lease(src,token)~=s or s.pending or s.releasing or version~=s.version then return false,'conflict' end
+  local id,e=weaponState(src);if not id then return false,e end
+  local row=boundWeapon(e,s);if not row then return false,'conflict' end
+  local c,m=Inventory.Checkout(row,s);if not c or n>c.rounds then return false,'conflict' end
+  if n==c.rounds then s.rounds=n;return true end
+  c.rounds=n;row.metadata=json.encode(m)
+  local key=Inventory.Uuid();if not key then return false,'database_error' end
+  local saved,why=weaponCommit(src,id,s.generation,key,'weaponShot:'..s.instance..':'..n,e)
+  if saved and lease(src,token)==s then s.rounds=n end
+  return saved,why
+ end,150)
 end)
 local function reloadReply(src,s,request,ok,amount,reason)
  TriggerClientEvent(events..'weaponReloadResult',src,s.token,request,ok,s.version,amount or 0,ok and '' or message(reason))
@@ -1116,7 +1163,8 @@ RegisterNetEvent(events..'weaponReload',function(token,request,version,remaining
   local saved,issue=admit(src,gunCommitLast,function()
    if lease(src,token)~=s or s.pending~=pending or pending.cancelled or s.releasing or s.version~=pending.version then return false,'conflict' end
    local id,e,b=weaponState(src);if not id then return false,e end
-   if not boundWeapon(e,s) then return false,'conflict' end
+   local row=boundWeapon(e,s);if not row then return false,'conflict' end
+   local c,m=Inventory.Checkout(row,s);if not c or s.rounds>c.rounds then return false,'conflict' end
    local def=WR.models[s.item]
    local from,quantity=WR.plan(e,b,def.ammo,s.rounds,def.capacity)
    -- If contents changed during the wait, require a fresh reload rather than bypass the delay.
@@ -1134,8 +1182,15 @@ RegisterNetEvent(events..'weaponReload',function(token,request,version,remaining
     end
    end
    if left~=0 or pending.cancelled or s.pending~=pending or lease(src,token)~=s then return false,'conflict' end
-   local committed,why=weaponCommit(src,id,s.generation,s.token..':reload:'..request,'weaponReload:'..s.instance..':'..request..':'..quantity,box)
-   if not committed then return false,why end
+   c.rounds=s.rounds+quantity;row.metadata=json.encode(m)
+   local key,fp=s.token..':reload:'..request,'weaponReload:'..s.instance..':'..request..':'..quantity
+   local committed,why
+   if box==e then committed,why=weaponCommit(src,id,s.generation,key,fp,e)
+   else committed,why=weaponCommit(src,id,s.generation,key,fp,e,box) end
+   if not committed then
+    if why=='database_error' and lease(src,token)==s then resetWeapon(src,'Reload outcome uncertain; reconnect to recover ammunition.') end
+    return false,why
+   end
    if lease(src,token)~=s then return false,'character' end
    s.rounds=s.rounds+quantity;s.version=s.version+1;amount=quantity
    return true
@@ -1163,12 +1218,16 @@ RegisterNetEvent(events..'weaponRelease',function(token,version,remaining)
   local id,e=weaponState(src);if not id then s.releasing=false;return false,e end
   local row=boundWeapon(e,s);local def=WR.models[s.item]
   if not row then resetWeapon(src,'Weapon no longer available.');return false,'conflict' end
-  local stored,m=WR.loaded(row,def)
-  if stored~=0 or not m then s.releasing=false;return false,'conflict' end
+  local c,m=Inventory.Checkout(row,s)
+  if not c then
+   local checked,replay=Inventory.Replay(token..':release','player:'..id,'weaponRelease:'..s.instance..':'..tostring(remaining))
+   if checked and replay then Inventory.WeaponSessions[src]=nil;return true end
+   s.releasing=false;return false,'conflict'
+  end
   -- Stale version can occur if a reload completed during cancellation. Never credit the unseen new rounds.
   local n=WR.remaining(s.rounds,remaining)
-  if not n or not WR.integer(version,1,s.version) then s.releasing=false;return false,'invalid_request' end
-  m.loaded=n;row.metadata=json.encode(m)
+  if not n or n>c.rounds or not WR.integer(version,1,s.version) then s.releasing=false;return false,'invalid_request' end
+  m.loaded=n;m.checkout=nil;row.metadata=json.encode(m)
   local saved,why=weaponCommit(src,id,s.generation,token..':release','weaponRelease:'..s.instance..':'..n,e)
   if not saved then s.releasing=false;return false,why end
   if Inventory.WeaponSessions[src]==s then Inventory.WeaponSessions[src]=nil end
@@ -1178,14 +1237,14 @@ RegisterNetEvent(events..'weaponRelease',function(token,version,remaining)
 end)
 RegisterNetEvent(events..'weaponAbortDraw',function(request)
  local src=source;local s=Inventory.WeaponSessions[src]
- if s and s.drawRequest==request and lease(src,s.token)==s then resetWeapon(src,'Weapon draw timed out; checked-out rounds forfeited.') end
+ if s and s.drawRequest==request and lease(src,s.token)==s then resetWeapon(src,'Weapon draw timed out; reconnect to recover checked-out rounds.') end
 end)
 RegisterNetEvent(events..'weaponAbandon',function(token)
  local src=source;local s=lease(src,token)
- if s then resetWeapon(src,'Weapon lease abandoned; checked-out rounds forfeited.') end
+ if s then resetWeapon(src,'Weapon lease abandoned; reconnect to recover checked-out rounds.') end
 end)
 AddEventHandler('playerDropped',function()
- gunLast[source]=nil;gunReleaseLast[source]=nil;gunCommitLast[source]=nil;gunReportLast[source]=nil
+ gunLast[source]=nil;gunReleaseLast[source]=nil;gunCommitLast[source]=nil;gunReportLast[source]=nil;gunReportWrites[source]=nil
 end)
 
 RegisterNetEvent(events..'wheelOpen',function(sequence)
@@ -1262,14 +1321,6 @@ RegisterNetEvent(events..'wheelConsume',function(token,item)
   return Inventory.Act({id=v.id,source=src,key=v.token..':consume',actor='player:'..v.id,fingerprint=fingerprint('use',d)},'use',d)
  end)
  if not ok then TriggerClientEvent(events..'notice',src,message(err)) end
-end)
-local nutrition={bread={Hunger=260},apple={Hunger=120,Thirst=60},water={Thirst=350},cooked_meat={Hunger=380}}
-AddEventHandler('frontier:inventoryItemUsed',function(src,id,item)
- if GetInvokingResource() and GetInvokingResource()~=Inventory.resource then return end
- local effects=nutrition[item]
- if effects and Inventory.Session(src)==id then
-  TriggerClientEvent(events..'nutrition',src,item,effects)
- end
 end)
 AddEventHandler('playerDropped',function() wheelViews[source]=nil;wheelLast[source]=nil end)
 

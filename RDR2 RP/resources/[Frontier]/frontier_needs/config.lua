@@ -1,0 +1,15 @@
+FrontierNeedsConfig={
+ maximum=1000,
+ tickMs=15000,
+ hungerDecay=4,thirstDecay=8,
+ runningHunger=4,runningThirst=4,
+ runSpeed=3.0,energyDrain=18,energyRecovery=12,
+ low=200,damageAtZero=5,
+ consumeCooldownMs=3000,
+ effects={
+  bread={hunger=260,thirst=0,energy=30,kind='food'},
+  apple={hunger=120,thirst=60,energy=20,kind='food'},
+  water={hunger=0,thirst=350,energy=25,kind='drink'},
+  cooked_meat={hunger=380,thirst=0,energy=60,kind='food'}
+ }
+}

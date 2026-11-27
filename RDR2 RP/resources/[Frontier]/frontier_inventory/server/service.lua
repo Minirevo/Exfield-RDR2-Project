@@ -26,6 +26,7 @@ function Inventory.Session(source)
     if not Inventory.Int(source, 2147483647) then return nil, 'character' end
     local id = core:GetPlayerCharacterId(source)
     if not Inventory.Id(id, 64) then return nil, 'character' end
+    if Inventory.RecoveryEnforced and Inventory.AmmoRecovered[source]~=id then return nil,'not_ready' end
     if Inventory.restricted[source] then return nil, 'restricted' end
     local position = Inventory.Position(source)
     if not position then return nil, 'character' end
@@ -229,6 +230,14 @@ local function use(ctx, container, slot)
         return false, 'use_failed'
     end
     if not ok or accepted ~= true then return false, 'use_failed' end
+    if handler.consume and (def.classification=='food' or def.classification=='drink') then
+        if GetResourceState('frontier_needs')~='started' then return false,'not_ready' end
+        -- Prepare a durable outbox record; needs only applies it if this exact
+        -- inventory receipt commits successfully. A failed use has no effect.
+        local queued,why=exports.frontier_needs:QueueConsumption(ctx.source,ctx.id,stack.item,ctx.key,ctx.actor,ctx.fingerprint)
+        if not queued then return false,why or 'use_failed' end
+        if Inventory.Generation(ctx.source)~=ctx.generation or not latest(ctx.source,ctx.id,ctx.guard) then return false,'character' end
+    end
     if handler.consume then Inventory.Take(container, slot, 1) end
     local saved, result, replayed = commit(ctx, container)
     if saved and not replayed then TriggerEvent('frontier:inventoryItemUsed', ctx.source, ctx.id, stack.item, ctx.key) end

@@ -20,10 +20,10 @@ local function core(p,index)
  local ok,v=pcall(Citizen.InvokeNative,0x36731AC041289BB1,p,index)
  return ok and pct(v,100) or nil
 end
-local function need(key)
- local result
- TriggerEvent('vorpmetabolism:getValue',key,function(v) result=pct(v,1000) end)
- return result
+local function needs()
+ if GetResourceState('frontier_needs')~='started' then return {} end
+ local ok,data=pcall(function() return exports.frontier_needs:GetState() end)
+ return ok and type(data)=='table' and data or {}
 end
 RegisterNUICallback('ready',function(_,cb) ready=true;cb({ok=true}) end)
 RegisterNetEvent('frontier_hud:balance',function(sequence,value)
@@ -45,9 +45,10 @@ CreateThread(function()
    if now>=nextBalance then seq=seq%2147483646+1;requested=seq;TriggerServerEvent('frontier_hud:balance',seq);nextBalance=now+5000 end
    local p=PlayerPedId()
    if p~=0 and not truth(IsPauseMenuActive()) and not truth(IsHudHidden()) and not truth(IsRadarHidden()) and not truth(NetworkIsInSpectatorMode()) and showVorp then
+    local n=needs()
     SendNUIMessage({type='status',cash=balances and balances.cash,bank=balances and balances.bank,
      health=pct(native('GetEntityHealth',p),native('GetEntityMaxHealth',p)),
-     endurance=core(p,1),deadeye=core(p,2),hunger=need('Hunger'),thirst=need('Thirst'),
+     endurance=core(p,1),deadeye=core(p,2),hunger=pct(n.hunger,1000),thirst=pct(n.thirst,1000),energy=pct(n.energy,1000),
      dead=truth(IsEntityDead(p))})
    else SendNUIMessage({type='hide'}) end
   else SendNUIMessage({type='hide'}) end

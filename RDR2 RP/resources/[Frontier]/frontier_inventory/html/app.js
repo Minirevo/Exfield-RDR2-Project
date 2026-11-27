@@ -195,6 +195,8 @@ function render() {
     el('storage').hidden = !data.storage;
     el('belt').hidden = !data.belt;
     el('equipment').hidden = !data.equipment;
+    el('pending-ammo').hidden=!data.pendingAmmo;
+    el('pending-ammo').textContent=data.pendingAmmo?data.pendingAmmo+' returned rounds waiting for space · /frontierclaimammo':'';
     const previous=el('category').value;const cats=[...new Set(labels.flatMap(side=>rows(data[side]?.slots).map(i=>i.category).filter(Boolean)))].sort();el('category').replaceChildren(new Option('All categories',''),...cats.map(c=>new Option(c,c)));if(cats.includes(previous))el('category').value=previous;
     if (data.storage) el('storage-label').textContent = data.storage.label || 'Lager';
     for (const side of labels) if (data[side]) showSlots(side, data[side]);

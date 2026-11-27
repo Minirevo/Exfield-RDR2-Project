@@ -30,3 +30,6 @@ The pure weapon rules test was executed against byte-for-byte copies of the comm
 
 ## Phase 1 cutover supersedes Gun Lab instructions
 Gun Lab is no longer in the manifest. Use persistent equipment only. See RDR2 RP/FRONTIER-INVENTORY-CUTOVER.md for deployment and rollback. Legacy inventory must be stopped. No automatic legacy item migration.
+
+## Session ammo return (Phase 2)
+Supersedes earlier crash-forfeit notes: persisted weapon checkout returns on next login, including holstered rounds, using quick slots then satchel then pending ammo. /frontierclaimammo after making room. See frontier_needs/README.md for recovery limits and deployment.

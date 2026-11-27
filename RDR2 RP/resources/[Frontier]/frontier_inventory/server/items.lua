@@ -240,7 +240,7 @@ function Inventory.BootItems()
     end
     for _,id in ipairs({'bread','apple','water','cooked_meat'}) do
         Inventory.handlers[id]={owner=Inventory.resource,consume=true,callback=function()
-            return GetResourceState('vorp_metabolism')=='started'
+            return GetResourceState('frontier_needs')=='started'
         end}
     end
     Inventory.handlers.bandage = { owner = Inventory.resource, consume = true, callback = function() return true end }

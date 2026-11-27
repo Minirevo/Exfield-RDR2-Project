@@ -15,6 +15,7 @@ server_scripts {
     'server/items.lua',
     'server/slots.lua',
     'server/service.lua',
+    'server/ammo_recovery.lua',
     'server/interface.lua',
 }
 client_script 'client/inventory.lua'
