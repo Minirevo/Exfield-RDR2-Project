@@ -108,7 +108,7 @@ local function snapshot(source,id)
         row.name=cfg.Recipes[row.recipe] and cfg.Recipes[row.recipe].name or row.recipe
         row.status=titles[row.state]
     end
-    return true,{employee=firm.employee,balance=firm.balance,recipes=recipeView(),ingredients=counts,
+    return true,{legacy=true,employee=firm.employee,balance=firm.balance,recipes=recipeView(),ingredients=counts,
         jobs=jobs,goods=list,units=box.units,capacity=cfg.StorageUnits,maxBatches=cfg.MaxBatches,
         wage=cfg.WageMinor,wageInterval=cfg.WageIntervalSeconds}
 end
@@ -164,8 +164,9 @@ end
 
 local function action(source,id,key,name,data)
     if name=='refresh' then return true end
-    if name=='start' then return start(source,id,key,data) end
-    if name=='hire' or name=='dismiss' then
+    if name=='start' then return false,'missing:New production orders require a placed production station. Approach one and press E.' end
+    if name=='hire' then return false,'missing:Hire workers at a physical production station.' end
+    if name=='dismiss' then
         local ok,rows=db('query','CALL frontier_production_employee_v1(?,?)',{id,name})
         if not ok then return false,rows end
         local code=rows and rows[1] and rows[1][1] and rows[1][1].code
@@ -217,7 +218,7 @@ local function action(source,id,key,name,data)
         if stored and tonumber(box.units)==0 then
             local marked,reason=db('update',[[DELETE FROM frontier_production_jobs
                 WHERE owner_id=? AND state='complete']],{id})
-            if not marked then log('warn','Could not clear collected production jobs',{owner=id,reason=reason}) end
+            if not marked then FrontierLib.Log('WARN',resource,'Could not clear collected production jobs',{owner=id,reason=reason}) end
         end
         return true
     end

@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Frontier Produktion</title><link rel="stylesheet" href="style.css"><script defer src="app.js"></script></head>
+<title>Frontier Produktion</title><link rel="stylesheet" href="style.css"><script defer src="app.js"></script><link rel="stylesheet" href="stations.css"><script defer src="stations.js"></script></head>
 <body hidden><main>
 <header><h1>Frontier Produktion</h1><button id="close" type="button">Schließen (Esc)</button></header>
 <nav aria-label="Produktionsbereiche"><button data-tab="work">Produktion</button><button data-tab="recipes">Rezepte</button><button data-tab="stock">Lager</button><button data-tab="staff">Mitarbeiter</button></nav>
@@ -16,4 +16,15 @@
 <section id="recipes" hidden><h2>Rezeptbuch</h2><div id="recipe-list"></div></section>
 <section id="stock" hidden><h2>Fertige Produkte</h2><p id="usage"></p><button id="collect">Alles abholen</button><div id="goods"></div></section>
 <section id="staff" hidden><h2>Mitarbeiter</h2><p id="employee"></p><p id="wages"></p><p id="balance"></p><button id="hire">Mitarbeiter einstellen</button><button id="dismiss">Mitarbeiter entlassen</button></section>
-</main></body></html>
+</main><div id="station-ui" hidden>
+<header><div><h1 id="st-name">Production station</h1><p id="st-sub"></p></div><button id="st-close">Close (Esc)</button></header>
+<p id="st-status" role="status"></p><button id="st-refresh">Refresh</button> <button id="st-retry" hidden>Retry same request</button>
+<div class="st-cols"><div><h2>Production order</h2><label>Recipe<select id="st-recipe"></select></label>
+<div class="st-grid"><label>Execution<select id="st-mode"><option value="manual">Manual work</option><option value="npc">NPC worker</option></select></label><label>Batches<input id="st-batches" type="number" min="1" value="1"></label>
+<label>Take materials from<select id="st-input"></select></label><label>Deliver products to<select id="st-output"></select></label></div>
+<p id="st-preview"></p><button id="st-start">Start production</button>
+<div id="st-settings"><h2>Station management</h2><label>Owner<select id="st-company"></select></label><button id="st-owner">Change owner</button>
+<div class="st-grid"><label>Input chest<select id="st-link-input"></select></label><label>Output chest<select id="st-link-output"></select></label></div>
+<button id="st-link">Save storage links</button><p id="st-worker"></p><button id="st-hire">Hire NPC worker</button> <button id="st-release">Release station</button></div></div>
+<div><h2>Orders</h2><div id="st-jobs"></div></div></div></div>
+<div id="station-hud" hidden><small>FRONTIER · MANUAL PRODUCTION</small><h2 id="st-work-label"></h2><div id="st-bar"><div id="st-target"></div><div id="st-marker"></div></div><p id="st-instruction"></p><progress id="st-progress" max="1"></progress></div></body></html>

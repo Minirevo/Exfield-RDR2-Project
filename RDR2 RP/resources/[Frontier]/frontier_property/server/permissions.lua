@@ -36,3 +36,15 @@ exports('GetProductionStations',function(src)
  end
  table.sort(out,function(a,b)return a.id<b.id end);return out
 end)
+
+-- Resolve saved station identity and plot ownership; never trust client coordinates.
+exports('ProductionStation',function(src,sid,fid,grantor)
+ if GetInvokingResource()~='frontier_production' or not ready or next(S.jobs) then return end
+ local s=settlement(sid);local f=s and s.furniture and s.furniture[fid];local d=f and C.Furniture[f.item]
+ if not s or s.status~='active' or (s.listing and s.listing.active) or not d or not d.station then return end
+ if grantor and not owner(s,grantor) then return end
+ local who=src and cid(src)
+ if src and (not who or not close(src,f,C.InteractionDistance)) then return end
+ return {id=fid,plot=sid,kind=d.station,skill=d.skill,name=d.name,plotName=s.name,equipment=75,primary=s.primary,
+  isOwner=who and owner(s,who) and true or false,canWork=who and allowed(s,who,'work') and true or false,x=f.x,y=f.y,z=f.z}
+end)

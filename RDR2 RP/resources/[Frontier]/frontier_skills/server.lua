@@ -13,6 +13,10 @@ exports('GetSkill',function(src,skill)
  if not allowed[GetInvokingResource()] then return false,'forbidden' end
  return stats(character(src),skill)
 end)
+exports('GetCharacterSkill',function(id,skill)
+ if GetInvokingResource()~='frontier_production' then return false,'forbidden' end
+ return stats(id,skill)
+end)
 exports('GrantXP',function(id,skill,xp,key)
  local owner=GetInvokingResource()
  if not allowed[owner] or not valid(id) or not R.names[skill] or type(xp)~='number' or xp%1~=0 or xp<1 or xp>1000 or type(key)~='string' or #key>48 or not key:match('^[a-zA-Z0-9_:%-]+$') then return false,'invalid_request' end

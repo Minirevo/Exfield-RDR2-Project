@@ -59,6 +59,8 @@ function preview(reset=false){
 function render(){
     if(!data)return;
     const blocked=Boolean(pending||retry);
+    el('order').hidden=!!data.legacy;
+    if(data.legacy){el('work').querySelector('h2').textContent='Legacy production — collect or cancel existing jobs';el('hire').hidden=true;}
     const old=el('recipe').value;
     el('recipe').replaceChildren(...rows(data.recipes).map(r=>new Option(r.name,r.id)));
     if(rows(data.recipes).some(r=>r.id===old))el('recipe').value=old;

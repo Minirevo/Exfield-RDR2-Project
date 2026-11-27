@@ -739,6 +739,50 @@ trusted('ApplyProductionInventory',function(resource,action,owner,key,options)
     return Inventory.Commit(key,actor,fingerprint,from,to)
 end)
 
+-- Physical production reuses existing atomic reservation and inventory move primitives.
+trusted('ApplyStationProduction',function(resource,action,job,key,options)
+ if resource~='frontier_production' or type(job)~='string' or #job~=32 or not job:match('^[a-f0-9]+$') or type(key)~='string' or not requestKey(key) or type(options)~='table' then return false,'invalid_request' end
+ local route=options.route
+ if type(route)~='string' or not (route:match('^p_f_[a-f0-9]+$') or route:match('^s_business_[a-f0-9]+$')) or not ({reserve=true,finish=true,["return"]=true})[action] then return false,'invalid_request' end
+ local requested=options.items
+ if action~='return' and (type(requested)~='table' or #requested<1 or #requested>100) then return false,'invalid_request' end
+ local parts={action,job,route}
+ for _,v in ipairs(requested or {}) do
+  if type(v)~='table' or not Inventory.items[v.id] or not Inventory.Int(v.count,10000) or (v.metadata and not Inventory.Metadata(v.metadata,Inventory.items[v.id].condition)) then return false,'invalid_item' end
+  parts[#parts+1]=v.id;parts[#parts+1]=tostring(v.count);parts[#parts+1]=v.metadata or ''
+ end
+ local actor='resource:'..resource;local fingerprint=json.encode(parts)
+ local checked,replay=Inventory.Replay(key,actor,fingerprint);if not checked then return false,replay end;if replay then return true,key end
+ local ok,box
+ if route:sub(1,2)=='p_' then ok,box=productionBox(route,'player',Config.Slots,Config.WeightGrams) else ok,box=Inventory.Load(route) end
+ if not ok then return false,box end
+ local loaded,hold
+ if action=='reserve' then loaded,hold=productionBox('prjob_'..job,'storage',200,100000000) else loaded,hold=Inventory.Load('prjob_'..job) end
+ if not loaded then return false,hold end
+ if action=='reserve' then
+  if next(hold.slots) then return false,'conflict' end
+  local moved,why=productionMove(box,hold,requested);if not moved then return false,why end
+ elseif action=='return' then
+  local moved,why=productionMove(hold,box);if not moved then return false,why end
+ else
+  if not next(hold.slots) then return false,'insufficient_stock' end
+  for _,v in ipairs(requested) do
+   local def=Inventory.items[v.id];local metadata=v.metadata or def.metadata
+   if def.stackable then
+    local put,why=Inventory.Place(box,{item=v.id,quantity=v.count,metadata=metadata});if not put then return false,why end
+   else
+    if v.count>box.slot_limit then return false,'slots' end
+    for n=1,v.count do
+     local instance=Inventory.Uuid();if not instance then return false,'database_error' end
+     local put,why=Inventory.Place(box,{item=v.id,quantity=1,metadata=metadata,instance=instance});if not put then return false,why end
+    end
+   end
+  end
+  hold.slots={}
+ end
+ return Inventory.Commit(key,actor,fingerprint,box,hold)
+end)
+
 -- Persistent character identity for idempotent property jobs.
 trusted('PropertyChangeCharacter', function(owner, id, item, quantity, add, key)
     if owner ~= 'frontier_property' or not Inventory.Id(id,64) or not id:match('^f_[a-f0-9]+$')
