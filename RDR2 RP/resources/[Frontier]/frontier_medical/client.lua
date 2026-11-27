@@ -19,7 +19,12 @@ RegisterNetEvent(E..'notice',function(msg)
 end)
 RegisterNetEvent(E..'state',function(v)
  if source~=65535 or not playing() or type(v)~='table' then return end
+ local previous=state
  state=v;received=GetGameTimer();FrontierMedicalAdapter.update(v)
+ if previous and previous.life==v.life and previous.down~=v.down and not v.dead then
+  local msg=v.down and 'You have lost consciousness.' or 'You have regained consciousness.'
+  TriggerEvent('chat:addMessage',{args={'Medical',msg}})
+ end
  if v.down and opened then close() end
 end)
 local sprint=joaat('INPUT_SPRINT')

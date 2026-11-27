@@ -14,6 +14,16 @@ function M.normalize(s)
  if s.nativeSeen==nil then s.nativeSeen=s.dead==true end
  return s
 end
+-- Provider death is terminal confirmation, not a second injury calculation.
+-- A pending medical death may only reset after the provider has seen death.
+function M.reconcileProvider(s,providerDead)
+ if providerDead==true then
+  s.dead=true;s.down=true;s.nativeSeen=true
+ elseif s.dead and s.nativeSeen and providerDead==false then
+  return M.new(s.life+1)
+ end
+ return s
+end
 function M.region(r) return valid[r] and r or 'chest' end
 function M.bleed(s)
  local n=0;for _,w in pairs(s.wounds) do n=n+(w.bleed or 0) end;return math.min(150,n)

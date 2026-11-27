@@ -224,14 +224,9 @@ local function tick(p)
  local s,rev=read(id);if not s then return end
  local before=json.encode(s)
  local providerDead=death(src)
- if providerDead==true then
-  -- Native bypass is a fallback, not a recovery path. VORP has observed death.
-  s.dead=true;s.down=true;s.nativeSeen=true
- elseif s.dead then
-  -- Never reset a Frontier-confirmed death simply because the native ped is
-  -- still alive. Wait for observed provider death, then its confirmed respawn.
-  if s.nativeSeen and providerDead==false then s=M.new(s.life+1) end
- else
+ local wasDead=s.dead
+ s=M.reconcileProvider(s,providerDead)
+ if not wasDead and not s.dead then
   local n=db('single','SELECT hunger,thirst FROM frontier_needs_state WHERE character_id=?',{id})
   M.tick(s,os.time(),n and tonumber(n.hunger)>100 and tonumber(n.thirst)>100)
  end

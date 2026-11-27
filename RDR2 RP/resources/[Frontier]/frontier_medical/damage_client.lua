@@ -5,6 +5,7 @@ local A,C,E=FrontierMedicalAdapter,FrontierMedicalConfig,'frontier_medical:'
 local state,received,guard,failedPed=nil,0,nil,nil
 local pending,queued,queuedRaw,water,seq=nil,{},0,false,0
 local nextSend,fallAt,fatalAt=0,-10000,-10000
+local totalRaw,acknowledged,drowningReports,lastKind=0,0,0,'none'
 local function log(s) print('[frontier_medical] '..s) end
 local function truth(v) return v==true or v==1 end
 local function call(name,...)
@@ -84,6 +85,13 @@ local function setup(p)
 end
 local function resetQueue()
  pending=nil;queued={};queuedRaw=0;water=false;seq=0;nextSend=0
+ totalRaw=0;acknowledged=0;drowningReports=0;lastKind='none'
+end
+local function acknowledge()
+ if not pending then return end
+ acknowledged=acknowledged+1
+ if pending.drowning then drowningReports=drowningReports+1 end
+ pending=nil
 end
 function A.reset()
  restore();state=nil;received=0;resetQueue()
@@ -92,13 +100,13 @@ function A.update(v)
  if type(v.token)~='string' or type(v.seq)~='number' or type(v.life)~='number' then return end
  if not state or state.token~=v.token then
   restore();resetQueue();seq=v.seq
- elseif pending and v.seq>=pending.seq then pending=nil;seq=math.max(seq,v.seq)
+ elseif pending and v.seq>=pending.seq then acknowledge();seq=math.max(seq,v.seq)
  else seq=math.max(seq,v.seq) end
  state=v;received=GetGameTimer()
 end
 RegisterNetEvent(E..'damageAck',function(token,n)
  if source~=65535 or not state or state.token~=token or not pending or pending.seq~=n then return end
- pending=nil
+ acknowledge()
 end)
 local firearm={}
 for _,name in ipairs({
@@ -137,13 +145,14 @@ local function damageKind(p,raw)
 end
 local function queueLoss(p,raw)
  local kind=damageKind(p,raw)
+ lastKind=kind
  if kind=='drowning' then water=true
  else
   local r=region(p)
   local key=r..':'..kind
   local hit=queued[key] or {region=r,kind=kind,raw=0}
   local n=math.max(0,math.min(math.floor(raw),C.maxRawGroup-hit.raw,C.maxRawBatch-queuedRaw))
-  if n>0 then hit.raw=hit.raw+n;queued[key]=hit;queuedRaw=queuedRaw+n end
+  if n>0 then hit.raw=hit.raw+n;queued[key]=hit;queuedRaw=queuedRaw+n;totalRaw=totalRaw+n end
  end
  get('ClearEntityLastWeaponDamage',p);get('ClearPedLastDamageBone',p)
 end
@@ -200,10 +209,33 @@ CreateThread(function()
      if truth(get('IsPedFalling',p)) then fallAt=now end
      local h=health(p)
      if not valid(h) then fail(p,'health read failed');return end
-     if now>=g.checkAt then
-      g.checkAt=now+1000
+     -- Do not count a native cap change as an injury. Re-establish the
+     -- tested guard if the game reapplies character health modifiers.
+     if now>=g.checkAt or h<g.last then
       local m=maximum(p)
-      if m~=g.target then fail(p,'native maximum changed unexpectedly');return end
+      if not valid(m) then fail(p,'maximum health unavailable');return end
+      if m~=g.target then
+       local previous=g.target
+       if m<g.request then
+        g.changedMax=true
+        local applied,actual=setMax(p,g.request)
+        if not applied or not valid(actual) or actual<g.request or actual>g.request*2 then fail(p,'could not re-establish native buffer');return end
+        m=actual
+       end
+       if m<g.request or m>g.request*2 then fail(p,'native maximum outside tested range');return end
+       g.readback=m;g.target=m;g.last=m
+       if not setHealth(p,m) or health(p)~=m then fail(p,'buffer refresh failed');return end
+       h=m
+       log(('Native buffer refreshed: %d -> %d'):format(previous,m))
+      end
+      if now>=g.checkAt then
+       g.checkAt=now+1000
+       for _,flag in ipairs(C.nativeFlags) do
+        if not truth(get('GetPedConfigFlag',p,flag,true)) then
+         if not call('SetPedConfigFlag',p,flag,true) or not truth(get('GetPedConfigFlag',p,flag,true)) then fail(p,'guard flag lost: '..flag);return end
+        end
+       end
+      end
      end
      if h<g.last then queueLoss(p,g.last-h) end
      if h<g.target then
@@ -221,9 +253,9 @@ CreateThread(function()
 end)
 RegisterCommand('frontiermedicalstatus',function()
  local g=guard
- local msg=('adapter=%s native=%s/%s state=%s queuedRaw=%d pending=%s'):format(
+ local msg=('adapter=%s native=%s/%s state=%s rawTrauma=%d acknowledged=%d drowningReports=%d lastKind=%s queuedRaw=%d pending=%s'):format(
   g and 'guarded' or 'inactive',tostring(health(PlayerPedId())),tostring(maximum(PlayerPedId())),
-  state and (state.dead and 'dead' or state.down and 'unconscious' or 'conscious') or 'loading',queuedRaw,tostring(pending~=nil))
+  state and (state.dead and 'dead' or state.down and 'unconscious' or 'conscious') or 'loading',totalRaw,acknowledged,drowningReports,lastKind,queuedRaw,tostring(pending~=nil))
  log(msg);TriggerEvent('chat:addMessage',{args={'Medical',msg}})
 end,false)
 AddEventHandler('onClientResourceStop',function(r) if r==GetCurrentResourceName() then restore() end end)
