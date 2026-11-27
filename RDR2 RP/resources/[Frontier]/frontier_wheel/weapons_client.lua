@@ -4,6 +4,7 @@ local W=FrontierWeapons
 local R=FrontierWeaponRules
 local E='frontier_inventory:'
 local active,draw,release,reload=nil,nil,nil,nil
+local cleanup=nil
 local sequence=0
 local lastReport=0
 local function nextRequest() sequence=sequence%2147483646+1;return sequence end
@@ -22,16 +23,55 @@ local function held(s) return s and GetPedCurrentHeldWeapon(s.ped)==s.hash end
 local function validPed(s)
  return s and PlayerPedId()==s.ped and LocalPlayer.state.IsInSession and not truth(IsEntityDead(s.ped))
 end
+local function nativeStatus(s)
+ local ok,has=pcall(HasPedGotWeapon,s.ped,s.hash,0,false)
+ local ammo=count(s)
+ return ok and not truth(has) and ammo==0 and not held(s),ok and tostring(has) or 'native error',ammo
+end
+local function clearNative(s)
+ -- Same order as the bundled VORP removal path: detach, then clear both
+ -- weapon-specific and ammo-type counters. Never clear unrelated models.
+ RemoveWeaponFromPed(s.ped,s.hash,true,0)
+ SetPedAmmo(s.ped,s.hash,0)
+ SetPedAmmoByType(s.ped,s.ammo,0)
+ SetCurrentPedWeapon(s.ped,joaat('WEAPON_UNARMED'),false,0,false,false)
+end
 local function removeNative(s)
  if not s or not s.created or not DoesEntityExist(s.ped) then return end
  if held(s) then SetCurrentPedWeapon(s.ped,joaat('WEAPON_UNARMED'),false,0,false,false) end
- SetPedAmmoByType(s.ped,s.ammo,0)
- RemoveWeaponFromPed(s.ped,s.hash,true,0)
+ local ok,err=pcall(clearNative,s)
+ if not ok then log('Native cleanup error: '..tostring(err)) end
+ -- Best effort only for forced reset/resource stop; normal holster verifies.
  s.created=false
 end
-function W.active() return active~=nil or draw~=nil or release~=nil end
+local function verifiedHolster(s,done)
+ if not s.created or not DoesEntityExist(s.ped) then done(true);return end
+ local q={state=s};cleanup=q
+ CreateThread(function()
+  local ok,err=pcall(function()
+   if held(s) then
+    HolsterPedWeapons(s.ped,true,false,true,false)
+    Wait(1000)
+   end
+   for attempt=1,4 do
+    if cleanup~=q or PlayerPedId()~=s.ped or not LocalPlayer.state.IsInSession then return end
+    clearNative(s)
+    Wait(150)
+    local clean,owned,ammo=nativeStatus(s)
+    log(('Holster cleanup %d | serial %s | owned=%s | ammo=%d'):format(attempt,s.serial,owned,ammo))
+    if clean then s.created=false;cleanup=nil;done(true);return end
+   end
+  end)
+  if cleanup~=q then return end
+  if not ok then log('Holster cleanup failed: '..tostring(err)) end
+  cleanup=nil
+  -- Do not silently permit a redraw over a remaining native weapon.
+  done(false)
+ end)
+end
+function W.active() return active~=nil or draw~=nil or release~=nil or cleanup~=nil end
 exports('IsPersistentWeaponActive',W.active)
-function W.busy() return draw~=nil or release~=nil end
+function W.busy() return draw~=nil or release~=nil or cleanup~=nil end
 function W.cancelReload()
  if reload and active and not reload.cancelled then
   reload.cancelled=true;TriggerServerEvent(E..'weaponCancelReload',active.lease,reload.request)
@@ -40,6 +80,7 @@ end
 local function reset(reason)
  local s=active
  active,draw,reload=nil,nil,nil
+ if cleanup then removeNative(cleanup.state);cleanup=nil end
  if s then removeNative(s) end
  if release then local cb=release.callback;release=nil;if cb then cb(false) end end
  if reason then notice(reason) end
@@ -59,14 +100,19 @@ function W.holster(callback)
  local s=active
  local remaining=s.created and math.min(s.upper,count(s)) or s.upper
  active=nil;reload=nil
- removeNative(s)
- release={state=s,version=s.version,remaining=remaining,callback=callback,started=GetGameTimer()}
- sendRelease(release)
+ local q={state=s,version=s.version,remaining=remaining,callback=callback,started=GetGameTimer(),clean=false}
+ release=q
+ verifiedHolster(s,function(clean)
+  if release~=q then return end
+  q.clean=clean;q.started=GetGameTimer()
+  if not clean then notice('Native cleanup could not be confirmed. Ammo will be saved, but redraw may be blocked. Check F8.') end
+  sendRelease(q)
+ end)
 end
 RegisterNetEvent(E..'weaponReleaseResult',function(token,ok,reason)
  if source~=65535 or not release or release.state.lease~=token then return end
  local q=release
- if ok then release=nil;if q.callback then q.callback(true) end;return end
+ if ok then release=nil;if q.callback then q.callback(q.clean) end;return end
  if (reason=='busy' or reason=='conflict' or reason=='database_error') and GetGameTimer()-q.started<4500 then
   SetTimeout(350,function() if release==q then sendRelease(q) end end)
  else abandon('Could not save holstered ammunition: '..tostring(reason)) end
@@ -178,6 +224,11 @@ end
 RegisterCommand('frontierweaponstatus',function()
  if active then notice(('Serial %s | clip %d | native total %d | server allowance %d | reload pending %s'):format(active.serial,clip(active),count(active),active.upper,tostring(reload~=nil)))
  else notice('No persistent firearm drawn.') end
+ local p=PlayerPedId()
+ for _,d in pairs(R.models) do
+  local ok,has=pcall(HasPedGotWeapon,p,joaat(d.model),0,false)
+  notice(('%s | native owned=%s | ammo=%s'):format(d.model,ok and tostring(has) or 'native error',tostring(GetPedAmmoByType(p,joaat(d.nativeAmmo)))))
+ end
 end,false)
 RegisterCommand('frontierweaponholster',function() W.holster() end,false)
 local reloadControl=joaat('INPUT_RELOAD')
@@ -186,6 +237,11 @@ CreateThread(function()
   Wait(W.active() and 0 or 100)
   local now=GetGameTimer()
   if draw and (now-draw.started>5000 or draw.ped~=PlayerPedId() or not LocalPlayer.state.IsInSession) then local q=draw;draw=nil;TriggerServerEvent(E..'weaponAbortDraw',q.request);notice('Weapon draw timed out.') end
+  if cleanup or release then
+   DisableControlAction(0,0x07CE1E61,true)
+   DisableControlAction(0,reloadControl,true)
+   if type(DisablePlayerFiring)=='function' then DisablePlayerFiring(PlayerId(),true) end
+  end
   if release and now-release.started>6000 then abandon('Holster response timed out.') end
   local s=active
   if s then
