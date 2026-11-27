@@ -18,7 +18,20 @@ LogisticsConfig={
     },
     -- Provisional model-specific attachment positions; calibrate in the lab.
     CargoOffsets={
+        supplywagon={{x=0,y=-.99,z=.2},{x=0,y=0,z=.2}},
         default={{x=0,y=0,z=.8},{x=-.4,y=-.6,z=.8},{x=.4,y=-.6,z=.8},{x=-.4,y=.6,z=.8},{x=.4,y=.6,z=.8}},
+    },
+    -- Confirmed in local RedM lab by the server owner (2026-11-27).
+    ValidatedModels={
+        supplywagon={
+            wagonHash=-1753201617,
+            harnesses={{slot=0,horseHash=1066034872},{slot=1,horseHash=1066034872}},
+            cargo={
+                {kind='crate',x=0,y=-.99,z=.2,heading=0},
+                {kind='crate',x=0,y=0,z=.2,heading=0}
+            },
+            crateDimensions={x=1.16285264492034,y=.83414453268051,z=1.00063988566398}
+        }
     },
     HorseModel='a_c_horse_shire_darkbay',
     RecoveryPercent=90,
