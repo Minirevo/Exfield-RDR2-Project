@@ -1,0 +1,17 @@
+name: Frontier logistics checks
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y lua5.4
+      - name: Parse resource and run rules
+        working-directory: RDR2 RP/resources/[Frontier]/frontier_logistics
+        run: |
+          find . -name '*.lua' -print0 | xargs -0 -n1 luac5.4 -p
+          lua5.4 tests/rules.lua
