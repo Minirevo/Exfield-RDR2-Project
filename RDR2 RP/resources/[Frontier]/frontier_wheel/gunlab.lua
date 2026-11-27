@@ -72,7 +72,7 @@ local function start()
  end
  L.holster()
  TriggerEvent('frontier_wheel:gunLabChanged',true)
- notice('Active: hold TAB, Q switches pages. Select a gun, press R to reload. /frontiergunammo shows ammo.')
+ notice('Active: hold TAB and select a gun, press R to reload. /frontiergunammo shows ammo.')
 end
 RegisterNetEvent(E..'gunLabGrant',function()
  if source==65535 then start() end
