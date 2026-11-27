@@ -140,11 +140,13 @@ function L.lockStart(src,w)
  L.check(w and w.state=='world' and tonumber(w.locked)==1 and L.near(src,L.point(w),C.InteractionDistance) and L.stationary(w) and not L.wagonBusy(w.id),'Approach locked stationary wagon')
  local ok,has=L.I:HasItem(src,C.LockpickItem,1);L.check(ok and has,'Lockpick required')
  L.check(not L.lockTests[src],'Already picking a lock')
+ L.check(not L.right(src,w,'trade'),'Use the owner cargo controls to unlock this wagon')
+ for _,t in pairs(L.lockTests) do L.check(t.wagon~=w.id,'Another player is already picking this lock') end
  local key=L.uuid();local route=L.bag(src);L.check(route,'Inventory unavailable')
  -- Consumable lockpick, consumed exactly once per attempt.
  local used,why=L.I:LogisticsConsume('lg:'..key..':pick',route,{{id=C.LockpickItem,count=1}},false)
  L.check(used,why)
- local test={id=key,wagon=w.id,actor=L.cid(src),start=GetGameTimer(),target=math.random(30,70)/100}
+ local test={id=key,wagon=w.id,actor=L.cid(src),entity=L.entities[w.id] and L.entities[w.id].vehicle,start=GetGameTimer(),target=math.random(30,70)/100}
  L.lockTests[src]=test
  L.views[src]=nil
  TriggerClientEvent(L.E..'lockpick',src,{id=key,ms=C.LockpickMs,target=test.target})
@@ -154,12 +156,17 @@ function L.lockStrike(src,id)
  L.lockTests[src]=nil
  local w=L.wagon(t.wagon)
  local ms=GetGameTimer()-t.start
- local success=t.actor==L.cid(src) and w and tonumber(w.locked)==1 and L.near(src,L.point(w),C.InteractionDistance) and L.stationary(w) and ms>=0 and ms<=C.LockpickMs and math.abs((ms%2000)/2000-t.target)<=.10
+ local success=t.actor==L.cid(src) and w and w.state=='world' and tonumber(w.locked)==1 and not L.right(src,w,'trade') and not L.wagonBusy(w.id) and L.entities[w.id] and L.entities[w.id].vehicle==t.entity and L.near(src,L.point(w),C.InteractionDistance) and L.stationary(w) and ms>=0 and ms<=C.LockpickMs and math.abs((ms%2000)/2000-t.target)<=.10
  if success then
   L.U('UPDATE fl_wagons SET locked=0 WHERE id=?',{w.id});L.broadcastWagon(L.wagon(w.id))
  end
  TriggerClientEvent(L.E..'loadingEnd',src,success and 'Cargo lock opened' or 'Lockpick failed')
 end
 function L.cleanupLockTests()
- for src,t in pairs(L.lockTests) do if L.cid(src)~=t.actor or GetGameTimer()-t.start>C.LockpickMs+1000 then L.lockTests[src]=nil;TriggerClientEvent(L.E..'loadingEnd',src,'Lockpick attempt ended') end end
+ for src,t in pairs(L.lockTests) do
+  local w=L.wagon(t.wagon)
+  if L.cid(src)~=t.actor or GetGameTimer()-t.start>C.LockpickMs+1000 or not w or w.state~='world' or tonumber(w.locked)~=1 or not L.entities[t.wagon] or L.entities[t.wagon].vehicle~=t.entity or not L.near(src,L.point(w),C.InteractionDistance) or not L.stationary(w) then
+   L.lockTests[src]=nil;TriggerClientEvent(L.E..'loadingEnd',src,'Lockpick attempt ended')
+  end
+ end
 end

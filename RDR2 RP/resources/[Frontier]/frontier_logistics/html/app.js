@@ -103,13 +103,13 @@ function registry(){
  heading(content,'Create freight contract');const origins=rows(data.origins),stock=rows(data.stock);
  if(!origins.length){content.append(el('p','Use /freight at an accessible warehouse to create an order.','muted'))}
  else{
-  const o=label(content,'Pickup',select(origins)),dest=label(content,'Destination',select(stock.filter(x=>x.deposit&&x.id!==o.value))),list=el('div');content.append(list);
+  const o=label(content,'Pickup',select(origins));const destinations=()=>{const origin=origins.find(x=>x.id===o.value);return stock.filter(x=>x.deposit&&x.id!==o.value&&x.ownerType===origin?.ownerType&&x.ownerId===origin?.ownerId)};const dest=label(content,'Destination',select(destinations())),list=el('div');content.append(list);
   let quantities=[];
   const cargoList=()=>{list.replaceChildren();quantities=[];const origin=origins.find(x=>x.id===o.value);for(const s of rows(origin?.box.slots)){const n=number(0,0,s.quantity);label(list,s.name+' ('+s.quantity+' available)',n);quantities.push({slot:s.slot,input:n})}};
-  o.onchange=()=>{dest.replaceChildren(...stock.filter(x=>x.deposit&&x.id!==o.value).map(x=>new Option(x.name,x.id)));cargoList()};cargoList();
+  o.onchange=()=>{dest.replaceChildren(...destinations().map(x=>new Option(x.name,x.id)));cargoList()};cargoList();
   const reward=label(content,'Reward (USD)',number(25,0.01,10000));reward.step='.01';
   const hours=label(content,'Pickup deadline (hours)',number(24,1,168));
-  content.append(btn('Create funded contract',()=>request('createContract',{origin:o.value,destination:dest.value,reward:Math.round(Number(reward.value)*100),hours:Number(hours.value),lines:quantities.map(x=>({slot:x.slot,quantity:Number(x.input.value)})).filter(x=>x.quantity>0)})));
+  content.append(btn('Create funded contract',()=>request('createContract',{origin:o.value,destination:dest.value,revision:origins.find(x=>x.id===o.value)?.box.revision,reward:Math.round(Number(reward.value)*100),hours:Number(hours.value),lines:quantities.map(x=>({slot:x.slot,quantity:Number(x.input.value)})).filter(x=>x.quantity>0)})));
  }
  contracts();
 }
@@ -124,7 +124,7 @@ function contracts(){
    if(c.state==='pickup')r.append(btn('Collect at origin',()=>request('pickup',{contract:c.id})),btn('Abandon before loading',()=>request('abandonContract',{contract:c.id})));
    if(c.state==='in_transit')r.append(btn('Deliver at destination',()=>request('deliver',{contract:c.id})),btn('Return to origin',()=>request('returnFreight',{contract:c.id})));
    const p=c.state==='pickup'?c.originPoint:c.destinationPoint;
-   if(p)r.append(el('p','Location: '+p.x.toFixed(1)+', '+p.y.toFixed(1),'muted'));
+   if(p)r.append(el('p','Location: '+Number(p.x).toFixed(1)+', '+Number(p.y).toFixed(1),'muted'));
   }
  }
 }
@@ -141,7 +141,7 @@ function render(){
  $('title').textContent=data.mode==='cargo'?(data.wagon?.name||'Recovery crate'):data.mode==='bench'?'Wagon construction':data.mode==='locked'?'Locked wagon':'Freight registry';
  content.replaceChildren();
  if(data.mode==='cargo')cargo();else if(data.mode==='bench')bench();else if(data.mode==='locked'){
-  content.append(el('p','Cargo is locked. Legal registration: '+data.wagon.id),btn('Pick cargo lock',()=>request('pick')));
+  content.append(el('p','Cargo is locked. Legal registration: '+data.wagon.id));if(data.manage)content.append(btn('Unlock cargo',()=>request('lock')));else content.append(btn('Pick cargo lock',()=>request('pick')));
  }else registry();
  $('refresh').disabled=pending||!!retry;$('retry').hidden=!retry;$('retry').disabled=pending;
 }
