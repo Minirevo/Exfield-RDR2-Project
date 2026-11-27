@@ -79,6 +79,7 @@ local function snapshot(source, id, storageId)
     local got,equipment=Inventory.Equipment(source,id)
     if not got then return false,equipment end
     state.equipment=Inventory.Present(equipment,true)
+    state.equipment.ammoCapacity=Config.QuickAmmoCapacity or 30
     state.equipped=equipped(source,id,player,belt) or false
     if storageId then
         local loaded, storage = Inventory.Storage(source, storageId)
@@ -1004,7 +1005,7 @@ local wheelViews,wheelLast={},{}
 -- A normal holster returns remaining rounds; a lost lease deliberately forfeits
 -- checked-out ammunition. Never restore client-reported rounds above the lease.
 local WR=FrontierWeaponRules
-local gunLast,gunCommitLast,gunReportLast={},{},{}
+local gunLast,gunReleaseLast,gunCommitLast,gunReportLast={},{},{},{}
 local function gunNotice(src,code) TriggerClientEvent(events..'notice',src,message(code)) end
 local function weaponState(src)
  local id=Inventory.Session(src);if not id then return nil,'character' end
@@ -1063,7 +1064,7 @@ RegisterNetEvent(events..'weaponDraw',function(token,slot,request)
   local saved,issue=weaponCommit(src,id,generation,t..':draw','weaponDraw:'..row.instance,e)
   if not saved then return false,issue end
   if Inventory.Session(src)~=id or Inventory.Generation(src)~=generation then return false,'character' end
-  local s={token=t,id=id,generation=generation,slot=slot,item=row.item,instance=row.instance,rounds=rounds,version=1}
+  local s={token=t,id=id,generation=generation,slot=slot,item=row.item,instance=row.instance,rounds=rounds,version=1,drawRequest=request}
   Inventory.WeaponSessions[src]=s
   clearEquipped(src)
   response={lease=t,slot=slot,item=row.item,serial=row.instance,rounds=rounds,version=1}
@@ -1152,7 +1153,7 @@ RegisterNetEvent(events..'weaponRelease',function(token,version,remaining)
  local s=lease(src,token)
  if not s then TriggerClientEvent(events..'weaponReleaseResult',src,token,true,'');return end
  if s.pending then s.pending.cancelled=true end
- local ok,err=admit(src,gunLast,function()
+ local ok,err=admit(src,gunReleaseLast,function()
   if lease(src,token)~=s then return false,'character' end
   s.releasing=true;s.pending=nil
   local id,e=weaponState(src);if not id then s.releasing=false;return false,e end
@@ -1171,12 +1172,16 @@ RegisterNetEvent(events..'weaponRelease',function(token,version,remaining)
  end,100)
  TriggerClientEvent(events..'weaponReleaseResult',src,token,ok,ok and '' or err)
 end)
+RegisterNetEvent(events..'weaponAbortDraw',function(request)
+ local src=source;local s=Inventory.WeaponSessions[src]
+ if s and s.drawRequest==request and lease(src,s.token)==s then resetWeapon(src,'Weapon draw timed out; checked-out rounds forfeited.') end
+end)
 RegisterNetEvent(events..'weaponAbandon',function(token)
  local src=source;local s=lease(src,token)
  if s then resetWeapon(src,'Weapon lease abandoned; checked-out rounds forfeited.') end
 end)
 AddEventHandler('playerDropped',function()
- gunLast[source]=nil;gunCommitLast[source]=nil;gunReportLast[source]=nil
+ gunLast[source]=nil;gunReleaseLast[source]=nil;gunCommitLast[source]=nil;gunReportLast[source]=nil
 end)
 
 RegisterNetEvent(events..'wheelOpen',function(sequence)

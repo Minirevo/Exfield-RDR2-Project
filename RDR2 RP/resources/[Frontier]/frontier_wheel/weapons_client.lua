@@ -57,7 +57,7 @@ function W.holster(callback)
  if not active then if callback then callback(true) end;return end
  W.cancelReload()
  local s=active
- local remaining=math.min(s.upper,count(s))
+ local remaining=s.created and math.min(s.upper,count(s)) or s.upper
  active=nil;reload=nil
  removeNative(s)
  release={state=s,version=s.version,remaining=remaining,callback=callback,started=GetGameTimer()}
@@ -185,7 +185,7 @@ CreateThread(function()
  while true do
   Wait(W.active() and 0 or 100)
   local now=GetGameTimer()
-  if draw and (now-draw.started>5000 or draw.ped~=PlayerPedId() or not LocalPlayer.state.IsInSession) then draw=nil;notice('Weapon draw timed out.') end
+  if draw and (now-draw.started>5000 or draw.ped~=PlayerPedId() or not LocalPlayer.state.IsInSession) then local q=draw;draw=nil;TriggerServerEvent(E..'weaponAbortDraw',q.request);notice('Weapon draw timed out.') end
   if release and now-release.started>6000 then abandon('Holster response timed out.') end
   local s=active
   if s then
