@@ -35,3 +35,5 @@ print('Network model validation rules passed')
 dofile('tests/wagon_runtime.lua')
 
 dofile('tests/freight_security.lua')
+
+dofile('tests/trade_delivery.lua')

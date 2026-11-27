@@ -488,7 +488,16 @@ local function tradeMove(owner, delivery, character, item, quantity, taking)
     if not ok then return false,replay end
     if replay then return true,key end
     local boxId='trade_'..delivery;local stockId='p_'..character;local confiscate=false
-    if #character==32 and character:match('^[a-f0-9]+$') then
+    local wagonSource
+    if taking then
+        local loaded,source=Inventory.Db('single','SELECT wagon_id,seller_id FROM ft_wagon_deliveries WHERE delivery_id=?',{delivery})
+        if not loaded then return false,source end
+        if source then
+            if source.seller_id~=character or type(source.wagon_id)~='string' or #source.wagon_id~=32 or not source.wagon_id:match('^[a-f0-9]+$') then return false,'forbidden' end
+            wagonSource=true;stockId='lg_w_'..source.wagon_id
+        end
+    end
+    if not wagonSource and #character==32 and character:match('^[a-f0-9]+$') then
         local routeOk,route=Inventory.Db('single',[[SELECT f.fixture_id,c.status,c.liquidate_until FROM fb_trade_routes f
           JOIN fb_companies c ON c.id=f.company_id WHERE f.reference_id=? AND f.company_id=?]],{delivery,character})
         if not routeOk then return false,route end
