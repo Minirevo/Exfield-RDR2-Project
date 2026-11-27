@@ -18,3 +18,11 @@
 #st-target{position:absolute;background:#81945f;height:100%}
 #st-marker{position:absolute;width:3px;background:#fff3d6;height:100%}
 #st-progress{width:100%;accent-color:#c5a36b}
+
+#st-round{font-size:13px;color:#d4c7ad;margin:6px 0}
+#st-round-dots{display:flex;justify-content:center;gap:7px;margin:6px 0 12px}
+.st-dot{width:13px;height:13px;border:1px solid #8a7859;border-radius:50%;background:#403629}
+.st-dot[data-state=active]{border-color:#f0dfbd;box-shadow:0 0 0 2px #b99b6355}
+.st-dot[data-state=good]{background:#8da66c}.st-dot[data-state=partial]{background:#c5a36b}.st-dot[data-state=miss]{background:#a35b50}
+#st-instruction[data-result=good]{color:#b4d395}#st-instruction[data-result=partial]{color:#e5c47c}#st-instruction[data-result=miss]{color:#e5a095}
+#st-marker{transform:translateX(-50%)}

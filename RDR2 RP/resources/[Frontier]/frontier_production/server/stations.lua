@@ -117,7 +117,6 @@ local function start(src,st,p,owns,d,key)
   check(count(st.id)<C.maxQueue,'Station queue full')
   check(not MySQL.scalar.await("SELECT id FROM frontier_production_station_jobs WHERE station_id=? AND mode='manual' AND state IN "..active.." LIMIT 1",{st.id}),'Manual work in progress')
  else
-  check(n==1,'Manual work produces one batch at a time')
   check(count(st.id)==0 and not characterBusy(who),'Finish the current work first')
   check(owns or (d.input=='bag' and d.output=='bag'),'Members must use their own inventory')
  end
@@ -135,7 +134,7 @@ local function start(src,st,p,owns,d,key)
  check(known,'Input stock unavailable')
  for _,v in ipairs(m) do check((counts[v.id] or 0)>=v.count,'Missing '..v.id..': '..(v.count-(counts[v.id] or 0))) end
  local duration=(npc and r.npc or r.manual)*n
- local payload={recipe=r.id,recipeSnapshot={output=r.output,quantity=r.quantity,quality=r.quality,material=r.material},name=r.name,batches=n,inputs=m,input=input,output=output,skill=r.skill,level=skill.level,equipment=p.equipment,
+ local payload={recipe=r.id,recipeSnapshot={output=r.output,quantity=r.quantity,quality=r.quality,material=r.material},rounds=r.rounds,roundMs=C.roundMs,sweepMs=C.sweepMs,width=C.targetWidth,name=r.name,batches=n,inputs=m,input=input,output=output,skill=r.skill,level=skill.level,equipment=p.equipment,
   maker=p.plotName or 'Workshop',duration=duration,wage=npc and math.ceil(duration*ProductionConfig.WageMinor/ProductionConfig.WageIntervalSeconds) or 0,bank=bank}
  if npc then payload.outputs=R.outputs(r,n,skill.level,'npc',0,p.equipment,payload.maker) end
  U("INSERT INTO frontier_production_station_jobs(id,station_id,actor,mode,state,payload,created_at) VALUES(?,?,?,?,'queued',?,?)",{key,st.id,who,d.mode,json.encode(payload),now()})
@@ -220,11 +219,15 @@ RegisterNetEvent(E..'request',function(ticket,seq,name,d)
  end)
 end)
 RegisterNetEvent(E..'close',function(ticket)local src=source;if views[src] and views[src].ticket==ticket then views[src]=nil end end)
-RegisterNetEvent(E..'strike',function(k)
+RegisterNetEvent(E..'strike',function(k,round)
  local src=source;local w=work[src]
- if w and w.id==k and w.actor==cid(src) and w.score==nil then
-  local elapsed=GetGameTimer()-w.started;if elapsed>=0 and elapsed<=w.ms then w.score=R.score(elapsed,w.target) end
- end
+ if not w or w.id~=k or w.actor~=cid(src) or type(round)~='number' or round%1~=0 or round<1 or round>#w.targets or w.scores[round]~=nil then return end
+ local elapsed=GetGameTimer()-w.started
+ -- Server clock only. No client-provided score, hit location or timestamp.
+ local score=R.roundScore(elapsed,round,w.roundMs,w.sweepMs,w.targets[round])
+ if score==nil then return end
+ w.scores[round]=score
+ TriggerClientEvent(E..'strikeResult',src,k,round,score)
 end)
 RegisterNetEvent(E..'finish',function(k)
  local src=source;local w=work[src];if not w or w.id~=k then return end
@@ -232,9 +235,12 @@ RegisterNetEvent(E..'finish',function(k)
   local j=job(k);local st=j and row(j.station_id)
   if not j or j.state~='manual' or j.actor~=cid(src) then clearWork(src,'Work unavailable');return end
   local d=json.decode(j.payload);local p=st and canUse(src,st)
-  if not p or GetGameTimer()-w.started<w.ms or GetGameTimer()-w.started>w.ms+12000 then state(j,'return','Work interrupted');clearWork(src,'Work interrupted; ingredients will be returned');return end
+  local elapsed=GetGameTimer()-w.started
+  if elapsed<w.ms then return end -- early finish request cannot consume or cancel an active batch
+  if not p or elapsed>w.ms+12000 then state(j,'return','Work interrupted');clearWork(src,'Work interrupted; ingredients will be returned');return end
   local r=d.recipeSnapshot or C.recipes[d.recipe];check(r,'Recipe unavailable')
-  d.outputs=R.outputs(r,d.batches,d.level,'manual',w.score or 0,d.equipment,d.maker)
+  local scores={};for batch=1,d.batches do scores[batch]=R.batchScore(w.scores,batch,w.rounds) end
+  d.outputs=R.outputs(r,d.batches,d.level,'manual',scores,d.equipment,d.maker)
   U("UPDATE frontier_production_station_jobs SET payload=?,state='output',due_at=0,retry_at=0 WHERE id=? AND state='manual'",{json.encode(d),k})
   clearWork(src,'Work finished; delivering product')
  end)
@@ -264,9 +270,12 @@ local function step(j)
   else
    local src=intents[j.id];intents[j.id]=nil
    if not src or cid(src)~=j.actor or not canUse(src,st) then return state(j,'return','Player unavailable') end
-   local w={id=j.id,actor=j.actor,started=GetGameTimer(),ms=d.duration*1000,target=math.random(27,73)/100,station=j.station_id}
-   state(j,'manual','',now()+d.duration+12);work[src]=w;views[src]=nil
-   TriggerClientEvent(E..'work',src,{id=j.id,label=d.name,ms=w.ms,target=w.target,kind=(C.recipes[d.recipe] or {}).station})
+   local rounds=d.rounds or 1;local roundMs=d.roundMs or C.roundMs;local sweepMs=d.sweepMs or C.sweepMs
+   local targets={};for i=1,rounds*d.batches do targets[i]=math.random(25,75)/100 end
+   local w={id=j.id,actor=j.actor,ms=roundMs*#targets,rounds=rounds,roundMs=roundMs,sweepMs=sweepMs,targets=targets,scores={},station=j.station_id}
+   state(j,'manual','',now()+math.ceil(w.ms/1000)+12)
+   w.started=GetGameTimer();work[src]=w;views[src]=nil
+   TriggerClientEvent(E..'work',src,{id=j.id,label=d.name,ms=w.ms,targets=targets,rounds=rounds,batches=d.batches,roundMs=roundMs,sweepMs=sweepMs,width=d.width or C.targetWidth,kind=(C.recipes[d.recipe] or {}).station})
   end
  elseif j.state=='wage' then
   -- Ledger receipt makes a crash between debit and state transition safe.
