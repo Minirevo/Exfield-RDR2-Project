@@ -986,6 +986,54 @@ RegisterNetEvent(events..'selectBelt',function(slot)
  if not ok then TriggerClientEvent(events..'notice',src,message(err)) end
 end)
 RegisterNetEvent(events..'holsterTool',function()clearEquipped(source)end)
+
+-- Opt-in radial tool selector. The displayed revision and active character bind the selection.
+local wheelViews,wheelLast={},{}
+RegisterNetEvent(events..'wheelOpen',function(sequence)
+ local src=source
+ if not Inventory.Int(sequence,2147483647) then return end
+ local ok,err=admit(src,wheelLast,function()
+  wheelViews[src]=nil
+  local id,why=Inventory.Session(src);if not id then return false,why end
+  local loaded,belt=Inventory.Belt(src,id);if not loaded then return false,belt end
+  local got,bag=Inventory.Player(src,id);if not got then return false,bag end
+  if Inventory.Session(src)~=id then return false,'character' end
+  local token=Inventory.Uuid();if not token then return false,'database_error' end
+  local slots={}
+  for i=1,Config.BeltSlots do
+   local e=belt.slots[i]
+   local kind=toolKind(e)
+   local def=e and Inventory.items[e.item]
+   local m=e and json.decode(e.metadata) or {}
+   slots[i]={slot=i,kind=kind or false,name=def and def.name or 'Empty',
+    quality=type(m.quality)=='number' and m.quality or nil,
+    uses=type(m.uses)=='number' and m.uses or nil,
+    maxUses=type(m.maxUses)=='number' and m.maxUses or nil}
+  end
+  local active=equipped(src,id,bag,belt)
+  for i=1,Config.BeltSlots do
+   local e=belt.slots[i]
+   slots[i].equipped=active and e and e.instance==active.instance or false
+  end
+  wheelViews[src]={id=id,token=token,revision=belt.revision,expires=GetGameTimer()+15000}
+  TriggerClientEvent(events..'wheelSnapshot',src,sequence,token,slots)
+  return true
+ end,250)
+ if not ok then TriggerClientEvent(events..'wheelError',src,sequence,message(err)) end
+end)
+RegisterNetEvent(events..'wheelSelect',function(token,slot)
+ local src=source
+ if type(token)~='string' or #token>80 or (slot~=0 and not Inventory.Int(slot,Config.BeltSlots)) then return end
+ local ok,err=admit(src,last,function()
+  local v=wheelViews[src];wheelViews[src]=nil
+  if not v or token~=v.token or GetGameTimer()>v.expires or Inventory.Session(src)~=v.id then return false,'conflict' end
+  if slot==0 then clearEquipped(src);return true end
+  return selectTool(src,'belt',slot,nil,v.revision)
+ end)
+ if not ok then TriggerClientEvent(events..'notice',src,message(err)) end
+end)
+AddEventHandler('playerDropped',function() wheelViews[source]=nil;wheelLast[source]=nil end)
+
 AddEventHandler('playerDropped',function() selectedBelt[source]=nil end)
 local function findGatherTool(source,id,bag,belt,kind,instance,repair)
  local preferred=selectedBelt[source];local best,bestBox,bestSlot,bestScore
