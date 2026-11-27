@@ -17,6 +17,7 @@ function render(){
   const label=s.name||'Empty',display=label.length>20?label.slice(0,18)+'…':label;
   add('text',{x:px,y:py+12,class:'label'},display);
   if(s.kind==='weapon')add('text',{x:px,y:py+29,class:'label'},'Clip '+s.loaded+' · Belt '+s.quick);
+  else if(s.kind==='consume')add('text',{x:px,y:py+29,class:'label'},'× '+s.quantity);
   else if(s.equipped)add('text',{x:px,y:py+29,class:'label'},'Equipped');
  }
  add('circle',{cx:250,cy:250,r:107,fill:'#171613ed',stroke:'#7d6d59','stroke-width':1});
@@ -24,7 +25,7 @@ function render(){
  title.textContent='FRONTIER / '+(page==='main'?'EQUIPMENT':page.toUpperCase());
  nameEl.textContent=s?.name||(loading?'Loading tools…':page==='main'?'Equipment':page==='character'?'Character':'Tools');
  const condition=s&&Number.isFinite(s.uses)&&s.maxUses>0?Math.round(s.uses/s.maxUses*100):null;
- detail.textContent=s?.kind==='weapon'?('Clip '+s.loaded+' · Quick '+s.quick+' · Satchel '+s.bag+' · '+s.serial):s?.kind==='tool'?('Quality '+(s.quality??'—')+'% · Condition '+(condition??'—')+'%'):s?.kind==='page'?'Hold here to open':s?.kind==='disabled'?'Not available':'Release TAB to select';
+ detail.textContent=s?.kind==='weapon'?('Clip '+s.loaded+' · Quick '+s.quick+' · Satchel '+s.bag+' · '+s.serial):s?.kind==='tool'?('Quality '+(s.quality??'—')+'% · Condition '+(condition??'—')+'%'):s?.kind==='consume'?'Available: '+s.quantity+' · Release to use':s?.kind==='page'?'Hold here to open':s?.kind==='disabled'?'Not available':'Release TAB to select';
 }
 function post(action,data={}){return fetch('https://'+GetParentResourceName()+'/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});}
 function showDocs(data){

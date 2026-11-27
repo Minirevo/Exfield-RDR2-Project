@@ -85,7 +85,7 @@ function Inventory.Present(container, forBrowser)
         slots[#slots + 1] = { slot = slot, item = stack.item, name = item.name, description = item.description,
             quantity = stack.quantity, grams = item.grams, usable = item.usable, drop = item.drop,
             transfer = item.transfer, store = item.store, metadata = stack.metadata, instance = stack.instance,
-            category=item.category, icon=item.icon, maxStack=item.maxStack, beltEligible=Inventory.BeltEligible(stack.item) }
+            category=item.category, icon=item.icon, maxStack=item.maxStack, classification=item.classification, beltEligible=Inventory.BeltEligible(stack.item) }
     end
     table.sort(slots, function(a, b) return a.slot < b.slot end)
     return { slots = slots, capacity = container.slot_limit, weight = Inventory.Weight(container),

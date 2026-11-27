@@ -400,7 +400,7 @@ local function initialize()
     end
     for id,def in pairs(cfg.Items) do
         local ok,issue=inventory:RegisterItem(id,{name=def.name,description=def.description,
-            grams=def.grams,maxStack=20,category='Produktion'})
+            grams=def.grams,maxStack=20,category='Produktion',usable=id=='cooked_meat',classification=id=='cooked_meat' and 'food' or nil})
         if not ok then
             FrontierLib.Log('WARN',resource,'Production item registration not ready',{item=id,reason=issue})
             return false

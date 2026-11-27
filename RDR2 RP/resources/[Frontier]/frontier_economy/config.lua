@@ -1,6 +1,7 @@
 EconomyConfig = {
     -- Enable individual resources explicitly when they need the server API.
     TrustedResources = {
+        frontier_hud = true,
         frontier_production = true,
         frontier_logistics = true,
         frontier_farming = true,

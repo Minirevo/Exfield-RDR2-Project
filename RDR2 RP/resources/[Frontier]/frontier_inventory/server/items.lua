@@ -26,9 +26,13 @@ local defaults = {
     property_wardrobe = { name = 'Wardrobe', description = 'Wardrobe', grams = 12000, maxStack = 1, category = 'Large furniture', usable = true },
     property_table = { name = 'Workbench', description = 'Workbench', grams = 10000, maxStack = 1, category = 'Large furniture', usable = true },
     property_chair = { name = 'Chair', description = 'Chair', grams = 3000, maxStack = 1, category = 'Small furniture', usable = true },
-    bread = { name = 'Brot', description = 'Ein Laib Brot.', grams = 350, maxStack = 10, category = 'Nahrung' },
-    water = { name = 'Wasserflasche', description = 'Eine Flasche Trinkwasser.', grams = 550, maxStack = 10, category = 'Getränke' },
-    apple = { name = 'Apfel', description = 'Ein frischer Apfel.', grams = 150, maxStack = 20, category = 'Nahrung' },
+    weapon_cattleman = { name='Cattleman Revolver', description='Personal sidearm. Serial is the immutable inventory instance ID.', grams=1050,maxStack=1,category='Weapons',classification='sidearm',condition=true,metadata='{"condition":100}' },
+    weapon_lancaster = { name='Lancaster Repeater', description='Long gun. Serial is the immutable inventory instance ID.', grams=3500,maxStack=1,category='Weapons',classification='longgun',condition=true,metadata='{"condition":100}' },
+    ammo_revolver = { name='Revolver cartridges', description='Regular revolver ammunition.', grams=16,maxStack=100,category='Ammunition',classification='ammo' },
+    ammo_repeater = { name='Repeater cartridges', description='Regular repeater ammunition.', grams=22,maxStack=100,category='Ammunition',classification='ammo' },
+    bread = { name = 'Brot', description = 'Ein Laib Brot.', grams = 350, maxStack = 10, category = 'Nahrung', usable = true, classification = 'food' },
+    water = { name = 'Wasserflasche', description = 'Eine Flasche Trinkwasser.', grams = 550, maxStack = 10, category = 'Getränke', usable = true, classification = 'drink' },
+    apple = { name = 'Apfel', description = 'Ein frischer Apfel.', grams = 150, maxStack = 20, category = 'Nahrung', usable = true, classification = 'food' },
     bandage = { name = 'Verband', description = 'Ein sauberer Stoffverband.', grams = 80, maxStack = 15, category = 'Medizin', usable = true },
     tonic = { name = 'Heiltonikum', description = 'Eine Flasche mit etikettiertem Inhalt.', grams = 280,
         maxStack = 5, category = 'Medizin', usable = true, metadata = '{"charge":"standard"}' },
@@ -190,6 +194,21 @@ function Inventory.Register(owner, id, input)
             Inventory.Log('INFO','Repaired legacy production item definition',{item=id})
         end
     end
+    -- Exact known consumable definition upgrade: do not modify item stacks or their ownership.
+    if row and row.owner_resource==owner and
+        ((owner==Inventory.resource and (id=='bread' or id=='apple' or id=='water')) or
+         (owner=='frontier_production' and id=='cooked_meat')) then
+        local prior=json.decode(row.definition)
+        local legacy={}
+        for k,v in pairs(def) do legacy[k]=v end
+        legacy.usable=false;legacy.classification=nil
+        if sameDefinition(prior,legacy) then
+            local migrated,count=Inventory.Db('update',[[UPDATE frontier_inventory_items SET definition=?
+                WHERE id=? AND owner_resource=? AND definition=?]],{json.encode(def),id,owner,row.definition})
+            if not migrated or count~=1 then return false,'definition_conflict' end
+            row.definition=json.encode(def)
+        end
+    end
     if not row or row.owner_resource ~= owner then return false, 'forbidden' end
     local saved = json.decode(row.definition)
     for key, value in pairs(def) do
@@ -218,6 +237,11 @@ function Inventory.BootItems()
             Inventory.Log('ERROR','Default item registration failed',{item=id,reason=reason})
             return false
         end
+    end
+    for _,id in ipairs({'bread','apple','water','cooked_meat'}) do
+        Inventory.handlers[id]={owner=Inventory.resource,consume=true,callback=function()
+            return GetResourceState('vorp_metabolism')=='started'
+        end}
     end
     Inventory.handlers.bandage = { owner = Inventory.resource, consume = true, callback = function() return true end }
     Inventory.handlers.tonic = { owner = Inventory.resource, consume = true, callback = function() return true end }

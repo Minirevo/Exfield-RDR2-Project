@@ -6,8 +6,8 @@ function FrontierWheelLayout.main(guns)
  return {
   guns and guns[2] or entry('Primary','disabled'),
   guns and guns[1] or entry('Sidearm','disabled'),
-  entry('Tools','page','tools'),entry('Food','disabled'),
-  entry('Drinks','disabled'),entry('Medicine','disabled'),
+  entry('Tools','page','tools'),entry('Food','page','food'),
+  entry('Drinks','page','drink'),entry('Medicine','disabled'),
   entry('Utility','disabled'),entry('Unarmed','holster'),
   entry('Character','page','character')
  }
@@ -34,6 +34,16 @@ function FrontierWheelLayout.tools(belt)
   else slots[i]=entry(row and row.name or 'Empty','disabled') end
  end
  slots[7]=entry('Put away','toolHolster')
+ slots[8]=entry('Back','page','main')
+ return slots
+end
+
+function FrontierWheelLayout.consumables(rows)
+ local slots={}
+ for i=1,7 do
+  local item=rows and rows[i]
+  slots[i]=item and {name=item.name,kind='consume',target=item.item,quantity=item.quantity} or entry('Empty','disabled')
+ end
  slots[8]=entry('Back','page','main')
  return slots
 end

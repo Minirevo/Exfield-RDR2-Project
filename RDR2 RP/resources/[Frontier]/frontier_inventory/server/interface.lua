@@ -73,6 +73,9 @@ local function snapshot(source, id, storageId)
     local loaded,belt=Inventory.Belt(source,id)
     if not loaded then return false,belt end
     local state = { player = Inventory.Present(player, true), belt=Inventory.Present(belt,true) }
+    local got,equipment=Inventory.Equipment(source,id)
+    if not got then return false,equipment end
+    state.equipment=Inventory.Present(equipment,true)
     state.equipped=equipped(source,id,player,belt) or false
     if storageId then
         local loaded, storage = Inventory.Storage(source, storageId)
@@ -117,7 +120,7 @@ local function normalize(action, data)
         return
     end
     local needsDestination = action == 'move' or action == 'split' or action == 'storageMove'
-        or action == 'storageSplit' or action == 'store' or action == 'retrieve' or action=='beltStore' or action=='beltRetrieve' or action=='beltMove'
+        or action == 'storageSplit' or action == 'store' or action == 'retrieve' or action=='beltStore' or action=='beltRetrieve' or action=='beltMove' or action=='equipmentStore' or action=='equipmentRetrieve' or action=='equipmentMove'
     if not needsDestination and action ~= 'beltUse' and action ~= 'use' and action ~= 'give' and action ~= 'drop' then return end
     if not Inventory.Int(data.slot, 200) or (action ~= 'use' and action~='beltUse' and not Inventory.Int(data.quantity, 10000))
         or (needsDestination and not Inventory.Int(data.target, 200))
@@ -134,6 +137,7 @@ local function fingerprint(action, data, storage)
     local parts={ action, data.slot or false, data.target or false, data.quantity or false,
         data.recipient or false, data.drop or false, data.revision or false, data.storageRevision or false, storage or false }
     if action:sub(1,4)=='belt' then parts[#parts+1]=data.beltRevision or false end
+    if action:sub(1,9)=='equipment' then parts[#parts+1]=data.equipmentRevision or false end
     return json.encode(parts)
 end
 
@@ -177,6 +181,8 @@ RegisterNetEvent(events .. 'request', function(ticket, seq, action, payload)
             return false, 'invalid_request'
         end
         if action:sub(1,4)=='belt' and not revision(payload.beltRevision) then return false,'invalid_request' end
+        if action:sub(1,9)=='equipment' and not revision(payload.equipmentRevision) then return false,'invalid_request' end
+        data.equipmentRevision=payload.equipmentRevision
         data.beltRevision=payload.beltRevision
         data.revision = payload.revision
         data.storageRevision = view.storage and payload.storageRevision or nil
@@ -1015,8 +1021,22 @@ RegisterNetEvent(events..'wheelOpen',function(sequence)
    local e=belt.slots[i]
    slots[i].equipped=active and e and e.instance==active.instance or false
   end
-  wheelViews[src]={id=id,token=token,revision=belt.revision,expires=GetGameTimer()+15000}
-  TriggerClientEvent(events..'wheelSnapshot',src,sequence,token,slots)
+  local consumables={food={},drink={}}
+  local byItem={}
+  for i=1,bag.slot_limit do
+   local e=bag.slots[i]
+   local d=e and Inventory.items[e.item]
+   if d and d.usable and Inventory.handlers[e.item] and consumables[d.classification] then
+    local prior=byItem[e.item]
+    if prior then prior.quantity=prior.quantity+e.quantity
+    else
+     local row={name=d.name,item=e.item,slot=i,quantity=e.quantity,kind='consume'}
+     byItem[e.item]=row;table.insert(consumables[d.classification],row)
+    end
+   end
+  end
+  wheelViews[src]={id=id,token=token,revision=belt.revision,bagRevision=bag.revision,consumables=byItem,expires=GetGameTimer()+15000}
+  TriggerClientEvent(events..'wheelSnapshot',src,sequence,token,slots,consumables)
   return true
  end,250)
  if not ok then TriggerClientEvent(events..'wheelError',src,sequence,message(err)) end
@@ -1031,6 +1051,26 @@ RegisterNetEvent(events..'wheelSelect',function(token,slot)
   return selectTool(src,'belt',slot,nil,v.revision)
  end)
  if not ok then TriggerClientEvent(events..'notice',src,message(err)) end
+end)
+RegisterNetEvent(events..'wheelConsume',function(token,item)
+ local src=source
+ if type(token)~='string' or #token>80 or not Inventory.Id(item,48) then return end
+ local ok,err=admit(src,last,function()
+  local v=wheelViews[src]
+  if not v or v.token~=token or GetGameTimer()>v.expires or Inventory.Session(src)~=v.id or not v.consumables[item] then return false,'conflict' end
+  wheelViews[src]=nil
+  local d={slot=v.consumables[item].slot,revision=v.bagRevision}
+  return Inventory.Act({id=v.id,source=src,key=v.token..':consume',actor='player:'..v.id,fingerprint=fingerprint('use',d)},'use',d)
+ end)
+ if not ok then TriggerClientEvent(events..'notice',src,message(err)) end
+end)
+local nutrition={bread={Hunger=260},apple={Hunger=120,Thirst=60},water={Thirst=350},cooked_meat={Hunger=380}}
+AddEventHandler('frontier:inventoryItemUsed',function(src,id,item)
+ if GetInvokingResource() and GetInvokingResource()~=Inventory.resource then return end
+ local effects=nutrition[item]
+ if effects and Inventory.Session(src)==id then
+  TriggerClientEvent(events..'nutrition',src,item,effects)
+ end
 end)
 AddEventHandler('playerDropped',function() wheelViews[source]=nil;wheelLast[source]=nil end)
 

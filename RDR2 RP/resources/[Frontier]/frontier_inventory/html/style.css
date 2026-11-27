@@ -2,3 +2,5 @@
 .slot{user-select:none;-webkit-user-select:none;touch-action:none}.slot.filled{cursor:grab}.slot.filled:active{cursor:grabbing}.slot>*{pointer-events:none}.slot.drag-source{opacity:.45}.drag-ghost{pointer-events:none;position:fixed;z-index:10000;background:#403629;border:1px solid #d4b579;color:#fff4db;border-radius:4px;padding:10px;box-shadow:0 6px 20px #000a;white-space:nowrap}.slot.over{outline:2px solid #a7b67b;outline-offset:-2px;background:#4a4930}
 
 .slot.equipped{border-color:#a7b67b;box-shadow:inset 0 0 0 1px #a7b67b}.equipped-label{position:absolute;top:2px;right:4px;font-size:9px;color:#c6d69b}
+
+#equipment{border-top:1px solid #524634;margin-top:12px;padding-top:10px}#equipment-slots{grid-template-columns:repeat(4,minmax(0,1fr));max-height:none}#equipment-slots .slot-number{font-size:10px}

@@ -75,6 +75,24 @@ function Inventory.Belt(source,id)
     if Inventory.Session(source)~=id then return false,'character' end
     return true,box
 end
+function Inventory.Equipment(source,id)
+    local owner='e_'..id
+    local ok,box=Inventory.Load(owner)
+    if not ok and box=='not_found' then
+        ok,box=Inventory.Ensure(owner,'storage',4,10000)
+        if ok then ok,box=Inventory.Load(owner) end
+    end
+    if not ok then return false,box end
+    if Inventory.Session(source)~=id then return false,'character' end
+    return true,box
+end
+function Inventory.EquipmentEligible(item,slot,quantity)
+    local d=Inventory.items[item]
+    if not d then return false end
+    if slot==1 then return d.classification=='longgun' and quantity==1 end
+    if slot==2 then return d.classification=='sidearm' and quantity==1 end
+    return (slot==3 or slot==4) and d.classification=='ammo' and quantity<=30
+end
 function Inventory.BeltEligible(item)
     local def=Inventory.items[item]
     return def and def.maxStack==1 and (def.classification=='tool' or (Config.BeltTools or {})[item]==true)
@@ -227,6 +245,25 @@ function Inventory.Act(ctx, action, data)
     local ok, player = Inventory.Player(ctx.source, ctx.id)
     if not ok then return false, player end
     if not revise(player, data.revision) then return false, 'conflict' end
+
+    if action=='equipmentStore' or action=='equipmentRetrieve' or action=='equipmentMove' then
+        local loaded,equipment=Inventory.Equipment(ctx.source,id)
+        if not loaded then return false,equipment end
+        if not revise(equipment,data.equipmentRevision) then return false,'conflict' end
+        local from=action=='equipmentStore' and player or equipment
+        local to=action=='equipmentRetrieve' and player or equipment
+        local stack=from.slots[data.slot]
+        if not stack then return false,'not_found' end
+        if from==to and data.slot==data.target then return false,'invalid_slot' end
+        if to==equipment then
+            local existing=to.slots[data.target]
+            local total=data.quantity+(existing and existing.quantity or 0)
+            if not Inventory.EquipmentEligible(stack.item,data.target,total) then return false,'forbidden' end
+        end
+        local moved,issue=moveBetween(from,to,data.slot,data.quantity,data.target,action=='equipmentStore' and 'store' or nil)
+        if not moved then return false,issue end
+        return commit(ctx,player,equipment)
+    end
 
     if action=='beltStore' or action=='beltRetrieve' or action=='beltMove' or action=='beltUse' then
         local loaded,belt=Inventory.Belt(ctx.source,id)

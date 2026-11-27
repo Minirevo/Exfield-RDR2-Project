@@ -2,6 +2,7 @@ local E='frontier_inventory:'
 local lab=FrontierGunLab
 local page='main'
 local toolSlots=nil
+local consumables=nil
 local layout=FrontierWheelLayout
 local entries={}
 local hoveredAt=0
@@ -58,6 +59,8 @@ local function close(commit)
   elseif item.kind=='holster' then
    lab.holster();TriggerServerEvent(E..'holsterTool')
    if not lab.active() then SetCurrentPedWeapon(PlayerPedId(),joaat('WEAPON_UNARMED'),false,0,false,false) end
+  elseif item.kind=='consume' and token then
+   TriggerServerEvent(E..'wheelConsume',token,item.target)
   elseif item.kind=='tool' and token then
    lab.holster();TriggerServerEvent(E..'wheelSelect',token,item.target)
   elseif item.kind=='toolHolster' and token then TriggerServerEvent(E..'wheelSelect',token,0)
@@ -69,7 +72,7 @@ local function close(commit)
   elseif item.kind=='documents' or item.kind=='profile' then requestDocuments(item.kind)
   elseif item.kind=='disabled' then notifyUnavailable() end
  end
- token,slots,selected=nil,nil,0;toolSlots=nil;entries={}
+ token,slots,selected=nil,nil,0;toolSlots=nil;consumables=nil;entries={}
 end
 local function renderPage()
  if page=='main' then
@@ -79,11 +82,12 @@ local function renderPage()
  elseif page=='character' then
   entries=layout.character()
   for _,item in ipairs(entries) do if item.resource and GetResourceState(item.resource)~='started' then item.kind='disabled' end end
+ elseif page=='food' or page=='drink' then entries=layout.consumables(consumables and consumables[page])
  else entries=layout.tools(toolSlots) end
  SendNUIMessage({type='page',page=page,slots=entries,loading=page=='tools' and not toolSlots,selected=selected})
 end
 local function switchPage(target)
- if not opened or not ({main=true,tools=true,character=true})[target] then return end
+ if not opened or not ({main=true,tools=true,character=true,food=true,drink=true})[target] then return end
  page=target;selected=0;x,y=0,0;hoveredAt=GetGameTimer()
  renderPage()
  trace('page '..page)
@@ -92,7 +96,7 @@ local function open()
  if opened then return end
  sequence=sequence%2147483646+1
  started=GetGameTimer()
- opened=true;lab.wheelOpen=true;token,slots,selected=nil,nil,0;toolSlots=nil;x,y=0,0
+ opened=true;lab.wheelOpen=true;token,slots,selected=nil,nil,0;toolSlots=nil;consumables=nil;x,y=0,0
  page='main';hoveredAt=started
  SendNUIMessage({type='open'});renderPage()
  TriggerServerEvent(E..'wheelOpen',sequence)
@@ -101,10 +105,10 @@ end
 RegisterNUICallback('ready',function(_,cb)
  ready=true;close(false);trace('NUI ready');cb({ok=true})
 end)
-RegisterNetEvent(E..'wheelSnapshot',function(seq,t,data)
+RegisterNetEvent(E..'wheelSnapshot',function(seq,t,data,food)
  if source~=65535 or not opened or seq~=sequence or type(t)~='string' or type(data)~='table' then return end
- token,toolSlots=t,data
- if page=='tools' then renderPage() end
+ token,toolSlots=t,data;consumables=food
+ if page=='tools' or page=='food' or page=='drink' then renderPage() end
  trace('toolbelt snapshot received')
 end)
 RegisterNetEvent(E..'wheelError',function(seq,msg)

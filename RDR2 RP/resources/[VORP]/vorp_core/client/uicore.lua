@@ -1,4 +1,19 @@
+local function frontierHudActive()
+    if GetResourceState('frontier_hud')~='started' then return false end
+    local ok,active=pcall(function() return exports.frontier_hud:IsReplacingHud() end)
+    return ok and active==true
+end
 local vorpShowUI = true
+local frontierWasActive=false
+CreateThread(function()
+    while true do
+        Wait(500)
+        local active=frontierHudActive()
+        if active then SendNUIMessage({type='ui',action='hide'})
+        elseif frontierWasActive and vorpShowUI then SendNUIMessage({type='ui',action='show'}) end
+        frontierWasActive=active
+    end
+end)
 local ShowUI = true
 local MenuData = exports.vorp_menu:GetMenuData()
 local T <const> = Translation[Lang].MessageOfSystem.PlayerMenu
@@ -23,7 +38,7 @@ end)
 RegisterNetEvent('vorp:showUi', function(active)
     vorpShowUI = active
     local jsonpost = { type = "ui", action = "hide" }
-    if active then jsonpost = { type = "ui", action = "show" } end
+    if active and not frontierHudActive() then jsonpost = { type = "ui", action = "show" } end
 
     SendNUIMessage(jsonpost)
 end)
@@ -61,7 +76,7 @@ RegisterNetEvent('vorp:SelectedCharacter', function()
                     vorpShowUI = false
                 elseif cantoggle and Config.OpenAfterRader then
                     cantoggle = false
-                    SendNUIMessage({ type = "ui", action = "show" })
+                    if not frontierHudActive() then SendNUIMessage({ type = "ui", action = "show" }) end
                     vorpShowUI = true
                 end
 
