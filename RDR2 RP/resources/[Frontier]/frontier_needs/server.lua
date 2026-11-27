@@ -23,11 +23,36 @@ local function native(name,...)
  local ok,v=pcall(fn,...);if ok then return v end
 end
 local function truth(v) return v==true or v==1 end
-local function dead(p)
- local v=native('IsPedDeadOrDying',p,true)
- if v~=nil then return truth(v) end
- local h=native('GetEntityHealth',p)
- return type(h)=='number' and h<=0
+local function dead(p, src)
+    -- Use the existing character provider's death state.
+    local ok, result = pcall(function()
+        local vorp = exports.vorp_core:GetCore()
+        local user = vorp.getUser(src)
+
+        if not user then return nil end
+
+        local character = user.getUsedCharacter
+
+        if not character then return nil end
+
+        return character.isdead
+    end)
+
+    if ok and result ~= nil then
+        return result == true
+            or result == 1
+            or result == "1"
+            or result == "true"
+    end
+
+    -- Native fallback without the unreliable health check.
+    local v = native('IsPedDeadOrDying', p, true)
+
+    if v ~= nil then
+        return truth(v)
+    end
+
+    return false
 end
 local function currentPed(src)
  local p=GetPlayerPed(src)
@@ -51,7 +76,7 @@ exports('QueueConsumption',function(src,id,item,key,actor,fp)
  local e=C.effects[item]
  if not e or type(key)~='string' or #key>80 or type(fp)~='string' or #fp>8192 then return false,'invalid_request' end
  local p=currentPed(src)
- if not p or dead(p) then return false,'restricted' end
+if not p or dead(p,src) then return false,'restricted' end
  local old=db('single','SELECT character_id,item,actor,fingerprint FROM frontier_needs_consumptions WHERE request_key=?',{key})
  if old then return old.character_id==id and old.item==item and old.actor==actor and old.fingerprint==fp,'request_conflict' end
  local now=GetGameTimer()
@@ -102,6 +127,8 @@ local function tick(p)
  local h=C.hungerDecay+(running and C.runningHunger or 0)
  local t=C.thirstDecay+(running and C.runningThirst or 0)
  local energy=running and -C.energyDrain or C.energyRecovery
+ print(('[Frontier Needs] Player=%s | Speed=%.2f | Running=%s | Hunger=-%d | Thirst=-%d | Energy=%d')
+    :format(src, speed, tostring(running), h, t, energy))
  if cid(src)~=id then return end
  local changed=db('update',[[UPDATE frontier_needs_state SET
   hunger=GREATEST(0,CAST(hunger AS SIGNED)-?),thirst=GREATEST(0,CAST(thirst AS SIGNED)-?),

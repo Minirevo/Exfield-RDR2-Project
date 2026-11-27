@@ -1,9 +1,9 @@
 FrontierNeedsConfig={
  maximum=1000,
- tickMs=15000,
- hungerDecay=4,thirstDecay=8,
- runningHunger=4,runningThirst=4,
- runSpeed=3.0,energyDrain=18,energyRecovery=12,
+ tickMs=300,
+ hungerDecay=1,thirstDecay=1,
+ runningHunger=1,runningThirst=1,
+ runSpeed=3.0,energyDrain=10,energyRecovery=3,
  low=200,damageAtZero=5,
  consumeCooldownMs=3000,
  effects={
