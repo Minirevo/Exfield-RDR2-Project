@@ -1,6 +1,7 @@
 local L=FrontierDamageLab
 local E='frontier_damagelab:'
 local trial=nil
+local cleanupFailedPed=nil
 local function truth(v) return v==true or v==1 end
 local function log(msg)
  print(('[frontier_damagelab] %s'):format(msg))
@@ -23,7 +24,26 @@ end
 local function setMax(p,n)
  local ok=call('SetEntityMaxHealth',p,n)
  if not ok then ok=pcall(Citizen.InvokeNative,0x166E7CF68597D8B5,p,n) end
- return ok and maximum(p)==n
+ return ok,maximum(p)
+end
+-- Restore the effective cap, not the raw setter argument. A bounded correction
+-- handles native bonuses without assuming they are constant across characters.
+local function restoreMax(p,t)
+ local actual=maximum(p)
+ if actual==t.originalMax then return true end
+ local request=L.correctMax(t.maxRequest,t.maxReadback,t.originalMax) or t.originalMax
+ local tried={}
+ for i=1,3 do
+  if tried[request] then break end
+  tried[request]=true
+  local ok,readback=setMax(p,request)
+  log(('RESTORE_MAX requested=%s actual=%s original=%s'):format(tostring(request),tostring(readback),tostring(t.originalMax)))
+  if readback==t.originalMax then return true end
+  if not ok then break end
+  request=L.correctMax(request,readback,t.originalMax)
+  if not request then break end
+ end
+ return false
 end
 local function setHealth(p,n)
  local ok=call('SetEntityHealth',p,n,0)
@@ -67,7 +87,12 @@ local function finish(reason)
    if not call('SetPedConfigFlag',p,flag,prior) then log('WARNING: could not restore flag '..flag) end
   end
   if t.changedMax then
-   if not setMax(p,t.originalMax) then log('WARNING: max health restoration not verified') end
+   if not restoreMax(p,t) then
+    cleanupFailedPed=p
+    t.stats.errors=t.stats.errors+1
+    t.lastError='max health restoration not verified; reconnect before another trial'
+    log(('WARNING: %s original=%s actual=%s'):format(t.lastError,tostring(t.originalMax),tostring(maximum(p))))
+   end
   end
   if t.modifiedHealth and not truth(get('IsEntityDead',p)) and not t.stats.dead then
    if not setHealth(p,math.min(t.originalHealth,t.originalMax)) then log('WARNING: could not restore health') end
@@ -103,6 +128,10 @@ RegisterNetEvent(E..'start',function(id,mode,duration)
  if source~=65535 or type(id)~='string' or not L.validMode(mode) or duration~=L.durationMs then return end
  finish('new trial')
  local p=PlayerPedId();local h,m=health(p),maximum(p)
+ if cleanupFailedPed==p then
+  log('Trial refused: previous max health cleanup failed; reconnect before continuing')
+  TriggerServerEvent(E..'result',id,'start refused','previous max health cleanup failed; reconnect');return
+ end
  if not localIsolation() or not LocalPlayer.state.IsInSession or p==0 or dead(p) or type(h)~='number' or type(m)~='number' or h<=0 or m<=0 then
   log('Trial refused: need isolated loaded living character')
   TriggerServerEvent(E..'result',id,'start refused','isolated loaded living character required');return
@@ -129,7 +158,12 @@ RegisterNetEvent(E..'start',function(id,mode,duration)
  if cfg.refill then
   if cfg.buffer and t.target~=m then
    t.changedMax=true
-   if not setMax(p,t.target) then errors(t,('native max health buffer rejected: wanted=%s actual=%s'):format(tostring(t.target),tostring(maximum(p))));return finish('max health failed') end
+   t.maxRequest=t.target
+   local ok,actual=setMax(p,t.maxRequest)
+   t.maxReadback=actual
+   if not ok or not L.bufferAccepted(t.maxRequest,actual) then errors(t,('native max health buffer rejected: wanted=%s actual=%s'):format(tostring(t.maxRequest),tostring(actual)));return finish('max health failed') end
+   log(('BUFFER requested=%d actual=%d modifier=%+d'):format(t.maxRequest,actual,actual-t.maxRequest))
+   t.target=actual
   end
   t.modifiedHealth=true
   if not setHealth(p,t.target) then errors(t,'initial fill failed');return finish('fill failed') end

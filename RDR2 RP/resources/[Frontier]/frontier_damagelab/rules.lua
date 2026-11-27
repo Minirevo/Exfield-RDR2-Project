@@ -30,6 +30,19 @@ function L.target(original,mode)
  if not L.validMode(mode) or type(original)~='number' or original<1 then return nil end
  return L.modes[mode].buffer and math.max(original,L.bufferMax) or original
 end
+-- Readback can include a native health modifier not present in the setter input.
+function L.validHealth(n)
+ return type(n)=='number' and n==n and n%1==0 and n>=1 and n<=1000000
+end
+function L.bufferAccepted(request,actual)
+ return L.validHealth(request) and L.validHealth(actual) and actual>=request and actual<=request*2
+end
+function L.correctMax(request,actual,desired)
+ if not L.validHealth(request) or not L.validHealth(actual) or not L.validHealth(desired) then return nil end
+ local corrected=request+desired-actual
+ if not L.validHealth(corrected) or corrected==request then return nil end
+ return corrected
+end
 function L.loss(before,after)
  if type(before)~='number' or type(after)~='number' then return 0 end
  return math.max(0,before-after)
