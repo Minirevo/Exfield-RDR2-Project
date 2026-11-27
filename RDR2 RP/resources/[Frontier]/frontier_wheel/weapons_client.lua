@@ -20,8 +20,11 @@ local function clip(s)
  return math.max(0,math.floor(tonumber(n) or 0))
 end
 local function held(s) return s and GetPedCurrentHeldWeapon(s.ped)==s.hash end
+local function deadPed(p)
+ return p==0 or truth(IsEntityDead(p)) or truth(IsPlayerDead(PlayerId()))
+end
 local function validPed(s)
- return s and PlayerPedId()==s.ped and LocalPlayer.state.IsInSession and not truth(IsEntityDead(s.ped))
+ return s and PlayerPedId()==s.ped and LocalPlayer.state.IsInSession and not deadPed(s.ped)
 end
 local function legacyRunning()
  for _,name in ipairs({'vorp_inventory','vorp_weaponsv2'}) do
@@ -91,8 +94,10 @@ local function reset(reason)
 end
 local function abandon(reason)
  local s=active or (release and release.state)
- if s then TriggerServerEvent(E..'weaponAbandon',s.lease) end
+ -- Remove the native projection before releasing the durable lease. Do not
+ -- use ammo read after death: the engine may already have cleared the pool.
  reset(reason)
+ if s then TriggerServerEvent(E..'weaponAbandon',s.lease) end
 end
 local function sendRelease(q)
  TriggerServerEvent(E..'weaponRelease',q.state.lease,q.version,q.remaining)
@@ -120,7 +125,7 @@ local function startDraw(token,slot)
  if not LocalPlayer.state.IsInSession or not token or draw or release or active then return end
  if legacyRunning() then notice('Legacy inventory is still running. Frontier firearm cutover required.');return end
  local p=PlayerPedId()
- if p==0 or truth(IsEntityDead(p)) then return end
+ if deadPed(p) then return end
  if not cleanResidual(p) then notice('Native holster is still settling. Retry after the animation.');return end
  -- Reject unknown native weapons instead of deleting them.
  for _,d in pairs(R.models) do
@@ -148,7 +153,7 @@ RegisterNetEvent(E..'weaponDrawResult',function(request,ok,data,msg)
  local q=draw;draw=nil
  if not ok then notice(msg or 'Draw refused.');return end
  local d=type(data)=='table' and R.models[data.item]
- if legacyRunning() or not d or q.ped~=PlayerPedId() or not LocalPlayer.state.IsInSession or truth(IsEntityDead(q.ped)) then
+ if legacyRunning() or not d or q.ped~=PlayerPedId() or not LocalPlayer.state.IsInSession or deadPed(q.ped) then
   if data and data.lease then TriggerServerEvent(E..'weaponAbandon',data.lease) end
   return
  end
@@ -255,7 +260,7 @@ CreateThread(function()
  while true do
   Wait(W.active() and 0 or 100)
   local now=GetGameTimer()
-  if draw and (now-draw.started>5000 or draw.ped~=PlayerPedId() or not LocalPlayer.state.IsInSession) then local q=draw;draw=nil;TriggerServerEvent(E..'weaponAbortDraw',q.request);notice('Weapon draw timed out.') end
+  if draw and (now-draw.started>5000 or draw.ped~=PlayerPedId() or not LocalPlayer.state.IsInSession or deadPed(draw.ped)) then local q=draw;draw=nil;TriggerServerEvent(E..'weaponAbortDraw',q.request);notice('Weapon draw interrupted.') end
   if release and now-release.started>6000 then abandon('Holster response timed out.') end
   local s=active
   if s then
@@ -293,5 +298,11 @@ AddEventHandler('onClientResourceStop',function(r)
   end
   reset()
  end
+end)
+-- VORP's terminal death event supplements the frame-level death check.
+-- Unconsciousness is not native death and must not refund a live weapon.
+AddEventHandler('vorp_core:Client:OnPlayerDeath',function()
+ if active or release then abandon('Character died; recovering ammunition.')
+ elseif draw then local q=draw;draw=nil;TriggerServerEvent(E..'weaponAbortDraw',q.request) end
 end)
 AddEventHandler('vorp:SelectedCharacter',function() if W.active() then abandon('Character changed.') end;residual={} end)

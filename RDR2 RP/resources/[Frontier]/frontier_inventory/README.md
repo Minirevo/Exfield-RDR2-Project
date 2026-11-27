@@ -101,3 +101,6 @@ Falls das Inventar nicht öffnet, zuerst geladenen Frontier-Charakter, OneSync, 
 
 ## Exclusive inventory deployment
 See RDR2 RP/FRONTIER-INVENTORY-CUTOVER.md. Frontier consumables remain linked to the VORP needs engine until phase 2; old VORP item registration is disabled.
+
+### Same-session firearm recovery
+Native death, ped removal, an abandoned checkout or an uncertain draw now schedules the existing ammo refund worker without requiring reconnect. The old lease is invalidated, inventory recovery gate closes until in-flight requests finish, and the persisted checkpoint is moved atomically to quick ammo, satchel, or pending storage. The next draw uses an empty weapon and requires reloading. No client-selected refund amount. Normal holster still retains loaded rounds. If a previous build left an orphan, selecting that weapon triggers recovery; reopen the wheel after the recovery notice. The worker normally polls every 2 seconds, but database contention can delay completion. The existing last-checkpoint approximation (unreported shots may be refunded) is unchanged. No migration.

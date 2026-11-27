@@ -57,4 +57,34 @@ db[b].slots[2]=nil;db[b].revision=db[b].revision+1
 ok,why=Inventory.RecoverAmmo(id,true);assert(ok and why==0)
 local total=0;for _,row in pairs(db[b].slots) do total=total+row.quantity end
 assert(total==8 and Inventory.PendingAmmoCount(db[p])==0)
-print('Ammo recovery, overflow, and uncertain-commit retry tests passed')
+-- Same-character death/abandonment: matching identity even if Session is
+-- restricted/unavailable, then no new draw until the worker completes.
+local src,g=42,{}
+Inventory.WeaponSessions={[src]={id=id,generation=g,token='death'}}
+Inventory.AmmoRecovered[src]=id
+assert(Inventory.RecoveryLease(src,id,g,'death')==Inventory.WeaponSessions[src])
+assert(not Inventory.RecoveryLease(src,id,{},'death'))
+assert(not Inventory.RecoveryLease(src,'other',g,'death'))
+assert(not Inventory.RecoveryLease(src,id,g,'old'))
+assert(not Inventory.CanRecoverAmmo(src,id))
+-- Simulate persistent checkout on death and an in-flight reload write.
+db[e].slots[2].metadata=json.encode({loaded=0,checkout={token='death',rounds=3}})
+db[e].revision=db[e].revision+1
+Inventory.AmmoWrites[id]=1
+Inventory.RequestAmmoRecovery(src,id)
+assert(not Inventory.WeaponSessions[src] and not Inventory.AmmoRecovered[src])
+assert(Inventory.AmmoRecoveryRequested[src]==id and not Inventory.CanRecoverAmmo(src,id))
+Inventory.AmmoWrites[id]=nil
+assert(Inventory.CanRecoverAmmo(src,id))
+Inventory.AmmoRecoveryBusy[id]=true
+assert(not Inventory.CanRecoverAmmo(src,id))
+Inventory.AmmoRecoveryBusy[id]=nil
+ok,why=Inventory.RecoverAmmo(id,false);assert(ok)
+m=json.decode(db[e].slots[2].metadata);assert(not m.checkout and m.loaded==0)
+Inventory.AmmoRecovered[src]=id;Inventory.AmmoRecoveryRequested[src]=nil
+assert(not Inventory.CanRecoverAmmo(src,id))
+-- A stale abandonment cannot match a newly drawn lease.
+Inventory.WeaponSessions[src]={id=id,generation=g,token='new'}
+assert(not Inventory.RecoveryLease(src,id,g,'death'))
+assert(not Inventory.CanRecoverAmmo(src,id))
+print('Ammo recovery, overflow, uncertain-commit retry and same-session abandonment tests passed')

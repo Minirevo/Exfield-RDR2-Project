@@ -33,3 +33,5 @@ Gun Lab is no longer in the manifest. Use persistent equipment only. See RDR2 RP
 
 ## Session ammo return (Phase 2)
 Supersedes earlier crash-forfeit notes: persisted weapon checkout returns on next login, including holstered rounds, using quick slots then satchel then pending ammo. /frontierclaimammo after making room. See frontier_needs/README.md for recovery limits and deployment.
+
+Native death or loss of the projection abandons its lease and automatically schedules the existing inventory refund in the same session. A respawn does not require reconnecting. Wait for the recovery notice and reopen the wheel, then reload from returned inventory ammo. Pending inventory overflow remains claimable with /frontierclaimammo. Native death uses the durable checkpoint rather than an unreliable post-death ammo count.

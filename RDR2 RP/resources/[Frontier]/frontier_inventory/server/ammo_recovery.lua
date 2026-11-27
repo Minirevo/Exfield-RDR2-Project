@@ -5,6 +5,23 @@ local R=FrontierWeaponRules
 Inventory.AmmoRecovered={}
 Inventory.AmmoRecoveryBusy={}
 Inventory.AmmoWrites={}
+Inventory.AmmoRecoveryRequested={}
+-- Unlike Inventory.Session, abandonment must work during death, ped removal
+-- or another temporary inventory restriction. Match only the owning
+-- character, generation and lease; never accept a client refund quantity.
+function Inventory.RecoveryLease(src,id,generation,token)
+ local s=Inventory.WeaponSessions[src]
+ if s and id and s.id==id and generation and s.generation==generation and s.token==token then return s end
+end
+function Inventory.RequestAmmoRecovery(src,id)
+ Inventory.WeaponSessions[src]=nil
+ Inventory.AmmoRecovered[src]=nil
+ Inventory.AmmoRecoveryRequested[src]=id
+end
+function Inventory.CanRecoverAmmo(src,id)
+ return not Inventory.WeaponSessions[src] and Inventory.AmmoRecovered[src]~=id
+  and not Inventory.AmmoRecoveryBusy[id] and not Inventory.AmmoWrites[id]
+end
 local function load(id,prefix,kind,slots,grams)
  local ok,box=Inventory.Load(prefix..id)
  if not ok and box=='not_found' then
