@@ -1,6 +1,6 @@
 'use strict';
 const root=document.querySelector('#status'),wallet=document.querySelector('#wallet');
-const fields=[['health','Health','#b45849'],['endurance','Endurance','#c7ad67'],['hunger','Food','#aa8150'],['thirst','Drink','#6e9caa'],['energy','Energy','#8ea178'],['deadeye','Dead eye','#a78d9d']];
+const fields=[['health','Health','#b45849'],['endurance','Stamina','#c7ad67'],['hunger','Food','#aa8150'],['thirst','Drink','#6e9caa'],['energy','Energy','#8ea178'],['deadeye','Dead eye','#a78d9d']];
 const nodes={};
 for(const [key,label,color] of fields){const stat=document.createElement('div'),ring=document.createElement('div'),value=document.createElement('span'),name=document.createElement('small');stat.className='stat';ring.className='ring';ring.style.setProperty('--color',color);value.textContent='—';name.textContent=label;ring.append(value);stat.append(ring,name);root.append(stat);nodes[key]={stat,ring,value};}
 const money=v=>typeof v==='number'||typeof v==='string'&&v.trim()!==''?new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(v)/100):'—';

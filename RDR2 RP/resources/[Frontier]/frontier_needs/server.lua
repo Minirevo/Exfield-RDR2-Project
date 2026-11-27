@@ -1,7 +1,9 @@
-local C=FrontierNeedsConfig
+local C,M=FrontierNeedsConfig,FrontierNeedsModel
 local core=exports.frontier_core
 local ready=false
 local cooldown,requests,knownDead={}, {}, {}
+local runtime={}
+local activityNames={idle=true,walk=true,jog=true,sprint=true,swim=true,mounted=true,unknown=true}
 local function db(method,sql,params)
  local ok,res=pcall(MySQL[method].await,sql,params)
  if not ok then print('[frontier_needs] Database error: '..method);return nil end
@@ -16,42 +18,55 @@ local function ensure(id)
  return db('update','INSERT IGNORE INTO frontier_needs_state(character_id) VALUES (?)',{id})~=nil
 end
 local function read(id)
- return db('single','SELECT hunger,thirst,energy FROM frontier_needs_state WHERE character_id=?',{id})
+ return db('single','SELECT hunger,thirst,energy,stamina FROM frontier_needs_state WHERE character_id=?',{id})
 end
 local function native(name,...)
  local fn=_G[name];if type(fn)~='function' then return nil end
  local ok,v=pcall(fn,...);if ok then return v end
 end
 local function truth(v) return v==true or v==1 end
-local function dead(p)
- local v=native('IsPedDeadOrDying',p,true)
- if v~=nil then return truth(v) end
- local h=native('GetEntityHealth',p)
- return type(h)=='number' and h<=0
+local function dead(p,src)
+ -- Known RedM issue: server-side entity health can report zero for alive peds.
+ -- Keep the tested character-provider death state until Core owns lifecycle.
+ local ok,v=pcall(function()
+  local vorp=exports.vorp_core:GetCore()
+  local user=vorp.getUser(src);if not user then return nil end
+  local character=user.getUsedCharacter;if not character then return nil end
+  return character.isdead
+ end)
+ if ok and v~=nil then return truth(v) or v=='1' or v=='true' end
+ v=native('IsPedDeadOrDying',p,true)
+ return v~=nil and truth(v) or false
 end
 local function currentPed(src)
  local p=GetPlayerPed(src)
  return p~=0 and DoesEntityExist(p) and p or nil
 end
-local function state(src,id,sequence)
- if not ready or legacyRunning() or cid(src)~=id or not ensure(id) then return end
- local row=read(id)
- if row and cid(src)==id then
-  TriggerClientEvent('frontier_needs:state',src,sequence,{hunger=tonumber(row.hunger),thirst=tonumber(row.thirst),energy=tonumber(row.energy)})
- end
+local function session(src,id)
+ local r=runtime[src]
+ if not r or r.id~=id then r={id=id,phase=0,activity='unknown',sampleAt=0};runtime[src]=r end
+ return r
 end
-RegisterNetEvent('frontier_needs:request',function(sequence)
+local function values(row)
+ return {hunger=tonumber(row.hunger),thirst=tonumber(row.thirst),energy=tonumber(row.energy),stamina=tonumber(row.stamina)}
+end
+RegisterNetEvent('frontier_needs:request',function(sequence,activity)
  local src=source
- if type(sequence)~='number' or sequence%1~=0 or sequence<1 or sequence>2147483646 or not ready then return end
- local now=GetGameTimer();if requests[src] and now-requests[src]<1500 then return end;requests[src]=now
- local id=cid(src);if id then state(src,id,sequence) end
+ if type(sequence)~='number' or sequence%1~=0 or sequence<1 or sequence>2147483646 or not ready or legacyRunning() then return end
+ local now=GetGameTimer();if requests[src] and now-requests[src]<750 then return end;requests[src]=now
+ local id=cid(src);if not id then return end
+ local r=session(src,id)
+ -- Only an activity hint; clients cannot submit needs values or restore amounts.
+ r.activity=type(activity)=='string' and activityNames[activity] and activity or 'unknown'
+ r.sampleAt=now
+ if r.value and cid(src)==id then TriggerClientEvent('frontier_needs:state',src,sequence,r.value) end
 end)
 exports('QueueConsumption',function(src,id,item,key,actor,fp)
  if GetInvokingResource()~='frontier_inventory' or not ready or legacyRunning() or cid(src)~=id or actor~='player:'..id then return false,'forbidden' end
  local e=C.effects[item]
  if not e or type(key)~='string' or #key>80 or type(fp)~='string' or #fp>8192 then return false,'invalid_request' end
  local p=currentPed(src)
- if not p or dead(p) then return false,'restricted' end
+ if not p or dead(p,src) then return false,'restricted' end
  local old=db('single','SELECT character_id,item,actor,fingerprint FROM frontier_needs_consumptions WHERE request_key=?',{key})
  if old then return old.character_id==id and old.item==item and old.actor==actor and old.fingerprint==fp,'request_conflict' end
  local now=GetGameTimer()
@@ -88,45 +103,94 @@ local function applyQueue()
   end
  end
 end
+local function activityFor(ped,r)
+ local recent=GetGameTimer()-r.sampleAt<3500 and r.sampleAt>0
+ local activity=recent and r.activity or 'unknown'
+ -- Prefer reliable client movement classification for RDR3-only natives.
+ -- Corroborate clearly fast on-foot movement when server speed exists.
+ if activity=='mounted' or truth(native('IsPedOnMount',ped)) or truth(native('IsPedInAnyVehicle',ped,false)) then return 'mounted' end
+ if activity=='swim' or truth(native('IsPedSwimming',ped)) then return 'swim' end
+ local speed=tonumber(native('GetEntitySpeed',ped))
+ if speed and speed>=C.sprintSpeed then return 'sprint' end
+ if speed and speed>=C.jogSpeed and (activity=='idle' or activity=='walk' or activity=='unknown') then return 'jog' end
+ if activity=='unknown' and speed and speed>=C.walkSpeed then return 'walk' end
+ return activity
+end
 local function tick(p)
  local src,id=p.source,p.frontierCharacterId
  if cid(src)~=id then return end
- local ped=currentPed(src);if not ped or not ensure(id) then return end
- if dead(ped) then knownDead[src]=id;return end
+ local ped=currentPed(src);if not ped then return end
+ local r=session(src,id)
+ if dead(ped,src) then knownDead[src]=id;return end
  if knownDead[src]==id then
-  if db('update','UPDATE frontier_needs_state SET hunger=1000,thirst=1000,energy=1000 WHERE character_id=?',{id})~=nil then knownDead[src]=nil end
+  if db('update','UPDATE frontier_needs_state SET hunger=1000,thirst=1000,energy=1000,stamina=1000 WHERE character_id=?',{id})~=nil then
+   knownDead[src]=nil;r.value=nil;r.phase=0;r.locked=false;r.damageAt=nil
+  end
   return
  end
- local speed=tonumber(native('GetEntitySpeed',ped)) or 0
- local running=speed>=C.runSpeed and not truth(native('IsPedOnMount',ped)) and not truth(native('IsPedInAnyVehicle',ped,false))
- local h=C.hungerDecay+(running and C.runningHunger or 0)
- local t=C.thirstDecay+(running and C.runningThirst or 0)
- local energy=running and -C.energyDrain or C.energyRecovery
- if cid(src)~=id then return end
- local changed=db('update',[[UPDATE frontier_needs_state SET
-  hunger=GREATEST(0,CAST(hunger AS SIGNED)-?),thirst=GREATEST(0,CAST(thirst AS SIGNED)-?),
-  energy=GREATEST(0,LEAST(1000,CAST(energy AS SIGNED)+?)) WHERE character_id=?]],{h,t,energy,id})
- if changed==nil then return end
  local row=read(id)
- if row and cid(src)==id and currentPed(src)==ped and not dead(ped) then
-  local damage=(tonumber(row.hunger)==0 and C.damageAtZero or 0)+(tonumber(row.thirst)==0 and C.damageAtZero or 0)
-  local low=math.min(tonumber(row.hunger),tonumber(row.thirst),tonumber(row.energy))<=C.low
-  if damage>0 or low then TriggerClientEvent('frontier_needs:consequence',src,damage,tonumber(row.energy),low) end
+ if not row then
+  if not ensure(id) then return end
+  row=read(id);if not row then return end
+ end
+ local old=values(row)
+ for _,v in pairs(old) do if type(v)~='number' then return end end
+ if old.stamina==nil or old.hunger==nil or old.thirst==nil or old.energy==nil then return end
+ local phase=(r.phase+1)%C.basalEvery
+ local activity=activityFor(ped,r)
+ local locked=r.locked
+ if locked==nil then locked=old.stamina<C.resumeSprint end
+ local next=M.step(old,activity,phase==0,locked)
+ if cid(src)~=id or runtime[src]~=r then return end
+ if old.hunger~=next.hunger or old.thirst~=next.thirst or old.energy~=next.energy or old.stamina~=next.stamina then
+  -- Compare-and-swap: a concurrently applied consumption must not be overwritten.
+  local changed=db('update',[[UPDATE frontier_needs_state SET hunger=?,thirst=?,energy=?,stamina=?
+   WHERE character_id=? AND hunger=? AND thirst=? AND energy=? AND stamina=?]],
+   {next.hunger,next.thirst,next.energy,next.stamina,id,old.hunger,old.thirst,old.energy,old.stamina})
+  if changed~=1 then return end
+ end
+ if cid(src)~=id or runtime[src]~=r or currentPed(src)~=ped then return end
+ r.value=next;r.phase=phase;r.locked=next.locked;r.lastActivity=activity
+ local pct=M.damage(next.hunger,next.thirst)
+ local now=GetGameTimer()
+ if pct==0 then r.damageAt=nil
+ elseif not r.damageAt then r.damageAt=now
+ elseif now-r.damageAt>=C.damageIntervalMs then
+  r.damageAt=now
+  if not dead(ped,src) then TriggerClientEvent('frontier_needs:consequence',src,pct) end
  end
 end
-AddEventHandler('playerDropped',function() requests[source]=nil;knownDead[source]=nil end)
-AddEventHandler('frontier:playerUnloaded',function(p) requests[p.source]=nil;knownDead[p.source]=nil;cooldown[p.frontierCharacterId]=nil end)
+local function clear(src)
+ requests[src]=nil;knownDead[src]=nil;runtime[src]=nil
+end
+AddEventHandler('playerDropped',function() clear(tonumber(source) or source) end)
+AddEventHandler('frontier:playerUnloaded',function(p) clear(p.source);cooldown[p.frontierCharacterId]=nil end)
+RegisterCommand('frontierneedsstatus',function(src)
+ if src==0 then print('[frontier_needs] Run /frontierneedsstatus in-game.');return end
+ local id=cid(src);local r=runtime[src]
+ local v=r and r.id==id and r.value
+ local msg=v and ('Activity=%s | Stamina=%d/%d | Energy=%d | Food=%d | Water=%d | Sprint locked=%s'):format(r.lastActivity or 'unknown',v.stamina,v.capacity,v.energy,v.hunger,v.thirst,tostring(v.locked))
+  or ('No state yet | ready=%s | legacy=%s | character=%s'):format(tostring(ready),tostring(legacyRunning()),tostring(id~=nil))
+ TriggerClientEvent('frontier_needs:diagnostic',src,msg)
+end,false)
 MySQL.ready(function()
  while not ready do
-  local a=db('query','SELECT character_id FROM frontier_needs_state LIMIT 0')
+  local a=db('query','SELECT character_id,stamina FROM frontier_needs_state LIMIT 0')
   local b=db('query','SELECT request_key FROM frontier_needs_consumptions LIMIT 0')
   ready=a~=nil and b~=nil
-  if not ready then print('[frontier_needs] Apply sql/migrations/001_needs.sql');Wait(5000) end
+  if not ready then print('[frontier_needs] Apply sql/migrations/001_needs.sql and 002_stamina.sql');Wait(5000) end
  end
  CreateThread(function() while true do if not legacyRunning() then applyQueue() end;Wait(1000) end end)
  while true do
   Wait(C.tickMs)
-  if legacyRunning() then print('[frontier_needs] Stop vorp_metabolism; Frontier decay is paused.')
-  else for _,p in pairs(core:GetPlayers()) do tick(p) end end
+  if legacyRunning() then
+   -- Do not let clients continue using stale state while legacy needs is active.
+   runtime={}
+  else
+   for _,p in pairs(core:GetPlayers()) do
+    local ok,err=pcall(tick,p)
+    if not ok then print('[frontier_needs] Tick failed: '..tostring(err)) end
+   end
+  end
  end
 end)

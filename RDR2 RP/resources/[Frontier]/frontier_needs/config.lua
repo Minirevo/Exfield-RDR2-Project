@@ -1,15 +1,18 @@
 FrontierNeedsConfig={
- maximum=1000,
- tickMs=15000,
- hungerDecay=4,thirstDecay=8,
- runningHunger=4,runningThirst=4,
- runSpeed=3.0,energyDrain=18,energyRecovery=12,
- low=200,damageAtZero=5,
+ maximum=1000,tickMs=2000,
+ basalEvery=5,basalHunger=1,basalThirst=2,
+ sprintDrain=40,jogDrain=8,swimDrain=30,
+ idleStamina=50,walkStamina=24,staminaPerEnergy=4,
+ energyRecovery=4,walkEnergyRecovery=2,
+ foodCost=35,waterCost=55,costScale=100,
+ low=200,minimumCapacity=250,resumeSprint=200,
+ sprintSpeed=4.8,jogSpeed=2.6,walkSpeed=0.35,
+ damageIntervalMs=15000,starvePct=2,dehydratePct=3,
  consumeCooldownMs=3000,
  effects={
-  bread={hunger=260,thirst=0,energy=30,kind='food'},
-  apple={hunger=120,thirst=60,energy=20,kind='food'},
-  water={hunger=0,thirst=350,energy=25,kind='drink'},
-  cooked_meat={hunger=380,thirst=0,energy=60,kind='food'}
+  bread={hunger=260,thirst=0,energy=0,kind='food'},
+  apple={hunger=120,thirst=60,energy=0,kind='food'},
+  water={hunger=0,thirst=350,energy=0,kind='drink'},
+  cooked_meat={hunger=380,thirst=0,energy=0,kind='food'}
  }
 }
