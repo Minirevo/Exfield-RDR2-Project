@@ -20,10 +20,14 @@ end
 local function dead(p)
  return truth(get('IsEntityDead',p)) or truth(get('IsPlayerDead',PlayerId()))
 end
-local function setMax(p,n)
- local ok=call('SetEntityMaxHealth',p,n)
- if not ok then ok=pcall(Citizen.InvokeNative,0x166E7CF68597D8B5,p,n) end
- return ok and maximum(p)==n
+local function setMax(p, n)
+    local ok = call('SetEntityMaxHealth', p, n)
+
+    if not ok then
+        ok = pcall(Citizen.InvokeNative, 0x166E7CF68597D8B5, p, n)
+    end
+
+    return ok, maximum(p)
 end
 local function setHealth(p,n)
  local ok=call('SetEntityHealth',p,n,0)
@@ -67,8 +71,30 @@ local function finish(reason)
    if not call('SetPedConfigFlag',p,flag,prior) then log('WARNING: could not restore flag '..flag) end
   end
   if t.changedMax then
-   if not setMax(p,t.originalMax) then log('WARNING: max health restoration not verified') end
-  end
+    local requested = math.max(
+        1, t.originalMax - (t.maxHealthModifier or 0)
+    )
+
+    for i = 1, 3 do
+        local ok, actual = setMax(p, requested)
+
+        if actual == t.originalMax then
+            break
+        end
+
+        if not ok or type(actual) ~= 'number' then
+            break
+        end
+
+        requested = math.max(
+            1, requested + t.originalMax - actual
+        )
+    end
+
+    if maximum(p) ~= t.originalMax then
+        log('WARNING: Max health restoration failed. Reconnect.')
+    end
+end
   if t.modifiedHealth and not truth(get('IsEntityDead',p)) and not t.stats.dead then
    if not setHealth(p,math.min(t.originalHealth,t.originalMax)) then log('WARNING: could not restore health') end
   end
@@ -76,7 +102,11 @@ local function finish(reason)
  if t.changedInvincible then
   if not call('SetPlayerInvincible',PlayerId(),t.originalInvincible) then log('WARNING: invincibility restoration failed') end
  end
- local summary=L.summary(t.stats)
+local summary = L.summary(t.stats)
+
+if t.lastNet then
+    summary = (summary .. ' | NET_DAMAGE ' .. t.lastNet):sub(1, 400)
+end
  log(('END trial=%s mode=%s mark=%s reason=%s %s'):format(t.id,t.mode,t.mark,reason,summary))
  TriggerServerEvent(E..'result',t.id,summary,reason,t.lastError)
 end
@@ -127,10 +157,25 @@ RegisterNetEvent(E..'start',function(id,mode,duration)
   if not call('SetPlayerInvincible',PlayerId(),true) or not truth(get('GetPlayerInvincible',PlayerId())) then errors(t,'SetPlayerInvincible not verified');return finish('invincibility failed') end
  end
  if cfg.refill then
-  if cfg.buffer and t.target~=m then
-   t.changedMax=true
-   if not setMax(p,t.target) then errors(t,('native max health buffer rejected: wanted=%s actual=%s'):format(tostring(t.target),tostring(maximum(p))));return finish('max health failed') end
-  end
+  if cfg.buffer and t.target ~= m then
+    t.changedMax = true
+
+    local requested = t.target
+    local ok, actual = setMax(p, requested)
+
+    if not ok or type(actual) ~= 'number'
+        or actual < requested or actual > requested * 2 then
+        errors(t, 'Native max health buffer rejected')
+        return finish('max health failed')
+    end
+
+    t.maxHealthModifier = actual - requested
+    t.target = actual
+
+    log(('BUFFER requested=%d actual=%d modifier=%+d'):format(
+        requested, actual, t.maxHealthModifier
+    ))
+end
   t.modifiedHealth=true
   if not setHealth(p,t.target) then errors(t,'initial fill failed');return finish('fill failed') end
  end
@@ -267,6 +312,12 @@ local function readQueues(t)
       t.stats[def.stat]=t.stats[def.stat]+1
       local offset=group==0 and 32 or def.slots==32 and 16 or 24
       local value=d:GetFloat32(offset)
+	  if def.label == 'NET_DAMAGE' then
+    t.lastNet = ('amountFloat=%s raw=[%s]'):format(
+        tostring(value),
+        table.concat(raw, ',')
+    )
+end
       log(('%s trial=%s mark=%s t=%d amountFloat=%s raw=[%s] %s'):format(def.label,t.id,t.mark,GetGameTimer(),tostring(value),table.concat(raw,','),context(t.ped)))
      end)
      if not ok then errors(t,'queue decode '..tostring(err)) end
