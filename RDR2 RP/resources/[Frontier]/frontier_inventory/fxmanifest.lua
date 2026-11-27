@@ -6,7 +6,7 @@ version '1.0.0'
 description 'Frontier character inventories, storage and ground pickups'
 
 dependencies { '/onesync', 'oxmysql', 'frontier_lib', 'frontier_core' }
-shared_script 'config.lua'
+shared_scripts {'config.lua','weapons.lua'}
 server_scripts {
     '@oxmysql/lib/MySQL.lua',
     '@frontier_lib/shared/utils.lua',

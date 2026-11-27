@@ -25,7 +25,7 @@ function render(){
  title.textContent='FRONTIER / '+(page==='main'?'EQUIPMENT':page.toUpperCase());
  nameEl.textContent=s?.name||(loading?'Loading tools…':page==='main'?'Equipment':page==='character'?'Character':'Tools');
  const condition=s&&Number.isFinite(s.uses)&&s.maxUses>0?Math.round(s.uses/s.maxUses*100):null;
- detail.textContent=s?.kind==='weapon'?('Clip '+s.loaded+' · Quick '+s.quick+' · Satchel '+s.bag+' · '+s.serial):s?.kind==='tool'?('Quality '+(s.quality??'—')+'% · Condition '+(condition??'—')+'%'):s?.kind==='consume'?'Available: '+s.quantity+' · Release to use':s?.kind==='page'?'Hold here to open':s?.kind==='disabled'?'Not available':'Release TAB to select';
+ detail.textContent=s?.kind==='weapon'?('Clip '+s.loaded+' · Quick '+s.quick+' · Satchel '+s.bag+' · '+(s.serial||'').slice(0,12)):s?.kind==='tool'?('Quality '+(s.quality??'—')+'% · Condition '+(condition??'—')+'%'):s?.kind==='consume'?'Available: '+s.quantity+' · Release to use':s?.kind==='page'?'Hold here to open':s?.kind==='disabled'?'Not available':'Release TAB to select';
 }
 function post(action,data={}){return fetch('https://'+GetParentResourceName()+'/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});}
 function showDocs(data){

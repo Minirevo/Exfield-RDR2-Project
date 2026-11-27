@@ -5,6 +5,7 @@ InventoryConfig = {
     PickupKey = 'F7',
     Slots = 30,
     BeltSlots = 6,
+    QuickAmmoCapacity = 30,
     BeltWeightGrams = 15000,
     BeltTools = { lantern=true, property_hammer=true, property_saw=true, farm_hoe=true, farm_sickle=true, farm_watering_can=true, farm_bucket=true, farm_pitchfork=true, farm_milking_kit=true, farm_shears=true, farm_knife=true },
     WeightGrams = 25000,
