@@ -30,23 +30,31 @@ end)
 local sprint=joaat('INPUT_SPRINT')
 local blocked={sprint,joaat('INPUT_MOVE_LR'),joaat('INPUT_MOVE_UD'),joaat('INPUT_ATTACK'),joaat('INPUT_AIM'),joaat('INPUT_JUMP'),joaat('INPUT_MELEE_ATTACK'),joaat('INPUT_ENTER'),joaat('INPUT_RELOAD')}
 CreateThread(function()
- local ragAt=0
+ local ragPed,ragAt=nil,0
  while true do
   local p=PlayerPedId()
-  if playing() and state and GetGameTimer()-received<15000 and p~=0 and not truth(IsEntityDead(p)) then
+  if playing() and state and GetGameTimer()-received<C.stateTimeoutMs and p~=0 and not truth(IsEntityDead(p)) and not truth(native('IsPlayerDead',PlayerId())) then
    if state.down then
     for _,control in ipairs(blocked) do DisableControlAction(0,control,true) end
     DisablePlayerFiring(PlayerId(),true)
-    if GetGameTimer()-ragAt>2000 and not truth(native('IsPedOnMount',p)) and not truth(native('IsPedInAnyVehicle',p,false)) then
-     native('SetPedToRagdoll',p,2500,2500,0,false,false,false);ragAt=GetGameTimer()
-    end
+    if not state.dead and not truth(native('IsPedOnMount',p)) and not truth(native('IsPedInAnyVehicle',p,false)) and not truth(native('IsEntityAttachedToAnyPed',p)) then
+     -- Keep the original collapse alive rather than periodically starting
+     -- a fresh ragdoll task as the ped begins its get-up animation.
+     local now=GetGameTimer()
+     if not truth(native('IsPedRagdoll',p)) and (ragPed~=p or now-ragAt>=150) then
+      native('SetPedToRagdoll',p,1000,1000,0,false,false,false)
+      ragPed=p;ragAt=now
+     end
+     native('ResetPedRagdollTimer',p)
+    else ragPed=nil end
     Wait(0)
    elseif state.legs or state.arms then
+    ragPed=nil
     if state.legs then DisableControlAction(0,sprint,true) end
     if state.arms then DisablePlayerFiring(PlayerId(),true);DisableControlAction(0,joaat('INPUT_MELEE_ATTACK'),true) end
     Wait(0)
-   else Wait(100) end
-  else Wait(100) end
+   else ragPed=nil;Wait(100) end
+  else ragPed=nil;Wait(100) end
  end
 end)
 RegisterCommand('medical',function(_,args)
