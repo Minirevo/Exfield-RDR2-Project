@@ -30,6 +30,17 @@ local function legacyRunning()
  end
  return false
 end
+-- SET_PED_AMMO_BY_TYPE can fail to decrease player ammo in RDR2.
+-- Remove the observed excess with the explicit remove-by-type native and
+-- verify the actual count; do not treat the native's return as success.
+local function trimAmmo(p,ammo,target)
+ local before=math.max(0,math.floor(tonumber(GetPedAmmoByType(p,ammo)) or 0))
+ if before<=target then return before==target end
+ local ok,err=pcall(Citizen.InvokeNative,0xB6CFEC32E3742779,p,ammo,before-target,0x2188E0A3)
+ local after=math.max(0,math.floor(tonumber(GetPedAmmoByType(p,ammo)) or 0))
+ log(('Native ammo removal %d -> %d (target %d; call %s)'):format(before,after,target,ok and 'ok' or tostring(err)))
+ return after==target
+end
 local function removeNative(s)
  if not s or not s.created or not DoesEntityExist(s.ped) then return end
  -- Native projection belongs to Frontier; only remove a model we granted.
@@ -37,10 +48,11 @@ local function removeNative(s)
  local ok,err=pcall(function()
   if held(s) then SetCurrentPedWeapon(s.ped,joaat('WEAPON_UNARMED'),false,0,false,false) end
   RemoveWeaponFromPed(s.ped,s.hash,true,0)
-  SetPedAmmo(s.ped,s.hash,0)
-  SetPedAmmoByType(s.ped,s.ammo,0)
  end)
  if not ok then log('Native removal error: '..tostring(err)) end
+ -- Ammo survives weapon removal. Clear the pool independently even if
+ -- the detach native failed. Only this Frontier-created model is touched.
+ trimAmmo(s.ped,s.ammo,0)
  residual[s.hash]=s
 end
 local function cleanResidual(p)
@@ -149,13 +161,16 @@ RegisterNetEvent(E..'weaponDrawResult',function(request,ok,data,msg)
   s.created=true
   if not truth(HasPedGotWeapon(s.ped,s.hash,0,false)) then error('Native grant failed') end
   SetAmmoTypeForPedWeapon(s.ped,s.hash,s.ammo)
-  SetPedAmmoByType(s.ped,s.ammo,0)
   SetCurrentPedWeapon(s.ped,s.hash,true,0,false,false)
+  -- The engine may initialize a new weapon with ammunition of its own.
+  -- Strip that first, then grant only rounds checked out by the server.
+  if not trimAmmo(s.ped,s.ammo,0) then error('Native starting ammunition did not clear') end
   if s.upper>0 then
    AddAmmoToPedByType(s.ped,s.ammo,s.upper,0)
    if type(SetAmmoInClip)=='function' then pcall(SetAmmoInClip,s.ped,s.hash,s.upper) end
    if clip(s)==0 and count(s)>0 then MakePedReload(s.ped) end
   end
+  if count(s)>s.upper and not trimAmmo(s.ped,s.ammo,s.upper) then error('Native ammo exceeds server allowance') end
  end)
  if not success then
   log(tostring(err));W.holster();notice('Could not draw native weapon.');return
@@ -219,6 +234,22 @@ RegisterCommand('frontierweaponstatus',function()
  end
 end,false)
 RegisterCommand('frontierweaponholster',function() W.holster() end,false)
+-- Explicit recovery for residue left by previous builds after resource restart.
+-- Never change persistent item/round balances, or remove an owned native gun.
+RegisterCommand('frontierweaponclearresidue',function(_,args)
+ if W.active() or legacyRunning() or not LocalPlayer.state.IsInSession then notice('Holster first; legacy inventory must be stopped.');return end
+ local model=args[1]=='revolver' and R.models.weapon_cattleman or args[1]=='repeater' and R.models.weapon_lancaster
+ if not model then notice('Usage: /frontierweaponclearresidue revolver|repeater');return end
+ local p=PlayerPedId()
+ if p==0 or truth(IsEntityDead(p)) or GetPedCurrentHeldWeapon(p)~=joaat('WEAPON_UNARMED') then notice('Stand unarmed before clearing residue.');return end
+ for _,d in pairs(R.models) do
+  local ok,has=pcall(HasPedGotWeapon,p,joaat(d.model),0,false)
+  if not ok or truth(has) then notice('A supported native gun still exists; no ammo removed.');return end
+ end
+ local ammo=joaat(model.nativeAmmo)
+ local clean=trimAmmo(p,ammo,0)
+ notice(clean and 'Native ammo residue cleared; inventory ammunition unchanged.' or 'Native ammo residue remains. Check F8.')
+end,false)
 local reloadControl=joaat('INPUT_RELOAD')
 CreateThread(function()
  while true do

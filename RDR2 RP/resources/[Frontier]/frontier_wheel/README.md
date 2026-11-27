@@ -30,3 +30,6 @@ The pure weapon rules test was executed against byte-for-byte copies of the comm
 
 ## Phase 1 cutover supersedes Gun Lab instructions
 Gun Lab is no longer in the manifest. Use persistent equipment only. See RDR2 RP/FRONTIER-INVENTORY-CUTOVER.md for deployment and rollback. Legacy inventory must be stopped. No automatic legacy item migration.
+
+## Native ammunition residue fix
+Use the explicit remove-ammo-by-type native (0xB6CFEC32E3742779 with remove reason 0x2188E0A3) and verify the observed pool rather than assuming SetPedAmmoByType can decrease player ammo. Holster clears only Frontier's own ammo pool, and draw strips any native default ammo before granting checked-out rounds. Existing orphan ammo left by older builds: while unarmed and no native supported guns are present, `/frontierweaponclearresidue revolver` or `repeater` clears only the named native pool, not persistent inventory. Check `/frontierweaponstatus`, redraw, test empty and loaded holsters and ensure no extra rounds. The removal native is documented and community-tested in RDR2, but RedM runtime validation is still required. No VORP changes or SQL migration.
