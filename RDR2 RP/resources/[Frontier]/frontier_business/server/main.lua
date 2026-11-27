@@ -453,6 +453,7 @@ fixtureAction=function(src,who,a,d)
  elseif a=='fixtureRemove' then
   requireThat(f and propertyOwner(who,sid),'Plot owner required')
   local farm=GetResourceState('frontier_farming');requireThat(farm=='missing' or farm=='started' and not exports.frontier_farming:StorageBound('business_'..id),'Unlink farming storage and resolve orders first')
+  local production=GetResourceState('frontier_production');requireThat(production=='missing' or production=='started' and not exports.frontier_production:StorageBound('business_'..id),'Unlink production storage and resolve orders first')
   requireThat(not exports.frontier_trade:BusinessFixtureBusy(id) and not next(stock(f)) and not S("SELECT id FROM fb_retail WHERE fixture_id=? AND state NOT IN ('complete','failed') LIMIT 1",{id}),'Empty storage and resolve purchases first')
   tx({sql('DELETE FROM fb_prices WHERE fixture_id=?',{id}),sql('DELETE FROM fb_fixtures WHERE id=?',{id})})
  elseif a=='fixturePrice' then
@@ -665,4 +666,37 @@ exports('RefundFarmOrder',function(id)
  local j=S("SELECT * FROM ff_orders WHERE id=? AND owner_type='company' AND phase='paid'",{id})
  local b=j and company(j.owner_id);if not b or b.status~='liquidating' then return false,'invalid_order' end
  return eco:CreditAccount(account(b),tonumber(j.amount),{key='farm_refund_'..id,reason='Undelivered agricultural supply refund',reference=id})
+end)
+
+local function productionGrant(who,sid,id,perm)
+ local b=company(id);local g=S('SELECT * FROM fb_locations WHERE company_id=? AND property_id=?',{id,sid})
+ local l=S("SELECT active FROM fb_licenses WHERE owner_type='company' AND owner_id=? AND category='manufacturing'",{id})
+ return allowed(b,who,perm) and g and propertyOwner(g.grantor,sid) and decode(g.rights).production==true and l and tonumber(l.active)==1 or false
+end
+exports('ProductionCompanies',function(who,sid)
+ if GetInvokingResource()~='frontier_production' or not ready then return {} end
+ local out={}
+ for _,b in ipairs(Q("SELECT c.id,c.name FROM fb_companies c JOIN fb_locations l ON c.id=l.company_id WHERE l.property_id=? AND c.status='active'",{sid})) do
+  if productionGrant(who,sid,b.id,'locations') and productionGrant(who,sid,b.id,'production') then out[#out+1]=b end
+ end
+ return out
+end)
+exports('ProductionAccess',function(who,sid,typ,id,manage)
+ if GetInvokingResource()~='frontier_production' or not ready then return false end
+ if typ=='character' then return who==id end
+ return typ=='company' and productionGrant(who,sid,id,manage and 'locations' or 'production') or false
+end)
+exports('ProductionStocks',function(who,sid,typ,id)
+ if GetInvokingResource()~='frontier_production' or not ready then return {} end
+ if typ=='character' and who~=id or typ=='company' and not productionGrant(who,sid,id,'production') then return {} end
+ local out={}
+ for _,f in ipairs(Q("SELECT * FROM fb_fixtures WHERE property_id=? AND owner_type=? AND owner_id=? AND kind='storage'",{sid,typ,id})) do
+  if validFixture(f) then out[#out+1]={id='business_'..f.id,name=f.name} end
+ end
+ return out
+end)
+exports('ProductionStockValid',function(sid,typ,id,storage)
+ if GetInvokingResource()~='frontier_production' or not ready or type(storage)~='string' then return false end
+ local f=fixture(storage:match('^business_([a-f0-9]+)$'))
+ return f and f.kind=='storage' and f.property_id==sid and f.owner_type==typ and f.owner_id==id and validFixture(f)~=nil or false
 end)

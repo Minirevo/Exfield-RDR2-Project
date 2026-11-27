@@ -178,7 +178,7 @@ local function interact()
     if interior then action('interior'); return end
     local d=nearest()
     if d then
-        if d.action=='farmManage' then TriggerEvent('frontier_farming:manageSign',d.bid) else action(d.action,{sid=d.sid,bid=d.bid}) end
+        if d.action=='farmManage' then TriggerEvent('frontier_farming:manageSign',d.bid) elseif d.action=='production' then TriggerEvent('frontier_production:stationOpen',d.sid,d.bid) else action(d.action,{sid=d.sid,bid=d.bid}) end
         return
     end
     local p=GetEntityCoords(PlayerPedId())
@@ -289,7 +289,7 @@ CreateThread(function()
             local d=nearest(); local shop=false;local p=GetEntityCoords(PlayerPedId())
             if not d and not interior then for _,s in ipairs(C.Shops) do if atShop(p,s) then shop=true;break end end end
             if d or interior or shop then
-                hint(interior and '[E] Interior / exit' or '[E] '..(d and (d.action=='farmManage' and 'Manage farm facility' or d.action) or 'General store'))
+                hint(interior and '[E] Interior / exit' or '[E] '..(d and (d.action=='farmManage' and 'Manage farm facility' or d.action=='production' and 'Manage production station' or d.action) or 'General store'))
                 if IsControlJustPressed(0,keys.interact) then interact() end
             end
         end

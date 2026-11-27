@@ -40,6 +40,7 @@ function request(src,action,d)
     if action=='buySettlement' then
         if not s or s.status~='active' or not s.listing or not s.listing.active or owner(s,id) or occupied(s.id) or s.debt>0 then return end
         if GetResourceState('frontier_business')=='started' and exports.frontier_business:PlotHasBusinessFixtures(s.id) then return notice(src,'Resolve registered commercial furniture before selling this plot.') end
+        for fid,f in pairs(s.furniture or {}) do if C.Furniture[f.item].station and (GetResourceState('frontier_production')~='started' or exports.frontier_production:StationBound(fid)) then return notice(src,'Release production stations before transferring this plot.') end end
         if tonumber(d.price)~=s.listing.price then return end
         local a=account(src,id); local payments=shares(s,s.listing.price)
         if a and payments then queue({kind='sale',actor=id,src=src,sid=s.id,account=a,amount=s.listing.price,payouts=payments}) end
@@ -58,12 +59,27 @@ function request(src,action,d)
             s.furniture=s.furniture or {}
             for k,v in pairs(s.furniture) do
                 if k~=p.fid then
-                    if R.near(v,d,0.5) then return notice(src,'Furniture overlaps.') end
+                    local other=C.Furniture[v.item]
+                    if f.station or (other and other.station) then
+                        local function axes(def,h)
+                            local a=math.rad(h or 0);local x,y=math.cos(a),math.sin(a)
+                            local z=def and def.dimensions or {0.5,0.5,0.5}
+                            return {{x=x,y=y,r=z[1]/2+.15},{x=-y,y=x,r=z[2]/2+.15}},z[3]
+                        end
+                        local A,ah=axes(f,d.heading);local B,bh=axes(other,v.heading)
+                        local dx,dy=v.x-d.x,v.y-d.y
+                        local function separated(u)
+                            local function extent(t) return math.abs(t[1].x*u.x+t[1].y*u.y)*t[1].r+math.abs(t[2].x*u.x+t[2].y*u.y)*t[2].r end
+                            return math.abs(dx*u.x+dy*u.y)>=extent(A)+extent(B)
+                        end
+                        if math.abs(v.z-d.z)<math.max(ah,bh) and not separated(A[1]) and not separated(A[2]) and not separated(B[1]) and not separated(B[2]) then return notice(src,'Production station footprint overlaps furniture.') end
+                    elseif R.near(v,d,0.5) then return notice(src,'Furniture overlaps.') end
                 end
             end
             local furniture={item=p.item,x=d.x,y=d.y,z=d.z,heading=d.heading%360}
             if p.mode=='moveFurniture' then
                 if not s.furniture[p.fid] then return end
+                if f.station and (GetResourceState('frontier_production')~='started' or exports.frontier_production:StationBound(p.fid)) then return notice(src,'Release production station first.') end
                 s.furniture[p.fid]=furniture;save();notice(src,'Furniture moved.')
             else queue({kind='furniture',actor=id,src=src,sid=s.id,fid=uuid(),item=p.item,furniture=furniture,physical=true}) end
             return
@@ -104,6 +120,7 @@ function request(src,action,d)
         if not allowed(s,id,'furnish') or type(d.fid)~='string' then return end
         local f=(s.furniture or {})[d.fid]
         if f then
+            if C.Furniture[f.item].station and (GetResourceState('frontier_production')~='started' or exports.frontier_production:StationBound(d.fid)) then return notice(src,'Release production station first.') end
             if (f.item=='property_storage' or f.item=='property_counter') and (GetResourceState('frontier_business')~='started' or exports.frontier_business:FixtureBound(d.fid)) then return notice(src,'Unregister and empty functional furniture before moving or picking it up.') end
             if plotAt(src,id)~=s or not close(src,f,C.PlacementDistance) then return notice(src,'Approach the furniture first.') end
             if action=='moveFurniture' then beginPreview(src,s,nil,nil,nil,action,d.fid,f.item)
@@ -147,6 +164,7 @@ function request(src,action,d)
         local a=account(src,id); if a then queue({kind='tax',actor=id,src=src,sid=s.id,account=a,amount=s.debt}) end
     elseif action=='list' and owner(s,id) and s.debt==0 and not occupied(s.id) then
         if GetResourceState('frontier_business')=='started' and exports.frontier_business:PlotHasBusinessFixtures(s.id) then return notice(src,'Unregister commercial furniture before listing this plot.') end
+        for fid,f in pairs(s.furniture or {}) do if C.Furniture[f.item].station and (GetResourceState('frontier_production')~='started' or exports.frontier_production:StationBound(fid)) then return notice(src,'Release production stations before transferring this plot.') end end
         for _,b in pairs(s.buildings) do if C.Exteriors[b.exterior].farm and (GetResourceState('frontier_farming')~='started' or exports.frontier_farming:FacilityBound(b.id)) then return notice(src,'Release farm facilities before listing.') end end
         local price=tonumber(d.price)
         if not price or price%1~=0 or price<1 or price>100000000 then return end
@@ -159,6 +177,7 @@ function request(src,action,d)
     elseif action=='unlist' and owner(s,id) then s.listing=nil; save()
     elseif action=='abandon' and owner(s,id) and s.primary==id and not occupied(s.id) then
         if GetResourceState('frontier_business')=='started' and exports.frontier_business:PlotHasBusinessFixtures(s.id) then return notice(src,'Resolve registered commercial furniture before abandoning this plot.') end
+        for fid,f in pairs(s.furniture or {}) do if C.Furniture[f.item].station and (GetResourceState('frontier_production')~='started' or exports.frontier_production:StationBound(fid)) then return notice(src,'Release production stations before transferring this plot.') end end
         for _,b in pairs(s.buildings) do if C.Exteriors[b.exterior].farm and (GetResourceState('frontier_farming')~='started' or exports.frontier_farming:FacilityBound(b.id)) then return notice(src,'Release farm facilities before abandoning.') end end
         local count=0; for _ in pairs(s.owners) do count=count+1 end
         if count~=1 or s.debt>0 then return notice(src,'Co-owned or indebted settlements cannot be abandoned.') end
