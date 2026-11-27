@@ -1,7 +1,13 @@
 local E='frontier_inventory:'
 local lab=FrontierGunLab
-local page='tools'
+local page='main'
 local toolSlots=nil
+local layout=FrontierWheelLayout
+local entries={}
+local hoveredAt=0
+local documents=false
+local docsPending=false
+local docSequence=0
 local W,H=0xAC4BD4F1,0xB238FE0B -- hold wheel, tap holster
 local X,Y=0xA987235F,0xD2047988
 local blocked={X,Y,0x07CE1E61,0xF84FA74F,0xD0842EDF,0xF78D7337,0x9CC7A1A4}
@@ -22,6 +28,7 @@ local function callBool(name,...)
 end
 local function blocker()
  if not ready then return 'NUI not ready' end
+ if documents or docsPending then return 'documents open' end
  local p=PlayerPedId()
  if p==0 or callBool('IsEntityDead',p) then return 'dead/no ped' end
  if callBool('IsPauseMenuActive') then return 'pause menu' end
@@ -30,39 +37,63 @@ local function blocker()
  if callBool('IsPedInAnyVehicle',p,false) then return 'vehicle' end
  if callBool('IsPedUsingAnyScenario',p) then return 'scenario' end
 end
+local function notifyUnavailable() notice('This feature is not available yet.') end
+local function requestDocuments(mode)
+ if docsPending or documents then return end
+ docSequence=docSequence%2147483646+1
+ local seq=docSequence
+ docsPending=true
+ TriggerServerEvent('frontier_wheel:documentsOpen',seq,mode)
+ SetTimeout(5000,function()
+  if docsPending and docSequence==seq then docsPending=false;notice('Documents did not respond.') end
+ end)
+end
 local function close(commit)
  if not opened then return end
+ local item=entries[selected]
  opened=false;manual=false;lab.wheelOpen=false
  SendNUIMessage({type='close'})
- if commit then
-  if page=='weapons' and lab.active() then
-   if selected==7 then lab.holster()
-   elseif selected==1 or selected==2 then lab.select(selected) end
-  elseif token then
-   if selected==7 then TriggerServerEvent(E..'wheelSelect',token,0)
-   elseif selected>=1 and selected<=6 and toolSlots and toolSlots[selected] and toolSlots[selected].kind then
-    lab.holster();TriggerServerEvent(E..'wheelSelect',token,selected)
-   end
-  end
+ if commit and item then
+  if item.kind=='weapon' and lab.active() then lab.select(item.target)
+  elseif item.kind=='holster' then
+   lab.holster();TriggerServerEvent(E..'holsterTool')
+   if not lab.active() then SetCurrentPedWeapon(PlayerPedId(),joaat('WEAPON_UNARMED'),false,0,false,false) end
+  elseif item.kind=='tool' and token then
+   lab.holster();TriggerServerEvent(E..'wheelSelect',token,item.target)
+  elseif item.kind=='toolHolster' and token then TriggerServerEvent(E..'wheelSelect',token,0)
+  elseif item.kind=='menu' then
+   if GetResourceState(item.resource)=='started' then
+    local command=item.target
+    SetTimeout(100,function() if not blocker() then ExecuteCommand(command) end end)
+   else notifyUnavailable() end
+  elseif item.kind=='documents' or item.kind=='profile' then requestDocuments(item.kind)
+  elseif item.kind=='disabled' then notifyUnavailable() end
  end
- token,slots,selected=nil,nil,0;toolSlots=nil
+ token,slots,selected=nil,nil,0;toolSlots=nil;entries={}
 end
 local function renderPage()
- SendNUIMessage({type='page',page=page,lab=lab.active()})
- if page=='weapons' and lab.active() then SendNUIMessage({type='slots',slots=lab.snapshot()})
- elseif toolSlots then SendNUIMessage({type='slots',slots=toolSlots}) end
+ if page=='main' then
+  local guns=lab.active() and lab.snapshot() or nil
+  if guns then guns[1].target=1;guns[2].target=2 end
+  entries=layout.main(guns)
+ elseif page=='character' then
+  entries=layout.character()
+  for _,item in ipairs(entries) do if item.resource and GetResourceState(item.resource)~='started' then item.kind='disabled' end end
+ else entries=layout.tools(toolSlots) end
+ SendNUIMessage({type='page',page=page,slots=entries,loading=page=='tools' and not toolSlots,selected=selected})
 end
-local function switchPage()
- if not opened or not lab.active() then return end
- page=page=='tools' and 'weapons' or 'tools'
- selected=0;x,y=0,0;renderPage();SendNUIMessage({type='select',slot=0})
+local function switchPage(target)
+ if not opened or not ({main=true,tools=true,character=true})[target] then return end
+ page=target;selected=0;x,y=0,0;hoveredAt=GetGameTimer()
+ renderPage()
+ trace('page '..page)
 end
 local function open()
  if opened then return end
  sequence=sequence%2147483646+1
  started=GetGameTimer()
  opened=true;lab.wheelOpen=true;token,slots,selected=nil,nil,0;toolSlots=nil;x,y=0,0
- if not lab.active() then page='tools' end
+ page='main';hoveredAt=started
  SendNUIMessage({type='open'});renderPage()
  TriggerServerEvent(E..'wheelOpen',sequence)
  trace('opened sequence '..sequence)
@@ -73,12 +104,12 @@ end)
 RegisterNetEvent(E..'wheelSnapshot',function(seq,t,data)
  if source~=65535 or not opened or seq~=sequence or type(t)~='string' or type(data)~='table' then return end
  token,toolSlots=t,data
- if page=='tools' then SendNUIMessage({type='slots',slots=data}) end
+ if page=='tools' then renderPage() end
  trace('toolbelt snapshot received')
 end)
 RegisterNetEvent(E..'wheelError',function(seq,msg)
  if source~=65535 or not opened or seq~=sequence then return end
- if page=='tools' then close(false);waitRelease=true end;notice(msg)
+ if page=='tools' then notice(msg) else trace('toolbelt unavailable: '..tostring(msg)) end
 end)
 local function down()
  if rawHeld then return end
@@ -99,10 +130,8 @@ if type(RegisterRawKeymap)=='function' then
  rawAvailable=pcall(RegisterRawKeymap,'frontier_wheel_tab',down,up,0x09,true)
 end
 trace('raw TAB registered: '..tostring(rawAvailable))
-if type(RegisterRawKeymap)=='function' then pcall(RegisterRawKeymap,'frontier_wheel_page',switchPage,nil,0x51,true) end
-RegisterCommand('frontierwheelpage',switchPage,false)
 AddEventHandler('frontier_wheel:gunLabChanged',function(on)
- close(false);page=on and 'weapons' or 'tools';if on then enabled=true end
+ close(false);page='main';if on then enabled=true end
 end)
 RegisterCommand('frontierwheeltest',function()
  enabled=not enabled;close(false);waitRelease=false;rawHeld=false
@@ -142,18 +171,20 @@ CreateThread(function()
    elseif not opened and held then open() end
    if opened then
     for _,control in ipairs(blocked) do DisableControlAction(0,control,true) end
-    if lab.active() then DisableControlAction(0,joaat('INPUT_TAKE_COVER'),true) end
+    
     if type(DisablePlayerFiring)=='function' then DisablePlayerFiring(PlayerId(),true) end
     if GetGameTimer()-started>14000 then close(false);waitRelease=true
     elseif not manual and not held then close(true)
     else
      local dx,dy=GetDisabledControlNormal(0,X),GetDisabledControlNormal(0,Y)
      x,y=FrontierWheelRules.limit(x+dx*0.65,y+dy*0.65)
-     local nextSlot=FrontierWheelRules.segment(x,y,8)
+     local nextSlot=FrontierWheelRules.segment(x,y,#entries)
      if nextSlot~=selected then
-      selected=nextSlot
+      selected=nextSlot;hoveredAt=GetGameTimer()
       SendNUIMessage({type='select',slot=selected})
      end
+     local item=entries[selected]
+     if item and item.kind=='page' and GetGameTimer()-hoveredAt>=350 then switchPage(item.target) end
     end
    end
   else
@@ -163,5 +194,34 @@ CreateThread(function()
  end
 end)
 AddEventHandler('onClientResourceStop',function(resource)
- if resource==GetCurrentResourceName() then close(false) end
+ if resource==GetCurrentResourceName() then close(false);if documents then SetNuiFocus(false,false) end end
+end)
+
+local function closeDocuments()
+ if documents then SetNuiFocus(false,false) end
+ documents=false;docsPending=false
+ SendNUIMessage({type='docsClose'})
+ TriggerServerEvent('frontier_wheel:documentsClose')
+end
+RegisterNetEvent('frontier_wheel:documentsView',function(seq,data)
+ if source~=65535 or not docsPending or seq~=docSequence then return end
+ docsPending=false
+ if not data or type(data)~='table' then notice('Documents unavailable.');return end
+ if blocker() then TriggerServerEvent('frontier_wheel:documentsClose');return end
+ documents=true;SetNuiFocus(true,true);SetNuiFocusKeepInput(false)
+ SendNUIMessage({type='docs',data=data})
+end)
+RegisterNetEvent('frontier_wheel:documentsNotice',function(msg)
+ if source==65535 then notice(msg);SendNUIMessage({type='docsNotice',message=msg}) end
+end)
+RegisterNUICallback('docsClose',function(_,cb) closeDocuments();cb({ok=true}) end)
+RegisterNUICallback('docsPresent',function(d,cb)
+ if documents and type(d)=='table' then TriggerServerEvent('frontier_wheel:documentsPresent',d.index,d.target) end
+ cb({ok=true})
+end)
+CreateThread(function()
+ while true do
+  Wait(250)
+  if documents and (not LocalPlayer.state.IsInSession or callBool('IsEntityDead',PlayerPedId()) or IsPauseMenuActive()) then closeDocuments() end
+ end
 end)
