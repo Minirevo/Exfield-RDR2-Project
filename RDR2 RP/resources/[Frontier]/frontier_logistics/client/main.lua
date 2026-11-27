@@ -25,7 +25,7 @@ local function open(mode,id,sid)
  TriggerServerEvent(E..'open',mode,id,sid)
  SetTimeout(10000,function()if opening==stamp then opening=nil;tell('Logistics did not respond') end end)
 end
-RegisterNetEvent(E..'notice',function(msg)if source==65535 then opening=nil;tell(msg);ui({type='notice',message=msg}) end end)
+RegisterNetEvent(E..'notice',function(msg)if source==65535 then opening=nil;tell(msg);print('[frontier_logistics/server] '..tostring(msg));ui({type='notice',message=msg}) end end)
 RegisterNetEvent(E..'view',function(token,data)
  if source~=65535 or not opening then return end
  opening=nil;if IsNuiFocused() then TriggerServerEvent(E..'close',token);return end
@@ -120,15 +120,22 @@ RegisterNetEvent(E..'spawn',function(d)
    print('[frontier_logistics/spawn] Both assigned horses retained after networking')
    print('[frontier_logistics/spawn] Wagon net='..net..'; waiting for server registration')
    Wait(500)
-   local timeout=GetGameTimer()+25000
+   local models={GetEntityModel(v)}
+   assert((models[1]&0xffffffff)==(GetHashKey(d.model)&0xffffffff),'Wagon model changed during networking')
+   for i,ped in ipairs(s.horses) do
+    models[i+1]=GetEntityModel(ped)
+    assert((models[i+1]&0xffffffff)==(GetHashKey(d.horses[i].model)&0xffffffff),'Horse model changed during networking')
+   end
+   local timeout=GetGameTimer()+35000
    while not s.accepted and GetGameTimer()<timeout do
-    TriggerServerEvent(E..'spawnAck',d.id,d.token,net,nets)
+    TriggerServerEvent(E..'spawnAck',d.id,d.token,net,nets,models)
     Wait(800)
    end
    -- If ack was lost but state bag proves authoritative registration, retain the vehicle.
    if not s.accepted and Entity(v).state.frontierWagonId==d.id then s.accepted=true end
    assert(s.accepted,'Server did not register network entities')
    FreezeEntityPosition(v,false)
+   print('[frontier_logistics/spawn] Server registration accepted; wagon ready')
   end)
   if not ok then print('[frontier_logistics/spawn] '..tostring(err));clearSpawn(s);TriggerServerEvent(E..'spawnFailed',d.id,d.token,tostring(err)) end
   spawned[d.token]=nil

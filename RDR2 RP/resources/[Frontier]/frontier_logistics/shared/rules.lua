@@ -38,3 +38,14 @@ function R.assemblyQuality(components)
     assert(total>0)
     return math.floor(weighted/total+.5)
 end
+
+-- RedM OneSync can report model 0 for animal peds (citizenfx/fivem#2944).
+-- A nonzero mismatch is always rejected; wagons require a verified server model.
+-- The narrow horse fallback is only used after entity ownership/type/position checks.
+function R.networkModel(serverModel,expected,clientModel,isHorse)
+ if type(expected)~='number' or expected==0 or expected%1~=0 then return false end
+ if type(clientModel)~='number' or clientModel%1~=0 or (clientModel&0xffffffff)~=(expected&0xffffffff) then return false end
+ if type(serverModel)~='number' or serverModel%1~=0 then return false end
+ if serverModel==0 then return isHorse==true,isHorse==true end
+ return (serverModel&0xffffffff)==(expected&0xffffffff),false
+end
