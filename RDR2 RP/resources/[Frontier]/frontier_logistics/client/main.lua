@@ -56,11 +56,15 @@ RegisterNetEvent(E..'spawn',function(d)
  CreateThread(function()
   local ok,err=pcall(function()
    local hash=model(d.model);assert(hash,'Wagon model unavailable')
-   print('[frontier_logistics/spawn] Creating local '..d.model..' at saved position')
+   local networkWagon=d.networkWagon==true
+   local function xyz(p)return ('%.2f %.2f %.2f'):format(p.x,p.y,p.z) end
+   local function coords(entity)return GetEntityCoords(entity,false,true) end
+   local function distance(p,q)return math.sqrt((p.x-q.x)^2+(p.y-q.y)^2+(p.z-q.z)^2) end
+   print(('[frontier_logistics/spawn] Creating %s %s at saved position %s'):format(networkWagon and 'network-first wagon' or 'local-first wagon',d.model,xyz(d)))
    RequestCollisionAtCoord(d.x,d.y,d.z)
-   -- Use the exact local spawn flags verified in the model lab.
-   -- Draft-harness native rejects peds that are already networked.
-   local v=CreateVehicle(hash,d.x,d.y,d.z,d.heading,false,false,true,false)
+   -- Prefer the verified local assembly. A retry may network only the wagon
+   -- at creation; custom horses must still be created locally and harnessed first.
+   local v=CreateVehicle(hash,d.x,d.y,d.z,d.heading,networkWagon,networkWagon,true,false)
    SetModelAsNoLongerNeeded(hash);assert(v and v~=0 and DoesEntityExist(v),'Vehicle spawn failed');s.vehicle=v
    SetEntityAsMissionEntity(v,true,true);FreezeEntityPosition(v,true)
    Wait(300)
@@ -118,6 +122,20 @@ RegisterNetEvent(E..'spawn',function(d)
     assert(getHarness(slots[i])==ped,('Harness slot %d detached during network registration'):format(slots[i]))
    end
    print('[frontier_logistics/spawn] Both assigned horses retained after networking')
+   print('[frontier_logistics/spawn] Client wagon before position sync: '..xyz(coords(v)))
+   -- RedM can register a local frozen vehicle with an uninitialized sector
+   -- position. Let physics run and write the approved spawn transform while
+   -- still the network owner. Never use client positions as server authority.
+   assert(distance(coords(v),d)<=15,'Client wagon outside approved spawn point')
+   assert(NetworkHasControlOfEntity(v),'Lost wagon network control before position sync')
+   FreezeEntityPosition(v,false)
+   SetEntityCoordsNoOffset(v,d.x,d.y,d.z,false,false,false)
+   SetEntityHeading(v,d.heading)
+   Wait(1000)
+   for i,ped in ipairs(s.horses) do
+    assert(getHarness(slots[i])==ped,('Harness slot %d detached after position refresh'):format(slots[i]))
+   end
+   print('[frontier_logistics/spawn] Client wagon after position sync: '..xyz(coords(v)))
    print('[frontier_logistics/spawn] Wagon net='..net..'; waiting for server registration')
    Wait(500)
    local models={GetEntityModel(v)}
@@ -128,6 +146,12 @@ RegisterNetEvent(E..'spawn',function(d)
    end
    local timeout=GetGameTimer()+35000
    while not s.accepted and GetGameTimer()<timeout do
+    -- An unregistered wagon is never usable as a freight container.
+    -- Block driving during this brief handshake to keep it at the lease.
+    local driver=GetPedInVehicleSeat(v,-1)
+    if driver and driver~=0 and driver==PlayerPedId() then
+     TaskLeaveVehicle(driver,v,0)
+    end
     TriggerServerEvent(E..'spawnAck',d.id,d.token,net,nets,models)
     Wait(800)
    end
