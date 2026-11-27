@@ -38,3 +38,6 @@ This is an integration test release, not public-production verification. Automat
 5. Create freight with insufficient funds/stock, valid escrow, accept, pickup, destination delivery, reward/XP exactly once, full destination retry, cancellation/return, theft, destroyed freight, and expired pickup. Test different companies and revoked permissions. Check duplicate requests and restart between ledger/inventory state transitions.
 6. Produce every wagon part, build a bench, assemble from chest, verify average quality, inspect wear and repair. Test cancellation/failure/conflicts and repeat on company wagon.
 7. Exercise real production startup and business fixture deletion/liquidation; no active contracts may be silently discarded. Company bankruptcy recovery is an outstanding edge case requiring administrator review.
+
+## Spawn troubleshooting
+After deploying, keep the player near the saved yard location. Client retries network acknowledgement while the worker is busy. Registry displays spawn status and permits retrying a missing world wagon at its existing location, without creating another database record or moving its cargo. `/logisticsdiagnostics` lists wagon model, assigned horse count, last coordinates and registration error. F8 and server console print `[frontier_logistics/spawn]` stages. No additional migration for the spawn fix.

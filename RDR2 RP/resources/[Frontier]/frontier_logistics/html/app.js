@@ -97,6 +97,7 @@ function registry(){
    }
    c.append(btn('Assign horses',()=>request('assign',{wagon:w.id,horses:hs.map(h=>h.value)})),btn('Clear assignment',()=>request('assign',{wagon:w.id,horses:[]})),btn('Deploy',()=>request('deploy',{wagon:w.id})));
   }
+  if(w.state==='world'){c.append(el('p',w.spawnStatus|| (w.spawned?'Registered in world':'Waiting for spawn') ,'muted'));if(!w.spawned)c.append(btn('Retry spawn at saved location',()=>request('retrySpawn',{wagon:w.id})));c.append(el('p','Saved location: '+Number(w.x).toFixed(1)+', '+Number(w.y).toFixed(1),'muted'))}
   c.append(btn(Number(w.stolen)?'Clear stolen report':'Report stolen',()=>request('report',{wagon:w.id})));
  }
  heading(content,'Create freight contract');const origins=rows(data.origins),stock=rows(data.stock);

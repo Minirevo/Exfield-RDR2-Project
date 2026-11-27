@@ -56,6 +56,7 @@ RegisterNetEvent(E..'spawn',function(d)
  CreateThread(function()
   local ok,err=pcall(function()
    local hash=model(d.model);assert(hash,'Wagon model unavailable')
+   print('[frontier_logistics/spawn] Creating '..d.model..' at saved position')
    RequestCollisionAtCoord(d.x,d.y,d.z)
    local v=CreateVehicle(hash,d.x,d.y,d.z,d.heading,true,true,true,false)
    SetModelAsNoLongerNeeded(hash);assert(v~=0 and DoesEntityExist(v),'Vehicle spawn failed');s.vehicle=v
@@ -72,20 +73,24 @@ RegisterNetEvent(E..'spawn',function(d)
     local accepted=Citizen.InvokeNative(0x316CDB5B6E8F4110,ped,v,tonumber(h.slot_no),Citizen.ResultAsInteger())
     assert(accepted==true or accepted==1,'Horse harness rejected')
     local net=NetworkGetNetworkIdFromEntity(ped);assert(net~=0,'Horse not networked');nets[#nets+1]=net
-    SetNetworkIdCanMigrate(net,true)
+    if type(SetNetworkIdCanMigrate)=='function' then pcall(SetNetworkIdCanMigrate,net,true) end
+    print(('[frontier_logistics/spawn] Horse slot %s accepted; net=%s'):format(h.slot_no,net))
    end
    local net=NetworkGetNetworkIdFromEntity(v);assert(net~=0,'Wagon not networked')
-   SetNetworkIdCanMigrate(net,true)
+   if type(SetNetworkIdCanMigrate)=='function' then pcall(SetNetworkIdCanMigrate,net,true) end
+   print('[frontier_logistics/spawn] Wagon net='..net..'; waiting for server registration')
    Wait(500)
-   TriggerServerEvent(E..'spawnAck',d.id,d.token,net,nets)
-   local timeout=GetGameTimer()+10000
-   while not s.accepted and GetGameTimer()<timeout do Wait(100) end
+   local timeout=GetGameTimer()+25000
+   while not s.accepted and GetGameTimer()<timeout do
+    TriggerServerEvent(E..'spawnAck',d.id,d.token,net,nets)
+    Wait(800)
+   end
    -- If ack was lost but state bag proves authoritative registration, retain the vehicle.
    if not s.accepted and Entity(v).state.frontierWagonId==d.id then s.accepted=true end
    assert(s.accepted,'Server did not register network entities')
    FreezeEntityPosition(v,false)
   end)
-  if not ok then clearSpawn(s);TriggerServerEvent(E..'spawnFailed',d.id,d.token,tostring(err)) end
+  if not ok then print('[frontier_logistics/spawn] '..tostring(err));clearSpawn(s);TriggerServerEvent(E..'spawnFailed',d.id,d.token,tostring(err)) end
   spawned[d.token]=nil
  end)
 end)
