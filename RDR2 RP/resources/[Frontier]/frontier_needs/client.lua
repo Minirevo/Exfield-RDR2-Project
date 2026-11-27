@@ -1,40 +1,71 @@
 local C=FrontierNeedsConfig
 local value,last,seq,requested=nil,0,0,0
+local sprintControl=joaat('INPUT_SPRINT')
 local animating=false
 local function playing() return LocalPlayer.state.IsInSession==true end
 local function truth(v) return v==true or v==1 end
 local function alive(p) return p~=0 and not truth(IsEntityDead(p)) end
 exports('GetState',function()
  if not playing() or not value or GetGameTimer()-last>10000 then return nil end
- return {hunger=value.hunger,thirst=value.thirst,energy=value.energy}
+ return {hunger=value.hunger,thirst=value.thirst,energy=value.energy,stamina=value.stamina,capacity=value.capacity,locked=value.locked}
 end)
 RegisterNetEvent('frontier_needs:state',function(sequence,data)
  if source~=65535 or not playing() or sequence~=requested or type(data)~='table' then return end
- for _,k in ipairs({'hunger','thirst','energy'}) do if type(data[k])~='number' or data[k]<0 or data[k]>1000 then return end end
+ for _,k in ipairs({'hunger','thirst','energy','stamina','capacity'}) do if type(data[k])~='number' or data[k]<0 or data[k]>1000 then return end end
+ if type(data.locked)~='boolean' then return end
  value=data;last=GetGameTimer()
 end)
 RegisterNetEvent('vorp:SelectedCharacter',function() value=nil;requested=0 end)
+local function native(name,...)
+ local fn=_G[name];if type(fn)~='function' then return nil end
+ local ok,v=pcall(fn,...);if ok then return v end
+end
+local function mounted(p)
+ return truth(native('IsPedOnMount',p)) or truth(native('IsPedInAnyVehicle',p,false))
+end
+local function activity()
+ local p=PlayerPedId()
+ if not alive(p) then return 'unknown' end
+ if mounted(p) then return 'mounted' end
+ if truth(native('IsPedSwimming',p)) or truth(native('IsPedSwimmingUnderWater',p)) then return 'swim' end
+ local speed=tonumber(native('GetEntitySpeed',p)) or 0
+ if truth(native('IsPedSprinting',p)) or speed>=C.sprintSpeed then return 'sprint' end
+ if truth(native('IsPedRunning',p)) or speed>=C.jogSpeed then return 'jog' end
+ if speed>=C.walkSpeed then return 'walk' end
+ return 'idle'
+end
 CreateThread(function()
  while true do
   if playing() then
    seq=seq%2147483646+1;requested=seq
-   TriggerServerEvent('frontier_needs:request',seq)
+   TriggerServerEvent('frontier_needs:request',seq,activity())
   else value=nil;requested=0 end
-  Wait(2500)
+  Wait(1000)
  end
 end)
-RegisterNetEvent('frontier_needs:consequence',function(damage,energy,low)
+CreateThread(function()
+ while true do
+  local p=PlayerPedId()
+  if playing() and value and GetGameTimer()-last<=10000 and value.locked and alive(p) and not mounted(p) then
+   DisableControlAction(0,sprintControl,true)
+   Wait(0)
+  else Wait(100) end
+ end
+end)
+RegisterNetEvent('frontier_needs:consequence',function(percent)
  if source~=65535 or not playing() or not alive(PlayerPedId()) then return end
+ if type(percent)~='number' or percent<=0 or percent>C.starvePct+C.dehydratePct then return end
  local p=PlayerPedId()
- if type(damage)=='number' and damage>0 and damage<=C.damageAtZero*2 then
-  local health=GetEntityHealth(p)
-  if health>0 then SetEntityHealth(p,math.max(0,health-damage),0) end
+ local health,maximum=GetEntityHealth(p),GetEntityMaxHealth(p)
+ if type(health)=='number' and type(maximum)=='number' and health>0 and maximum>0 then
+  local damage=math.max(1,math.ceil(maximum*percent/100))
+  SetEntityHealth(p,math.max(0,health-damage),0)
  end
- if type(energy)=='number' and energy<=C.low then
-  -- Cap the native stamina core while exhausted; do not replenish it.
-  local ok,current=pcall(Citizen.InvokeNative,0x36731AC041289BB1,p,1)
-  if ok and type(current)=='number' and current>25 then pcall(Citizen.InvokeNative,0xC6258F41D86676E0,p,1,25) end
- end
+end)
+RegisterNetEvent('frontier_needs:diagnostic',function(msg)
+ if source~=65535 or type(msg)~='string' then return end
+ print('[frontier_needs] '..msg)
+ TriggerEvent('chat:addMessage',{args={'Frontier Needs',msg}})
 end)
 RegisterNetEvent('frontier_needs:consumed',function(item)
  if source~=65535 or not playing() or animating or not C.effects[item] then return end

@@ -5,3 +5,6 @@ Food wheel and inventory use bread, apple, water and cooked_meat; server invento
 
 ## Phase 2
 HUD uses frontier_needs (not VORP Metabolism), plus separate persistent Energy indicator. /frontierhud toggles visibility; legacy metabolism must remain stopped. See frontier_needs/README.md.
+
+## Fuel-chain stamina
+The former native Endurance indicator now displays Frontier stamina on the same 0–100% scale. Dehydration and low energy reduce the attainable maximum. Requires needs migration 002_stamina.sql. Native combat stamina remains active independently; the custom sprint control is an additional restriction.
