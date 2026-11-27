@@ -1,37 +1,40 @@
-# Frontier Logistics — development model lab
-**Draft, not the complete phases 1–5 update.** This resource currently contains an isolated native/model lab, provisional wagon/part catalogue and pure rules. It does not modify live inventory, stable ownership, businesses, production or trade. No migration or server.cfg changes are required for existing resources.
+# Frontier Logistics V1 — phases 1–5 integration (test release)
 
-## Test setup
-Copy the resource to [Frontier]. Temporarily add:
+## Install
+Deploy all changed resources together, with the server stopped. Back up the database. Apply these additive migrations in order:
+1. `frontier_logistics/sql/migrations/001_logistics.sql`
+2. `frontier_logistics/sql/migrations/002_inventory_atomic.sql`
+
+The second file creates a separate 16-container atomic inventory routine, not a replacement for the existing two-container routine. Requires the existing Frontier inventory/economy/property/business/production/skills migrations and VORP stables tables. Do not rerun the destructive VORP stables install SQL on an existing database.
+
+Add to server.cfg **after** the listed dependencies:
 ```cfg
-add_ace group.admin frontier.logistics.models allow
 ensure frontier_logistics
+add_ace group.admin frontier.logistics.models allow
+add_ace group.admin frontier.logistics.admin allow
+add_ace group.admin frontier.logistics.police allow
 ```
-On clear flat ground, use:
-- /logisticsmodels wagon supplywagon (or wagon03x, wagon02x, wagon04x, logwagon)
-- /logisticsmodels cargo crate 0 0 0.8
-- /logisticsmodels cargo barrel -0.4 -0.6 0.8
-- /logisticsmodels cargo sack 0.4 -0.6 0.8
-- /logisticsmodels horse 0
-- /logisticsmodels horse 1
-- /logisticsmodels drive
-- /logisticsmodels export (copy JSON from F8)
-- /logisticsmodels clear
-- /logisticsmodels bench
+Restart the entire server. Expected console: `[frontier_logistics] ready`. The existing farm, gathering, and production resources retain their own inventory routines. The inventory/economy/skills allowlists, property bench and VORP horse guard are included in this PR.
 
-Cargo offsets are wagon-local and provisional. Try different xyz and heading until visible and correctly aligned. Test native harness slot indices 0–3 against each model; do not assume suggested horse count is supported. The lab uses local entities only; this cannot validate OneSync persistence, ownership migration or server-authoritative damage. Stop the resource after testing. No economic or player data is written.
+## Current live test catalogue
+Only the `supplywagon` model and two individually owned `a_c_horse_shire_darkbay` horses are enabled. Owner's native lab export confirmed hash -1753201617, horse hash 1066034872, harness slots 0 and 1, two p_crate02x offsets (0,-0.99,0.2) and (0,0,0.2). Other wagon categories are configured but disabled until their geometry and harness counts are tested. Cargo visuals use the two tested crate positions; barrel and sack prop names are retained for later calibration, with no dedicated timber model. Parts have inventory glyph icons only.
 
-## Accepted asset catalogue
-Crate/recovery crate: p_crate02x; construction bench: mp005_p_mp_tableplank04x; barrel: p_barrelladle1x_culture; sacks: p_cs_sandbag01x. No timber-specific prop. Wagon frame, wheel, axle, fittings and harness are inventory items/icons only. Icon names in config are placeholders, not shipped textures.
+## Player workflow
+- At Valentine or Blackwater freight yard (provisional coordinates in config), use /logistics or /freight. Purchase a personal wagon from Frontier bank balance or choose a licensed company with permissions and finance account. Existing VORP wagons are **not automatically imported** and cannot use the new cargo containers. Choose two healthy Shire horses bought through VORP Stables; dismiss them before assignment. Database unique constraints prevent double assignment; the VORP call/transfer/delete/default guards prevent normal duplicate use. Deploy at yard; empty wagons may be stored there, loaded ones may not.
+- Approach a stationary wagon and use G or /logistics. Left pane is cargo, right pane selects accessible nearby inventories, including personal bag, camp chest and registered business storage. Drag stacks or select quantities and use Load/Unload buttons. Plans can span multiple inventories. Undo or clear before confirming. Fertig closes the menu and plays a timed loading action based on total handled weight/units and transportation skill. A single atomic optimistic commit happens at the end, after rechecking proximity, movement and authorization. **Stock is not moved or reserved during the progress bar**: a concurrent inventory revision change cancels the entire plan. Disconnect or restart before commit leaves items unchanged. A database confirmation failure is reconciled via the frozen job and receipt, not a second independent transfer.
+- Wagons remain registered with last observed position; OneSync client spawn leases register verified model/network IDs and draft animals. Ownership migration and server restart behavior need multiplayer tests. Missing entity alone is never treated as destruction. If ordinary network disappearance occurs, recreate at last saved location. State is checkpointed approximately every five seconds. The initial release does not aggressively despawn registered networked entities while no players are nearby.
+- Anyone may physically drive an unattended wagon. Unlocked cargo may be looted. Owner/company management may lock cargo and mark/clear a stolen report at the registry; lockpick is produced at anvil and consumed once per attempt, with server-timed QTE. /wagoninspect <registration-id> while nearby shows report, and police ACE shows legal owner. No GPS tracking.
+- Confirmed server-observed destruction journals a wreck, recovers an expected 90% of each stack (deterministic stochastic rounding, indivisible unique items), and produces a persistent physical recovery crate with actual metadata preserved. A wrecked contract already collected into the wagon participates; uncollected freight goes back to origin. No cargo is deleted on normal despawn. Any player may loot recovery crates.
+- Use /freight near an authorized registered business storage to create a contract to another authorized warehouse belonging to the same customer. Select exact stacks, reward and pickup deadline. Funds are held by the existing economy escrow, goods reserved in a contract container. Carrier must own or operate a wagon under an active transport license. Accept via wagon menu, drive to origin and collect, then drive to destination and deliver. Capacity accounts for both ordinary and reserved freight, one active contract per wagon. Reserved cargo has its own hold and is logically associated with wagon during transit. Non-owner can break the freight seal on an unlocked wagon; it becomes ordinary cargo and the reward is refunded, not paid to carrier. Failed delivery/return remains pending if destination/origin cannot receive; free capacity or restore authorization. Unaccepted contracts can be cancelled, expired pickup returns goods, collected freight can be returned at origin. Delivery pays once and grants transportation XP once. Freight pickup/delivery are explicit stationary interactions, not a separate timed loading animation.
+- Manufacture wagon frame/wheels at carpentry, axle/fittings/lockpick at anvil, and harness at leatherworking station. Components use existing tiered QTE and individual quality. Buy/place the wagon construction bench from property general store (model mp005_p_mp_tableplank04x). Put parts in nearby stock chest, approach bench, choose source and owner, assemble. Output is one registered stored wagon; component quality averaged. Repair nearby wagon using wheel/fittings; wear is based on observed travel distance and craftsmanship. Initial maintenance condition is bookkeeping, not a vehicle physics modifier. No wagon sale/transfer UI or company liquidation resolution workflow yet.
+- /logisticsdiagnostics (console or admin ACE) lists unresolved jobs and contracts. Do not manually delete pending rows or escrow accounts. /logisticsmodels remains available for local model tests. NPC journeys and insurance are outside phases 1–5.
 
-## Agreed phases 1–5 (release acceptance criteria, not implemented yet)
-1. Persistent private/company wagon identity, registration, last server-observed world position, exclusive owned horse assignments. OneSync entity lifecycle with no second spawn while a lease is active; distinguish a missing network entity from confirmed destruction; loaded wagons cannot teleport by stable storage. Existing VORP carts and Frontier cargo must not share mutable stock or generate duplicate ownership.
-2. Wagon interaction opens two-pane cargo planner. Select bag/authorized nearby property/business chests; stage multiple exact-stack transfers in either direction, including unique metadata. Confirm whole plan, close UI, show timed loading. Validate source revisions, capacity, vehicle speed, physical location, access before and after progress; use atomic inventory commits or journaled reservation with safe returns. Never chain unjournaled partial multi-container writes. Cargo visuals derive from actual stock.
-3. Driving theft permitted, legal ownership unchanged. Lock protects stock, lockpicking consumes tool condition and has server-validated QTE. Unsecured cargo can be stolen. Confirmed destruction freezes a 90% expected per-stack recovery decision (unique items are indivisible), moves remaining items to persistent lootable crates at last position with idempotent receipt. Do not delete cargo on ordinary despawn. Reports and ownership inspection without GPS.
-4. Freight contracts use escrow payment, separate reserved cargo ownership, pickup/delivery proximity, atomic handoffs and idempotent payout/XP. Company transport license, distinct driving/deposit/retrieve/finance permissions. Cancellation, destruction, theft and recovery must not release payment for undelivered goods. No double payout or stock duplication after reconnect.
-5. Player-made frames/wheels/axles/fittings/harnesses via existing stations, dedicated construction bench on property, frozen input quality and assembly recipe. Register completed wagon once using durable order ID; repairs consume parts and maintain condition; no arbitrary client-provided wagon spawn. Keep NPC stable supply as bootstrap.
-NPC journeys and insurance are subsequent scope.
-
-References for experimental native calls:
-- https://www.rdr2mods.com/nativedb/index/_namespace79/_0x316cdb5b6e8f4110-r6425/ (horse, wagon, harness index)
-- https://the-lab.oxdev.fr/redm/natives/vehicle/create_vehicle (draft animal suppression flag)
+## Mandatory live test checklist
+This is an integration test release, not public-production verification. Automated tests cover pure rules and syntax, not live SQL, natives or multiplayer.
+1. Apply migrations on a test database; verify old production, farm, and inventory behavior.
+2. Buy supply wagon and two Dark Bay Shires; verify balances and unique assignment; attempt VORP call/sale while assigned. Deploy, drive with two clients and leave area, reconnect, resource/server restart; confirm same wagon ID, horses and cargo, no ghost or duplicate vehicles. Check correct spawn coordinates and no automatic duplicate draft horses.
+3. Test bag/chest-to-wagon and wagon-to-chest, multiple inventories in one plan, mixed metadata and full capacity, cancellation while moving, concurrent chest revisions, disconnect, retry and restart. Verify no stock loss or duplication. Verify both crate offsets and correct visual fill.
+4. Test non-owner driving, unlocked cargo theft, lockpick success/failure, owner/report and police inspection. Destroy loaded wagon; confirm deterministic 90% expected recovery, crate loot persistence and exact metadata. Separately disconnect/restart or lose network entity without destruction; cargo must survive.
+5. Create freight with insufficient funds/stock, valid escrow, accept, pickup, destination delivery, reward/XP exactly once, full destination retry, cancellation/return, theft, destroyed freight, and expired pickup. Test different companies and revoked permissions. Check duplicate requests and restart between ledger/inventory state transitions.
+6. Produce every wagon part, build a bench, assemble from chest, verify average quality, inspect wear and repair. Test cancellation/failure/conflicts and repeat on company wagon.
+7. Exercise real production startup and business fixture deletion/liquidation; no active contracts may be silently discarded. Company bankruptcy recovery is an outstanding edge case requiring administrator review.

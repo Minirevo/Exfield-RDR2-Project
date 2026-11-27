@@ -86,6 +86,9 @@ local function finishHorseSpawn(ride)
 end
 
 function CallRide(ride)
+    if ride and (LocalPlayer.state.frontierHarnesses or {})[tostring(ride.id)] then
+        TriggerEvent('vorp:TipRight','Horse assigned to a freight wagon.',3000);return
+    end
     if ride == nil then
         TriggerEvent("vorp:TipRight", Config.Lang.TipNoDefaultHorse, 2000)
         return
@@ -280,3 +283,15 @@ function Interactions()
 end
 
 CreateThread(Interactions)
+
+AddEventHandler('frontier_logistics:dismissStableHorse',function()
+    if CurrentHorse and (LocalPlayer.state.frontierHarnesses or {})[tostring(CurrentHorse.id)] and CurrentHorse.pedId then
+        DeletePed(CurrentHorse.pedId);CurrentHorse.pedId=nil
+    end
+end)
+AddStateBagChangeHandler('frontierHarnesses',nil,function(bagName,key,value)
+    if bagName~=('player:'..GetPlayerServerId(PlayerId())) or type(value)~='table' then return end
+    if CurrentHorse and value[tostring(CurrentHorse.id)] and CurrentHorse.pedId then
+        DeletePed(CurrentHorse.pedId);CurrentHorse.pedId=nil
+    end
+end)

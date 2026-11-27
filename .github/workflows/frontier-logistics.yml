@@ -15,3 +15,11 @@ jobs:
         run: |
           find . -name '*.lua' -print0 | xargs -0 -n1 luac5.4 -p
           lua5.4 tests/rules.lua
+          lua5.4 tests/integration_rules.lua
+          node --check html/app.js
+      - name: Parse VORP horse integration
+        working-directory: RDR2 RP/resources/[VORP]/vorp_stables
+        run: |
+          luac5.4 -p Server/main.lua
+          luac5.4 -p Client/interactions.lua
+

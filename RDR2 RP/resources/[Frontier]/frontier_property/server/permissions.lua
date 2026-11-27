@@ -48,3 +48,22 @@ exports('ProductionStation',function(src,sid,fid,grantor)
  return {id=fid,plot=sid,kind=d.station,skill=d.skill,name=d.name,plotName=s.name,equipment=75,primary=s.primary,
   isOwner=who and owner(s,who) and true or false,canWork=who and allowed(s,who,'work') and true or false,x=f.x,y=f.y,z=f.z}
 end)
+
+exports('LogisticsNearbyStorage',function(src)
+ if GetInvokingResource()~='frontier_logistics' or not ready then return {} end
+ local who,pos=cid(src),position(src);if not who or not pos or pos.bucket~=0 then return {} end
+ local out={}
+ for _,s in pairs(S.settlements) do
+  if allowed(s,who,'storage') and not (s.listing and s.listing.active) and close(src,{x=s.x+2,y=s.y,z=s.z},C.InteractionDistance) then
+   out[#out+1]={id=chestId(s.id),name=(s.name or 'Settlement')..' camp chest',x=s.x+2,y=s.y,z=s.z}
+  end
+ end
+ return out
+end)
+exports('LogisticsBench',function(src,sid,fid)
+ if GetInvokingResource()~='frontier_logistics' or not ready or next(S.jobs) then return end
+ local s=settlement(sid);local f=s and s.furniture and s.furniture[fid]
+ if s and f and f.item=='property_wagon_bench' and not (s.listing and s.listing.active) and allowed(s,cid(src),'work') and close(src,f,C.InteractionDistance) then
+  return {id=fid,plot=sid,name=s.name,x=f.x,y=f.y,z=f.z,heading=f.heading,owner=owner(s,cid(src)) and true or false}
+ end
+end)
