@@ -77,7 +77,16 @@ function cargo(){
   heading(content,'Wagon registration');
   content.append(el('p',data.wagon.id+' · condition '+data.wagon.condition_value+'% · quality '+data.wagon.quality+'%'+(Number(data.wagon.stolen)?' · REPORTED STOLEN':'')));
   if(data.manage)content.append(btn(Number(data.wagon.locked)?'Unlock cargo':'Lock cargo',()=>request('lock')),btn('Store empty wagon at yard',()=>request('store')));
+  tradeContracts();
   contracts();
+ }
+}
+function tradeContracts(){
+ if(data.wagon?.owner_type!=='company'||!data.manage)return;
+ heading(content,'Company trade deliveries');
+ const list=rows(data.tradeContracts);if(!list.length)content.append(el('p','Accept a company purchase contract in the Business trade menu.','muted'));
+ for(const c of list){const r=el('div',null,'card');content.append(r);r.append(el('h3',c.buyer_name+' · '+c.item_id),el('p',c.remaining+' remaining · '+c.onboard+' onboard · '+money(c.price)+' / unit'),el('p','Destination: '+c.destination+(c.point?' ('+Number(c.point.x).toFixed(1)+', '+Number(c.point.y).toFixed(1)+')':'')));
+ const max=Math.min(1000,Number(c.remaining),Number(c.onboard));const qty=label(r,'Deliver quantity',number(Math.max(1,max),1,Math.max(1,max)));r.append(btn('Deliver to buyer',()=>request('tradeDeliver',{contract:c.id,quantity:Number(qty.value)}),!c.canDeliver||max<1||plan.length>0));if(!c.canDeliver)r.append(el('p','Load contracted goods and approach the destination with your stationary wagon.','muted'));
  }
 }
 function companies(parent){return label(parent,'Owner',select([{id:'',name:'Private character'},...rows(data.companies)]))}
@@ -100,7 +109,7 @@ function registry(){
   if(w.state==='world'){c.append(el('p',w.spawnStatus|| (w.spawned?'Registered in world':'Waiting for spawn') ,'muted'));if(!w.spawned)c.append(btn('Retry spawn at saved location',()=>request('retrySpawn',{wagon:w.id})));c.append(el('p','Saved location: '+Number(w.x).toFixed(1)+', '+Number(w.y).toFixed(1),'muted'))}
   c.append(btn(Number(w.stolen)?'Clear stolen report':'Report stolen',()=>request('report',{wagon:w.id})));
  }
- heading(content,'Create freight contract');const origins=rows(data.origins),stock=rows(data.stock);
+ heading(content,'Create independent transport order');const origins=rows(data.origins),stock=rows(data.stock);
  if(!origins.length){content.append(el('p','Use /freight at an accessible warehouse to create an order.','muted'))}
  else{
   const o=label(content,'Pickup',select(origins));const destinations=()=>{const origin=origins.find(x=>x.id===o.value);return stock.filter(x=>x.deposit&&x.id!==o.value&&x.ownerType===origin?.ownerType&&x.ownerId===origin?.ownerId)};const dest=label(content,'Destination',select(destinations())),list=el('div');content.append(list);
@@ -114,7 +123,7 @@ function registry(){
  contracts();
 }
 function contracts(){
- heading(content,'Freight contracts');
+ heading(content,'Independent transport orders');
  for(const c of rows(data.contracts)){
   const r=el('div',null,'card');content.append(r);
   r.append(el('h3',c.origin+' → '+c.destination),el('p',c.state+' · '+kg(c.grams)+' · '+money(c.reward)+(c.issue?' · '+c.issue:'')));

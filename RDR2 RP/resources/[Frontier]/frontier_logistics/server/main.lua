@@ -78,11 +78,11 @@ local function inventoryView(src,v)
    return L.cargoSnapshot(src,nil,c)
   end
   L.check(w and L.access(src,w,'trade'),'Cargo locked or wagon unavailable')
-  local snap=L.cargoSnapshot(src,w);snap.contracts=L.contractView(src,w);return snap
+  local snap=L.cargoSnapshot(src,w);snap.contracts=L.contractView(src,w);snap.tradeContracts=L.tradeView(src,w);return snap
  elseif v.mode=='locked' then
   L.check(w and w.state=='world' and L.near(src,L.point(w),C.InteractionDistance) and L.stationary(w),'Approach stationary wagon')
   if L.access(src,w,'trade') then
-   v.mode='cargo';local snap=L.cargoSnapshot(src,w);snap.contracts=L.contractView(src,w);return snap
+   v.mode='cargo';local snap=L.cargoSnapshot(src,w);snap.contracts=L.contractView(src,w);snap.tradeContracts=L.tradeView(src,w);return snap
   end
   return {mode='locked',wagon=w,manage=L.right(src,w,'trade')}
  elseif v.mode=='bench' then
@@ -151,6 +151,7 @@ RegisterNetEvent(L.E..'request',function(ticket,seq,a,d)
     L.U('UPDATE fl_wagons SET stolen=? WHERE id=?',{tonumber(w.stolen)==1 and 0 or 1,w.id});L.broadcastWagon(L.wagon(w.id));return 'Registration report updated'
    elseif a=='assemble' and v.mode=='bench' then workshop(src,v,d,false);return 'Assembly queued'
    elseif a=='repair' and v.mode=='bench' then workshop(src,v,d,true);return 'Repair queued'
+   elseif a=='tradeDeliver' and v.mode=='cargo' and v.wagon then return L.tradeDeliver(src,w,d.contract,d.quantity)
    elseif a=='createContract' and v.mode=='registry' then L.createContract(src,d);return 'Freight request queued'
    elseif a=='acceptContract' and v.mode=='cargo' then L.acceptContract(src,w,d.contract);return 'Contract accepted'
    elseif (a=='pickup' or a=='deliver' or a=='returnFreight' or a=='abandonContract' or a=='stealFreight') and v.mode=='cargo' or a=='cancelContract' and v.mode=='registry' then L.contractAction(src,w,d.contract,a);return 'Contract updated'
@@ -188,7 +189,7 @@ end,false)
 MySQL.ready(function()
  while not L.ready do
   local ok,err=pcall(function()
-   L.Q('SELECT id FROM fl_wagons LIMIT 1');L.Q('SELECT id FROM fl_jobs LIMIT 1');L.Q('SELECT id FROM fl_contracts LIMIT 1')
+   L.Q('SELECT id FROM fl_wagons LIMIT 1');L.Q('SELECT id FROM fl_jobs LIMIT 1');L.Q('SELECT id FROM fl_contracts LIMIT 1');L.Q('SELECT delivery_id FROM ft_wagon_deliveries LIMIT 1')
    L.check(L.V("SELECT COUNT(*) FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA=DATABASE() AND ROUTINE_NAME='frontier_inventory_logistics_commit_v1'" )==1 or tonumber(L.V("SELECT COUNT(*) FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA=DATABASE() AND ROUTINE_NAME='frontier_inventory_logistics_commit_v1'"))==1,'Apply 002_inventory_atomic.sql')
    L.U("UPDATE fl_jobs SET state='cancelled',issue='Loading interrupted by restart' WHERE state='loading'")
    L.assignmentState()
@@ -209,6 +210,10 @@ MySQL.ready(function()
     local ok,err=pcall(jobStep,j);if not ok then L.U('UPDATE fl_jobs SET issue=? WHERE id=?',{tostring(err):sub(1,255),j.id}) end
    end
    L.contractTick()
+   -- Trade can reserve wagon cargo in its own worker; refresh visual state after that stock step.
+   for wid,e in pairs(L.entities) do
+    if e.tradeRefresh and not L.wagonBusy(wid) then local w=L.wagon(wid);if w then L.broadcastWagon(w) end;e.tradeRefresh=nil end
+   end
    if L.now()-lastWorld>=3 then L.worldTick();lastWorld=L.now() end
    if L.now()-lastAssignments>=15 then L.assignmentState();lastAssignments=L.now() end
   end)

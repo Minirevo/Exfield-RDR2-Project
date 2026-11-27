@@ -87,6 +87,7 @@ function L.newJob(kind,actor,wagon,payload,state)
 end
 function L.wagonBusy(id)
  return L.V("SELECT id FROM fl_jobs WHERE wagon_id=? AND state IN ('loading','commit','wreck','purchase','assemble','repair') LIMIT 1",{id})~=nil
+  or L.V("SELECT x.delivery_id FROM ft_wagon_deliveries x JOIN frontier_trade_deliveries d ON d.id=x.delivery_id WHERE x.wagon_id=? AND d.state='stock' LIMIT 1",{id})~=nil
 end
 
 function L.dealer(src)

@@ -85,6 +85,7 @@ exports('BusinessAction',function(src,company,action,d)
   if not integer(d.quantity,1,1000) or not fixture(src,company,d.fixture,'retrieve',true) then return false,'Invalid delivery or stock location' end
   local r=S([[SELECT r.buyer_id,r.item_id FROM frontier_trade_contracts c JOIN frontier_trade_requests r ON r.id=c.request_id WHERE c.id=? AND c.seller_id=? AND c.state='active']],{d.id,company})
   if not r or not active(r.buyer_id) or not farmSaleAllowed(company,r.item_id) then return false,'Contract unavailable or agriculture license required' end
+  if S('SELECT id FROM fb_companies WHERE id=?',{r.buyer_id}) then return false,'Company deliveries require a wagon at the buyer warehouse. Load your goods, travel there and use the wagon cargo menu.' end
   ref=fresh();route(ref,company,d.fixture);ok=contract('deliver',ref,d.id,company,d.quantity)
  elseif action=='buy' then
   if not integer(d.quantity,1,1000) or not fixture(src,company,d.fixture,'deposit',false) then return false,'Invalid purchase or destination' end
@@ -102,7 +103,7 @@ exports('BusinessSnapshot',function(company)
  return {markets=cfg.Markets,products=cfg.Products,
  requests=Q([[SELECT id,market_id,item_id,quantity-settled_quantity AS remaining,COALESCE(quote_minor,price_minor) AS price,state,buyer_id,active_contract FROM frontier_trade_requests WHERE (state='open' AND expires_at>UTC_TIMESTAMP()) OR buyer_id=? ORDER BY expires_at DESC LIMIT 100]],{company}),
  offers=Q([[SELECT id,market_id,item_id,available,unit_minor AS price,state,seller_id,active_sale FROM frontier_trade_offers WHERE (state='open' AND expires_at>UTC_TIMESTAMP()) OR seller_id=? ORDER BY expires_at DESC LIMIT 100]],{company}),
- contracts=Q([[SELECT c.id,c.seller_id,r.buyer_id,c.state,c.active_delivery,r.item_id,r.quantity-r.settled_quantity AS remaining,c.unit_minor AS price FROM frontier_trade_contracts c JOIN frontier_trade_requests r ON r.id=c.request_id WHERE c.seller_id=? OR r.buyer_id=? ORDER BY c.due_at DESC LIMIT 60]],{company,company}),
+ contracts=Q([[SELECT c.id,c.seller_id,r.buyer_id,c.state,c.active_delivery,r.item_id,r.quantity-r.settled_quantity AS remaining,c.unit_minor AS price,IF(EXISTS(SELECT 1 FROM fb_companies b WHERE b.id=r.buyer_id) AND EXISTS(SELECT 1 FROM fb_companies s WHERE s.id=c.seller_id),1,0) AS wagon_required FROM frontier_trade_contracts c JOIN frontier_trade_requests r ON r.id=c.request_id WHERE c.seller_id=? OR r.buyer_id=? ORDER BY c.due_at DESC LIMIT 60]],{company,company}),
  deliveries=Q([[SELECT d.id,d.quantity,d.state,d.claimed_at,r.item_id,r.buyer_id,c.seller_id FROM frontier_trade_deliveries d JOIN frontier_trade_contracts c ON c.id=d.contract_id JOIN frontier_trade_requests r ON r.id=c.request_id WHERE c.seller_id=? OR r.buyer_id=? ORDER BY d.retry_at DESC LIMIT 60]],{company,company}),
  sales=Q([[SELECT s.id,s.quantity,s.state,s.claimed_at,o.item_id,s.buyer_id,o.seller_id FROM frontier_trade_sales s JOIN frontier_trade_offers o ON o.id=s.offer_id WHERE s.buyer_id=? OR o.seller_id=? ORDER BY s.retry_at DESC LIMIT 60]],{company,company})}
 end)
@@ -139,3 +140,42 @@ end)
 RegisterCommand('handelspferde',function(src)
  if src>0 and GetResourceState('frontier_farming')=='started' then exports.frontier_farming:OpenHorseMarket(src) end
 end,false)
+
+-- Logistics uses the existing trade contract and the existing delivery procedure.
+-- Only company-to-company purchase contracts use this first physical route.
+local function wagonOffers(src,company,ref)
+ local who=core:GetPlayerCharacterId(src)
+ if not who or not exports.frontier_business:HasCompanyPermission(company,who,'trade') or not active(company) then return {} end
+ local sql=[[SELECT c.id,c.seller_id,r.buyer_id,r.item_id,r.quantity-r.settled_quantity AS remaining,c.unit_minor AS price,
+  x.fixture_id AS destination_id,b.name AS buyer_name
+  FROM frontier_trade_contracts c JOIN frontier_trade_requests r ON r.id=c.request_id
+  JOIN fb_companies b ON b.id=r.buyer_id AND b.status='active'
+  JOIN fb_trade_routes x ON x.reference_id=r.id AND x.company_id=r.buyer_id
+  WHERE c.seller_id=? AND c.state='active' AND c.active_delivery IS NULL AND r.state='open'
+  AND r.active_contract=c.id AND c.due_at>UTC_TIMESTAMP() AND r.expires_at>UTC_TIMESTAMP()
+  AND r.quantity>r.settled_quantity]]
+ local args={company}
+ if ref then sql=sql..' AND c.id=?';args[2]=ref end
+ return Q(sql..' ORDER BY c.due_at LIMIT 60',args)
+end
+exports('WagonContracts',function(src,company)
+ if GetInvokingResource()~='frontier_logistics' or type(company)~='string' then return {} end
+ return wagonOffers(src,company)
+end)
+exports('WagonDispatch',function(src,company,ref,quantity,wagon,destination)
+ if GetInvokingResource()~='frontier_logistics' or not id(ref) or not integer(quantity,1,1000)
+  or type(wagon)~='string' or #wagon~=32 or not wagon:match('^[a-f0-9]+$') then return false,'Invalid dispatch' end
+ local row=wagonOffers(src,company,ref)[1]
+ if not row or row.destination_id~=destination or quantity>tonumber(row.remaining) or not farmSaleAllowed(company,row.item_id) then return false,'Contract unavailable or agriculture license required' end
+ if not S("SELECT id FROM fl_wagons WHERE id=? AND owner_type='company' AND owner_id=? AND state='world'",{wagon,company}) then return false,'Company wagon required' end
+ local delivery=fresh()
+ -- Persist the source BEFORE the original SQL procedure exposes a delivery to the worker.
+ -- If an SQL response is ambiguous, keep the source mapping; never dispatch a second ID automatically.
+ U('INSERT INTO ft_wagon_deliveries(delivery_id,wagon_id,seller_id,destination_id) VALUES(?,?,?,?)',{delivery,wagon,company,destination})
+ local ok=contract('deliver',delivery,ref,company,quantity)
+ if not ok then
+  U('DELETE FROM ft_wagon_deliveries WHERE delivery_id=? AND NOT EXISTS (SELECT 1 FROM frontier_trade_deliveries WHERE id=?)',{delivery,delivery})
+  return false,'Contract unavailable; refresh before retrying'
+ end
+ return true,delivery
+end)
