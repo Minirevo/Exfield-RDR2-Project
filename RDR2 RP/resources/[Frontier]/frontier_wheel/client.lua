@@ -106,6 +106,7 @@ AddEventHandler('frontier_wheel:gunLabChanged',function(on)
 end)
 RegisterCommand('frontierwheeltest',function()
  enabled=not enabled;close(false);waitRelease=false;rawHeld=false
+ if not enabled and lab.active() then lab.stop('wheel test disabled') end
  notice(enabled and ('Test ON: hold TAB. NUI ready='..tostring(ready)..', raw TAB='..tostring(rawAvailable))
   or 'Test OFF: native wheel restored.')
 end,false)

@@ -46,6 +46,7 @@ local function stop(reason)
  TriggerEvent('frontier_wheel:gunLabChanged',false)
  notice('Test ended: '..(reason or 'disabled'))
 end
+L.stop=stop
 local function start()
  if active then return end
  if not LocalPlayer.state.IsInSession then notice('Select a character first.');return end
