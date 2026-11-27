@@ -38,6 +38,7 @@ local function recipe(id,station,skill,name,inputs,output,count,manual,npc,quali
 end
 recipe('saw','sawmill','carpentry','Saw planks',{wood=2},'wooden_planks',3,8,90)
 recipe('handle','carpentry','carpentry','Shape tool handles',{wooden_planks=1},'prod_handle',2,6,60)
+recipe('medical_splint','carpentry','carpentry','Shape first-aid splints',{wooden_planks=1},'splint',2,6,60)
 recipe('smelt','smeltery','metallurgy','Smelt iron',{iron_ore=2,coal=1},'iron_ingot',1,10,120)
 recipe('copper','smeltery','metallurgy','Smelt copper',{gather_copper_ore=2,coal=1},'prod_copper',1,10,120)
 recipe('refine_gold_dust','smeltery','metallurgy','Refine gold dust',{gather_gold_dust=6,coal=1},'prod_gold',1,10,120)
@@ -96,7 +97,7 @@ for _,p in ipairs(components) do
  C.recipes[p[1]].componentRounds=p[7]
 end
 -- Complexity determines the number of timed actions per batch, not the number of output units.
-local tiers={saw=1,handle=1,nails=1,smelt=2,copper=2,refine_gold_dust=2,refine_gold_flakes=2,refine_gold_nugget=2,refine_gold_ore=2,steel=2,horseshoe=2,tan_pelt=2,tan_hide=2,tan_farm_hide=2,leather_strap=1,leather_pouch=3,carpentry_chest=3,table=3,chair=2,cook=1,cook_farm=1,meal=2,preserve_fish=1,bake=2,mill=1,brick=2,shape=1,pottery=3,glass=2,bottle=2,extract=1,tonic=3,ring=4}
+local tiers={saw=1,handle=1,medical_splint=1,nails=1,smelt=2,copper=2,refine_gold_dust=2,refine_gold_flakes=2,refine_gold_nugget=2,refine_gold_ore=2,steel=2,horseshoe=2,tan_pelt=2,tan_hide=2,tan_farm_hide=2,leather_strap=1,leather_pouch=3,carpentry_chest=3,table=3,chair=2,cook=1,cook_farm=1,meal=2,preserve_fish=1,bake=2,mill=1,brick=2,shape=1,pottery=3,glass=2,bottle=2,extract=1,tonic=3,ring=4}
 local toolTiers={crude=2,iron=3,steel=4,hardened=5}
 for id,r in pairs(C.recipes) do
  r.rounds=assert(r.material and toolTiers[r.material] or r.componentRounds or tiers[id],'Missing production tier: '..id)
