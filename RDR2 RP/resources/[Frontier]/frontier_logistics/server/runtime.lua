@@ -88,9 +88,21 @@ end
 function L.wagonBusy(id)
  return L.V("SELECT id FROM fl_jobs WHERE wagon_id=? AND state IN ('loading','commit','wreck','purchase','assemble','repair') LIMIT 1",{id})~=nil
 end
+
 function L.dealer(src)
- for _,p in ipairs(L.C.Depots) do if L.near(src,p,L.C.DepotDistance) then return p end end
+    for _,p in ipairs(L.C.Depots) do
+        if L.near(src,p,L.C.DepotDistance) then
+            return p
+        end
+
+        if p.spawn and L.near(
+            src,p.spawn,L.C.DepotDistance
+        ) then
+            return p
+        end
+    end
 end
+
 function L.horses(src)
  local p=L.Core:GetPlayer(src);if not p or not p.providerCharacterId then return {} end
  return L.Q("SELECT s.id,s.name,s.modelname,s.injured,h.wagon_id,h.slot_no FROM stables s LEFT JOIN fl_harnesses h ON s.id=h.horse_id WHERE s.charidentifier=? AND s.type='horse' AND (s.status IS NULL OR s.status='' OR s.status='{}')",{p.providerCharacterId})
