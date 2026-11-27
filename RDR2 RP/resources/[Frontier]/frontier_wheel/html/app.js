@@ -1,7 +1,8 @@
 'use strict';
 const root=document.querySelector('#wheel'), ring=document.querySelector('#ring');
 const nameEl=document.querySelector('#name'), detail=document.querySelector('#detail');
-let slots=[], selected=0, loaded=false;
+let slots=[], selected=0, loaded=false, page='tools', lab=false;
+const title=document.querySelector('.center small'), hint=document.querySelector('main p');
 const ns='http://www.w3.org/2000/svg';
 function add(tag,attrs,text){const n=document.createElementNS(ns,tag);for(const [k,v] of Object.entries(attrs))n.setAttribute(k,v);if(text!==undefined)n.textContent=text;ring.append(n);return n;}
 function point(r,a){return [250+Math.sin(a)*r,250-Math.cos(a)*r].join(' ');}
@@ -16,17 +17,19 @@ function render(){
   const label=i===6?'Put away':i===7?'Cancel':s?.name||'Empty';
   const display=label.length>21?label.slice(0,19)+'…':label;
   add('text',{x:px,y:py+12,class:'label'},display);
-  if(s?.equipped)add('text',{x:px,y:py+29,class:'label'},'Equipped');
+  if(s?.kind==='weapon')add('text',{x:px,y:py+29,class:'label'},'Clip '+s.loaded+' · Belt '+s.quick);
+  else if(s?.equipped)add('text',{x:px,y:py+29,class:'label'},'Equipped');
  }
  add('circle',{cx:250,cy:250,r:107,fill:'#171613ed',stroke:'#7d6d59','stroke-width':1});
  const s=slots[selected-1];
- nameEl.textContent=!loaded?'Loading…':selected===7?'Put tool away':selected===8?'Cancel':selected===0?'Keep current':s?.name||'Empty';
+ nameEl.textContent=!loaded?'Loading…':selected===7?'Put away':selected===8?'Cancel':selected===0?'Keep current':s?.name||'Empty';
  const condition=s&&Number.isFinite(s.uses)&&s.maxUses>0?Math.round(s.uses/s.maxUses*100):null;
- detail.textContent=!loaded?'Reading toolbelt':selected>=1&&selected<=6&&s?.kind?('Quality '+(s.quality??'—')+'% · Condition '+(condition??'—')+'%'):'Release TAB';
+ detail.textContent=!loaded?'Loading…':s?.kind==='weapon'?('Clip '+s.loaded+' · Quick '+s.quick+' · Satchel '+s.bag+' · '+s.serial):selected>=1&&selected<=6&&s?.kind?('Quality '+(s.quality??'—')+'% · Condition '+(condition??'—')+'%'):'Release TAB';
 }
 window.addEventListener('message',({data:d})=>{
  if(!d||typeof d.type!=='string')return;
  if(d.type==='open'){slots=[];selected=0;loaded=false;root.hidden=false;render();}
+ if(d.type==='page'&&!root.hidden){page=d.page;lab=d.lab;slots=[];loaded=false;title.textContent='FRONTIER / '+page.toUpperCase();hint.textContent=lab?'Q SWITCH PAGE · MOVE MOUSE · RELEASE TAB TO SELECT':'MOVE MOUSE · RELEASE TAB TO SELECT · CENTER TO CANCEL';render();}
  if(d.type==='slots'&&!root.hidden){slots=Array.isArray(d.slots)?d.slots:[];loaded=true;render();}
  if(d.type==='select'&&!root.hidden){selected=Number(d.slot)||0;render();}
  if(d.type==='close')root.hidden=true;

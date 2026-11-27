@@ -1,4 +1,7 @@
 local E='frontier_inventory:'
+local lab=FrontierGunLab
+local page='tools'
+local toolSlots=nil
 local W,H=0xAC4BD4F1,0xB238FE0B -- hold wheel, tap holster
 local X,Y=0xA987235F,0xD2047988
 local blocked={X,Y,0x07CE1E61,0xF84FA74F,0xD0842EDF,0xF78D7337,0x9CC7A1A4}
@@ -29,22 +32,38 @@ local function blocker()
 end
 local function close(commit)
  if not opened then return end
- opened=false;manual=false
+ opened=false;manual=false;lab.wheelOpen=false
  SendNUIMessage({type='close'})
- if commit and token then
-  if selected==7 then TriggerServerEvent(E..'wheelSelect',token,0)
-  elseif selected>=1 and selected<=6 and slots and slots[selected] and slots[selected].kind then
-   TriggerServerEvent(E..'wheelSelect',token,selected)
+ if commit then
+  if page=='weapons' and lab.active() then
+   if selected==7 then lab.holster()
+   elseif selected==1 or selected==2 then lab.select(selected) end
+  elseif token then
+   if selected==7 then TriggerServerEvent(E..'wheelSelect',token,0)
+   elseif selected>=1 and selected<=6 and toolSlots and toolSlots[selected] and toolSlots[selected].kind then
+    lab.holster();TriggerServerEvent(E..'wheelSelect',token,selected)
+   end
   end
  end
- token,slots,selected=nil,nil,0
+ token,slots,selected=nil,nil,0;toolSlots=nil
+end
+local function renderPage()
+ SendNUIMessage({type='page',page=page,lab=lab.active()})
+ if page=='weapons' and lab.active() then SendNUIMessage({type='slots',slots=lab.snapshot()})
+ elseif toolSlots then SendNUIMessage({type='slots',slots=toolSlots}) end
+end
+local function switchPage()
+ if not opened or not lab.active() then return end
+ page=page=='tools' and 'weapons' or 'tools'
+ selected=0;x,y=0,0;renderPage();SendNUIMessage({type='select',slot=0})
 end
 local function open()
  if opened then return end
  sequence=sequence%2147483646+1
  started=GetGameTimer()
- opened=true;token,slots,selected=nil,nil,0;x,y=0,0
- SendNUIMessage({type='open'})
+ opened=true;lab.wheelOpen=true;token,slots,selected=nil,nil,0;toolSlots=nil;x,y=0,0
+ if not lab.active() then page='tools' end
+ SendNUIMessage({type='open'});renderPage()
  TriggerServerEvent(E..'wheelOpen',sequence)
  trace('opened sequence '..sequence)
 end
@@ -53,13 +72,13 @@ RegisterNUICallback('ready',function(_,cb)
 end)
 RegisterNetEvent(E..'wheelSnapshot',function(seq,t,data)
  if source~=65535 or not opened or seq~=sequence or type(t)~='string' or type(data)~='table' then return end
- token,slots=t,data
- SendNUIMessage({type='slots',slots=data})
+ token,toolSlots=t,data
+ if page=='tools' then SendNUIMessage({type='slots',slots=data}) end
  trace('toolbelt snapshot received')
 end)
 RegisterNetEvent(E..'wheelError',function(seq,msg)
  if source~=65535 or not opened or seq~=sequence then return end
- close(false);waitRelease=true;notice(msg)
+ if page=='tools' then close(false);waitRelease=true end;notice(msg)
 end)
 local function down()
  if rawHeld then return end
@@ -80,6 +99,11 @@ if type(RegisterRawKeymap)=='function' then
  rawAvailable=pcall(RegisterRawKeymap,'frontier_wheel_tab',down,up,0x09,true)
 end
 trace('raw TAB registered: '..tostring(rawAvailable))
+if type(RegisterRawKeymap)=='function' then pcall(RegisterRawKeymap,'frontier_wheel_page',switchPage,nil,0x51,true) end
+RegisterCommand('frontierwheelpage',switchPage,false)
+AddEventHandler('frontier_wheel:gunLabChanged',function(on)
+ close(false);page=on and 'weapons' or 'tools';if on then enabled=true end
+end)
 RegisterCommand('frontierwheeltest',function()
  enabled=not enabled;close(false);waitRelease=false;rawHeld=false
  notice(enabled and ('Test ON: hold TAB. NUI ready='..tostring(ready)..', raw TAB='..tostring(rawAvailable))
@@ -117,6 +141,7 @@ CreateThread(function()
    elseif not opened and held then open() end
    if opened then
     for _,control in ipairs(blocked) do DisableControlAction(0,control,true) end
+    if lab.active() then DisableControlAction(0,joaat('INPUT_TAKE_COVER'),true) end
     if type(DisablePlayerFiring)=='function' then DisablePlayerFiring(PlayerId(),true) end
     if GetGameTimer()-started>14000 then close(false);waitRelease=true
     elseif not manual and not held then close(true)

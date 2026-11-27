@@ -4,7 +4,8 @@ rdr3_warning 'I acknowledge that this is a prerelease build of RedM, and I am aw
 lua54 'yes'
 description 'Opt-in Frontier radial equipment input prototype'
 version '0.1.0'
-dependency 'frontier_inventory'
-client_scripts {'rules.lua','client.lua'}
+dependencies {'frontier_inventory','frontier_core'}
+client_scripts {'rules.lua','gunlab.lua','client.lua'}
+server_script 'server.lua'
 ui_page 'html/index.html'
 files {'html/index.html','html/style.css','html/app.js'}

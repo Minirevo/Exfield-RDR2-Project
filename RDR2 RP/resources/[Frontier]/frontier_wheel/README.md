@@ -5,3 +5,12 @@ Test: lua5.4 tests/rules.lua from this resource; node --check html/app.js. Live:
 
 ## TAB input hotfix
 Raw TAB (VK 0x09) callbacks plus native pressed-state fallback, both wheel and holster actions suppressed while eligible. F8 logs ready, TAB down/up and snapshot. /frontierwheeldebug prints status; /frontierwheelopen bypasses TAB for an overlay/snapshot diagnostic (auto-cancels after 14 seconds; opening chat cancels the view). No migration, restart frontier_wheel only. Keyboard native input still needs live testing.
+
+## Temporary firearms lab
+Test server only. Deploy updated frontier_wheel and bundled vorp_inventory together and perform a full restart. Add:
+
+```cfg
+add_ace group.admin frontier.wheel.gunlab allow
+```
+
+Use an empty disposable test character: no Cattleman/Lancaster or regular revolver/repeater ammo, no other equipped firearms. Avoid VORP inventory interactions during the lab. /frontierguntest activates the temporary lab and custom wheel (again removes lab weapons and ammo). Hold TAB, Q switches Weapons/Tools, move mouse and release. R reloads; use native aim/fire. Two fixed test quick slots start with 24 revolver and 30 repeater rounds, satchel reserve twice each. /frontiergunbelt 1 empty (or 2 empty) moves the quick slot to satchel, /frontiergunbelt 1 fill moves compatible rounds back. /frontiergunammo reports native clip/total and virtual reserves. Quick reload requests native animation immediately; satchel adds 2000ms before the same animation. Only actually accepted native ammo is deducted from test pools. Interrupted native reloads can leave prepaid native reserve; it is reused first. This is not a secure or persistent inventory integration. No SQL changes, serials are temporary labels, no dual wielding, no ownership transfer, no production, no support for mounted combat. Lab stops on death/character/mount/vehicle change. VORP's automatic ammo/reload polling is skipped only during active lab mode; other VORP operations remain active. Test native grants, cleanup, switching, reload cancellation and accounting before designing persistent ownership. Never enable for production players.
