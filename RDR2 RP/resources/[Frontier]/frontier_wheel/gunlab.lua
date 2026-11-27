@@ -49,6 +49,7 @@ end
 L.stop=stop
 local function start()
  if active then return end
+ if FrontierWeapons and FrontierWeapons.active() then notice('Holster your persistent weapon first.');return end
  if not LocalPlayer.state.IsInSession then notice('Select a character first.');return end
  local p=PlayerPedId()
  if p==0 or truth(IsEntityDead(p)) or truth(IsPedOnMount(p)) or truth(IsPedInAnyVehicle(p,false)) then notice('Start on foot.');return end

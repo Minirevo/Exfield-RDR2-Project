@@ -33,6 +33,7 @@ exports = setmetatable({ frontier_core = {
 dofile('../frontier_lib/shared/utils.lua')
 dofile('../frontier_lib/server/logger.lua')
 dofile('config.lua')
+dofile('weapons.lua')
 for _, name in ipairs({ 'database', 'items', 'slots', 'service', 'interface' }) do
     dofile('server/' .. name .. '.lua')
 end

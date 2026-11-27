@@ -1,6 +1,6 @@
 local function frontierGunLabActive()
     if GetResourceState('frontier_wheel') ~= 'started' then return false end
-    local ok, active = pcall(function() return exports.frontier_wheel:IsGunLabActive() end)
+    local ok, active = pcall(function() return exports.frontier_wheel:IsGunLabActive() or exports.frontier_wheel:IsPersistentWeaponActive() end)
     return ok and active == true
 end
 

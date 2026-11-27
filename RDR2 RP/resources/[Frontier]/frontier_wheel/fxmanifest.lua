@@ -5,7 +5,7 @@ lua54 'yes'
 description 'Opt-in Frontier radial equipment input prototype'
 version '0.1.0'
 dependencies {'frontier_inventory','frontier_core','oxmysql'}
-client_scripts {'rules.lua','layout.lua','gunlab.lua','client.lua'}
+client_scripts {'@frontier_inventory/weapons.lua','rules.lua','layout.lua','gunlab.lua','weapons_client.lua','client.lua'}
 server_scripts {'@oxmysql/lib/MySQL.lua','server.lua','documents.lua'}
 ui_page 'html/index.html'
 files {'html/index.html','html/style.css','html/app.js'}

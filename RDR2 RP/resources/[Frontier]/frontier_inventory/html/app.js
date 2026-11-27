@@ -214,7 +214,7 @@ function renderSelection(){
         const personal = selection.side === 'player';
         el('item').textContent = item.name;
         el('description').textContent = item.description;
-        const m=meta(item);el('details').textContent=[weight(item.grams*item.quantity),item.category,m.material,m.species,m.quality!=null?'Quality '+m.quality+'/100':null,m.condition!=null?'Condition '+m.condition+'%':null,m.uses!=null?'Durability '+m.uses+'/'+m.maxUses:null,m.manufacturer?'Made by '+m.manufacturer:null,['longgun','sidearm'].includes(item.classification)&&item.instance?'Serial '+item.instance:null].filter(Boolean).join(' · ');
+        const m=meta(item);el('details').textContent=[weight(item.grams*item.quantity),item.category,m.material,m.species,m.quality!=null?'Quality '+m.quality+'/100':null,m.condition!=null?'Condition '+m.condition+'%':null,m.uses!=null?'Durability '+m.uses+'/'+m.maxUses:null,m.manufacturer?'Made by '+m.manufacturer:null,['longgun','sidearm'].includes(item.classification)&&item.instance?'Serial '+item.instance:null,['longgun','sidearm'].includes(item.classification)?'Stored rounds '+(m.loaded||0):null].filter(Boolean).join(' · ');
         el('quantity').value=Math.min(Number(el('quantity').value)||1,item.quantity);
         el('quantity').max = item.quantity;
         el('recipient-field').hidden = !personal;

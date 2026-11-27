@@ -2,6 +2,7 @@ local core = exports.frontier_core
 local Config = InventoryConfig
 Inventory.restricted = {}
 Inventory.generations = {}
+Inventory.WeaponSessions = {}
 
 function Inventory.Generation(source)
     if not Inventory.generations[source] then Inventory.generations[source] = {} end
@@ -91,7 +92,7 @@ function Inventory.EquipmentEligible(item,slot,quantity)
     if not d then return false end
     if slot==1 then return d.classification=='longgun' and quantity==1 end
     if slot==2 then return d.classification=='sidearm' and quantity==1 end
-    return (slot==3 or slot==4) and d.classification=='ammo' and quantity<=30
+    return (slot==3 or slot==4) and d.classification=='ammo' and quantity<=(Config.QuickAmmoCapacity or 30)
 end
 function Inventory.BeltEligible(item)
     local def=Inventory.items[item]
@@ -254,6 +255,8 @@ function Inventory.Act(ctx, action, data)
         local to=action=='equipmentRetrieve' and player or equipment
         local stack=from.slots[data.slot]
         if not stack then return false,'not_found' end
+        local weapon=Inventory.WeaponSessions[ctx.source]
+        if weapon and weapon.id==id and stack.instance==weapon.instance then return false,'weapon_drawn' end
         if from==to and data.slot==data.target then return false,'invalid_slot' end
         if to==equipment then
             local existing=to.slots[data.target]
