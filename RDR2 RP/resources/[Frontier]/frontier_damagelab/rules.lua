@@ -5,6 +5,14 @@ L.modes={observe={},refill={refill=true},buffer={refill=true,buffer=true},guarde
 L.flags={263,340,388}
 L.bufferMax=5000
 L.durationMs=180000
+-- Always return explicit values, even if a native is unavailable or throws.
+-- tostring(readNative(...)) must never become tostring() with zero arguments.
+function L.readNative(fn,...)
+ if type(fn)~='function' then return nil,nil end
+ local ok,a,b=pcall(fn,...)
+ if ok then return a,b end
+ return nil,nil
+end
 function L.validMode(mode) return type(mode)=='string' and L.modes[mode]~=nil end
 function L.target(original,mode)
  if not L.validMode(mode) or type(original)~='number' or original<1 then return nil end

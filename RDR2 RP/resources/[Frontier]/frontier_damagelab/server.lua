@@ -42,12 +42,21 @@ RegisterCommand('damagelab',function(src,args)
  TriggerClientEvent(E..'start',src,id,mode,L.durationMs)
  notice(src,'Trial granted: '..mode..' (180s). F8 console for full diagnostics.')
 end,false)
-RegisterNetEvent(E..'result',function(id,summary)
+RegisterNetEvent(E..'started',function(id,h,m)
+ local src=source;local s=sessions[src]
+ if not s or s.id~=id or s.started or type(h)~='number' or type(m)~='number' or not (h>0 and m>0 and h<=1000000 and m<=1000000) then return end
+ s.started=true
+ notice(src,('Client START trial=%s mode=%s health=%s/%s'):format(id,s.mode,tostring(h),tostring(m)))
+end)
+RegisterNetEvent(E..'result',function(id,summary,reason,lastError)
  local src=source;local s=sessions[src]
  if not s or s.id~=id then s=ending[src] end
  if not s or s.id~=id or type(summary)~='string' or #summary>400 or summary:find('[%c]') then return end
  if sessions[src]==s then sessions[src]=nil else ending[src]=nil end
- notice(src,'Client trial result ['..s.mode..'] '..summary)
+ local function clean(v)
+  return type(v)=='string' and v:gsub('[%c]',' '):sub(1,200) or 'not reported'
+ end
+ notice(src,('Client trial result [%s] trial=%s reason=%s lastError=%s %s'):format(s.mode,s.id,clean(reason),clean(lastError),summary))
 end)
 -- Observe but NEVER cancel damage. Network damage events may omit NPC/environmental hits.
 AddEventHandler('weaponDamageEvent',function(sender,data)
@@ -73,7 +82,9 @@ CreateThread(function()
   local ok=isolated()
   for src,s in pairs(ending) do if GetGameTimer()>=s.expires then ending[src]=nil end end
   for src,s in pairs(sessions) do
-   if not authorized(src) or not ok or GetGameTimer()>=s.expires then stop(src,'expired, disabled or conflicting resource started') end
+   if not authorized(src) then stop(src,'disabled or permission revoked')
+   elseif not ok then stop(src,'conflicting resource started')
+   elseif GetGameTimer()>=s.expires then stop(src,'expired') end
   end
  end
 end)

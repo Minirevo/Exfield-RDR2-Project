@@ -11,8 +11,7 @@ local function call(name,...)
  return pcall(fn,...)
 end
 local function get(name,...)
- local ok,a,b=call(name,...)
- if ok then return a,b end
+ return L.readNative(_G[name],...)
 end
 local function health(p) return get('GetEntityHealth',p) end
 local function maximum(p)
@@ -59,11 +58,12 @@ local function finish(reason)
  end
  local summary=L.summary(t.stats)
  log(('END trial=%s mode=%s mark=%s reason=%s %s'):format(t.id,t.mode,t.mark,reason,summary))
- TriggerServerEvent(E..'result',t.id,summary)
+ TriggerServerEvent(E..'result',t.id,summary,reason,t.lastError)
 end
 local function errors(t,msg)
  t.stats.errors=t.stats.errors+1
- if t.stats.errors<=5 then log('ERROR: '..msg) end
+ t.lastError=tostring(msg):gsub('[%c]',' '):sub(1,200)
+ if t.stats.errors<=5 then log(('ERROR: trial=%s mode=%s %s'):format(t.id,t.mode,t.lastError)) end
 end
 local function bone(p)
  local ok,b=get('GetPedLastDamageBone',p)
@@ -85,7 +85,7 @@ RegisterNetEvent(E..'start',function(id,mode,duration)
  local p=PlayerPedId();local h,m=health(p),maximum(p)
  if not localIsolation() or not LocalPlayer.state.IsInSession or p==0 or dead(p) or type(h)~='number' or type(m)~='number' or h<=0 or m<=0 then
   log('Trial refused: need isolated loaded living character')
-  TriggerServerEvent(E..'result',id,'start refused');return
+  TriggerServerEvent(E..'result',id,'start refused','isolated loaded living character required');return
  end
  local t={id=id,mode=mode,ped=p,expires=GetGameTimer()+duration,mark='unlabelled',originalHealth=h,originalMax=m,flags={},stats=L.newStats(),target=L.target(m,mode)}
  trial=t
@@ -95,7 +95,9 @@ RegisterNetEvent(E..'start',function(id,mode,duration)
    local prior=get('GetPedConfigFlag',p,flag,true)
    if prior==nil then errors(t,'GetPedConfigFlag '..flag);return finish('flag unavailable') end
    t.flags[flag]=truth(prior)
-   if not call('SetPedConfigFlag',p,flag,true) or not truth(get('GetPedConfigFlag',p,flag,true)) then errors(t,'flag '..flag);return finish('flag failed') end
+   local set,why=call('SetPedConfigFlag',p,flag,true)
+   local actual=get('GetPedConfigFlag',p,flag,true)
+   if not set or not truth(actual) then errors(t,('flag %d set=%s result=%s actual=%s'):format(flag,tostring(set),tostring(why),tostring(actual)));return finish('flag failed') end
   end
  end
  if cfg.invincible then
@@ -107,13 +109,18 @@ RegisterNetEvent(E..'start',function(id,mode,duration)
  if cfg.refill then
   if cfg.buffer and t.target~=m then
    t.changedMax=true
-   if not setMax(p,t.target) then errors(t,'native max health buffer rejected');return finish('max health failed') end
+   if not setMax(p,t.target) then errors(t,('native max health buffer rejected: wanted=%s actual=%s'):format(tostring(t.target),tostring(maximum(p))));return finish('max health failed') end
   end
   t.modifiedHealth=true
   if not setHealth(p,t.target) then errors(t,'initial fill failed');return finish('fill failed') end
  end
  t.lastHealth=health(p)
+ if type(t.lastHealth)~='number' or (cfg.refill and t.lastHealth<t.target) then
+  errors(t,('initial health not verified: wanted=%s actual=%s'):format(tostring(t.target),tostring(t.lastHealth)))
+  return finish('initial fill not verified')
+ end
  log(('START trial=%s mode=%s original=%s/%s actual=%s/%s invincible=%s'):format(id,mode,tostring(h),tostring(m),tostring(t.lastHealth),tostring(maximum(p)),tostring(get('GetPlayerInvincible',PlayerId()))))
+ TriggerServerEvent(E..'started',id,t.lastHealth,maximum(p))
  log('Use /damagelabmark npc-punch (or any test label), /damagelabstatus and /damagelab off.')
 end)
 RegisterNetEvent(E..'stop',function(id,reason)

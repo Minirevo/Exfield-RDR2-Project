@@ -9,4 +9,10 @@ local s=L.newStats()
 assert(s.rawLoss==0 and not s.dead)
 s.lossSamples=1;s.rawLoss=20
 assert(L.summary(s):find('rawLoss=20',1,true))
-print('Damage lab rules passed')
+-- A missing/erroring native used as the only argument to tostring must be safe.
+assert(tostring(L.readNative(nil))=='nil')
+assert(tostring(L.readNative(function() error('native failure') end))=='nil')
+assert(tostring(L.readNative(function() end))=='nil')
+local a,b=L.readNative(function(n) return false,n end,42)
+assert(a==false and b==42)
+print('Damage lab rules and missing-native regression passed')
