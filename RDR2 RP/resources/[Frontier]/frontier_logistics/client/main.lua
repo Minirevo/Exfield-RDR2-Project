@@ -55,15 +55,75 @@ RegisterNetEvent(E..'spawn',function(d)
  local s={horses={},accepted=false};spawned[d.token]=s
  CreateThread(function()
   local ok,err=pcall(function()
-   local hash=model(d.model);assert(hash,'Wagon model unavailable')
-   print('[frontier_logistics/spawn] Creating local '..d.model..' at saved position')
-   RequestCollisionAtCoord(d.x,d.y,d.z)
-   -- Use the exact local spawn flags verified in the model lab.
-   -- Draft-harness native rejects peds that are already networked.
-   local v=CreateVehicle(hash,d.x,d.y,d.z,d.heading,false,false,true,false)
+   
+local hash=model(d.model)
+assert(hash,'Wagon model unavailable')
+
+
+local networkWagon=d.networkWagon==true
+
+d.x = tonumber(d.x) + 0.0
+d.y = tonumber(d.y) + 0.0
+d.z = tonumber(d.z) + 0.0
+d.heading = tonumber(d.heading) + 0.0
+
+print(('[frontier_logistics/spawn] Coordinate types: %s %s %s %s'):format(
+    math.type(d.x),
+    math.type(d.y),
+    math.type(d.z),
+    math.type(d.heading)
+))
+
+
+local function xyz(p)
+    return ('%.2f %.2f %.2f'):format(p.x,p.y,p.z)
+end
+
+local function coords(entity)
+    return GetEntityCoords(entity,false,true)
+end
+
+local function distance(p,q)
+    return math.sqrt(
+        (p.x-q.x)^2+
+        (p.y-q.y)^2+
+        (p.z-q.z)^2
+    )
+end
+
+print(('[frontier_logistics/spawn] Creating %s %s at saved position %s'):format(
+    networkWagon and 'network-first wagon' or 'local-first wagon',
+    d.model,
+    xyz(d)
+))
+
+RequestCollisionAtCoord(d.x,d.y,d.z)
+
+local v=CreateVehicle(
+    hash,d.x,d.y,d.z,d.heading,
+    networkWagon,networkWagon,true,false
+)
    SetModelAsNoLongerNeeded(hash);assert(v and v~=0 and DoesEntityExist(v),'Vehicle spawn failed');s.vehicle=v
-   SetEntityAsMissionEntity(v,true,true);FreezeEntityPosition(v,true)
-   Wait(300)
+   
+SetEntityAsMissionEntity(v,true,true)
+FreezeEntityPosition(v,true)
+
+SetEntityCoordsNoOffset(
+    v,d.x,d.y,d.z,
+    false,false,false
+)
+
+SetEntityHeading(v,d.heading)
+
+Wait(500)
+
+print('[frontier_logistics/spawn] Initial wagon position: '..xyz(coords(v)))
+
+assert(
+    distance(coords(v),d)<=15,
+    'Initial wagon position incorrect'
+)
+
    local function getHarness(slot)
     return Citizen.InvokeNative(0xA8BA0BAE0173457B,v,slot,Citizen.ResultAsInteger())
    end
@@ -118,6 +178,55 @@ RegisterNetEvent(E..'spawn',function(d)
     assert(getHarness(slots[i])==ped,('Harness slot %d detached during network registration'):format(slots[i]))
    end
    print('[frontier_logistics/spawn] Both assigned horses retained after networking')
+   
+
+print('[frontier_logistics/spawn] Client wagon before position sync: '..xyz(coords(v)))
+
+local controlDeadline=GetGameTimer()+3000
+
+while not NetworkHasControlOfEntity(v)
+    and GetGameTimer()<controlDeadline do
+
+    NetworkRequestControlOfEntity(v)
+    Wait(100)
+end
+
+assert(
+    NetworkHasControlOfEntity(v),
+    'Unable to obtain wagon network control'
+)
+
+FreezeEntityPosition(v,false)
+
+SetEntityCoordsNoOffset(
+    v,d.x,d.y,d.z,
+    false,false,false
+)
+
+SetEntityHeading(v,d.heading)
+
+Wait(1000)
+
+print('[frontier_logistics/spawn] Client wagon after position sync: '..xyz(coords(v)))
+
+assert(
+    distance(coords(v),d)<=15,
+    'Wagon position incorrect after synchronization'
+)
+
+for i,ped in ipairs(s.horses) do
+    assert(
+        getHarness(slots[i])==ped,
+        ('Harness slot %d detached after position refresh'):format(slots[i])
+    )
+
+    print(('[frontier_logistics/spawn] Horse slot %d position: %s'):format(
+        slots[i],
+        xyz(coords(ped))
+    ))
+end
+
+
    print('[frontier_logistics/spawn] Wagon net='..net..'; waiting for server registration')
    Wait(500)
    local models={GetEntityModel(v)}
@@ -128,6 +237,13 @@ RegisterNetEvent(E..'spawn',function(d)
    end
    local timeout=GetGameTimer()+35000
    while not s.accepted and GetGameTimer()<timeout do
+   
+	local driver=GetPedInVehicleSeat(v,-1)
+
+	if driver and driver~=0 and driver==PlayerPedId() then
+		TaskLeaveVehicle(driver,v,0)
+	end
+
     TriggerServerEvent(E..'spawnAck',d.id,d.token,net,nets,models)
     Wait(800)
    end
