@@ -31,3 +31,26 @@ Auf dem RedM-Testserver zwei Charaktere benutzen. Brotauftrag starten und Zutate
 ## Änderungsumfang
 
 Neue Ressource frontier_production mit Migration, Server, Client, NUI und Tests. Inventory erhält zwei isolierte Production-Exports für private Lager und atomare Übergänge sowie eine Standardfreigabe. Economy ergänzt die Freigabe für bestehende Konten und Abbuchungen. Trade ergänzt die Produktliste. Vorhandene Migrationen werden nicht erneut angewendet.
+
+## Physical stations — placement preview only
+The following fifteen station kits are purchasable through the existing property shop and placeable on an authorized settlement using the existing furniture system. Kit weights and prices are provisional; props, collision and vertical offsets require RedM validation. The `GetProductionStations` property export provides nearby authorized stations for a future production integration. These kits do not change the current `/produktion` job engine, permissions, recipe availability or storage behaviour yet. The existing generic workshop smith remains unchanged. No SQL migration is needed for this catalogue.
+
+| Station | Model | Proposed profession |
+|---|---|---|
+| Sawmill | `p_workbenchdesk01x` | carpentry |
+| Carpenter's workbench | `mp005_s_posse_ammotable01x` | carpentry |
+| Smelting furnace | `mp006_p_mp_furnace01x` | metallurgy |
+| Blacksmith's forge | `p_forge01x` | blacksmithing |
+| Anvil | `p_anvil01x` | blacksmithing |
+| Tanning rack | `p_towelrack01x` | leatherworking |
+| Leatherworking table | `mp005_s_posse_ammotable02x` | leatherworking |
+| Cooking stove | `p_ambstove01x` | cooking |
+| Baking oven | `p_breadoven01x` | cooking |
+| Grain mill | `p_cs_grindingwheelx` | milling |
+| Pottery kiln | `p_furnace01x` | ceramics |
+| Pottery wheel | `s_cotton_wheel01` | ceramics |
+| Glass furnace | `p_furnace02x` | glassmaking |
+| Apothecary table | `p_tablework03x` | medicine |
+| Jeweller's workbench | `p_tablework02x` | jewellery |
+
+Agreed next-stage behaviour: no public stations; NPC jobs use linked input/output containers automatically and roll each quality from zero to the owner's skill level at order creation; player jobs can select satchel or linked input/output independently and use a manual animation/QTE. Multiple stations may share storage. Existing jobs and inventories must remain recoverable when the new station engine is introduced.
