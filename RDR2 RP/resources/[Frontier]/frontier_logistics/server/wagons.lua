@@ -53,7 +53,8 @@ function L.spawnLease(w,src)
   if not actual or tostring(actual.modelname):lower()~=tostring(h.model):lower() then spawnStatus(w.id,'Assigned horse ownership/model no longer matches',src);return end
  end
  local ticket=L.uuid()
- local lease={id=w.id,token=ticket,src=src,untilTime=L.now()+C.SpawnLeaseSeconds,model=w.model,x=w.x,y=w.y,z=w.z,heading=w.heading,horses=a}
+ L.spawnModes=L.spawnModes or {}
+ local lease={id=w.id,token=ticket,src=src,untilTime=L.now()+C.SpawnLeaseSeconds,model=w.model,x=w.x,y=w.y,z=w.z,heading=w.heading,horses=a,networkWagon=L.spawnModes[w.id]==true}
  L.leases[w.id]=lease
  spawnStatus(w.id,'Spawning wagon and assigned horses...',src)
  TriggerClientEvent(L.E..'spawn',src,lease)
@@ -90,11 +91,15 @@ local function validateTeamEntity(net,src,lease,expected,clientModel,kind,label,
  if type(GetEntityRoutingBucket)=='function' then
   L.check(GetEntityRoutingBucket(entity)==0,label..' outside world routing bucket')
  end
- local p=GetEntityCoords(entity);local distance=L.dist(p,lease)
- L.check(distance<=radius,label..' distance from lease='..('%.1f'):format(distance))
  local serverModel=GetEntityModel(entity)
  local ok,fallback=L.R.networkModel(serverModel,expected,clientModel,kind==1)
  L.check(ok,label..' server model='..tostring(serverModel)..' expected='..tostring(expected)..' client='..tostring(clientModel))
+ local p=GetEntityCoords(entity);local distance=L.dist(p,lease)
+ if distance>radius then
+  -- Mark a confirmed position-sync failure only after model/owner/type checks.
+  lease.positionFailure=true
+  error(('%s distance from lease=%.1f | server=(%.1f, %.1f, %.1f) expected=(%.1f, %.1f, %.1f)'):format(label,distance,p.x,p.y,p.z,lease.x,lease.y,lease.z),0)
+ end
  return entity,fallback
 end
 local function registerTeam(id,lease)
@@ -121,6 +126,7 @@ local function registerTeam(id,lease)
  Entity(v).state:set('frontierWagonId',id,true)
  L.entities[id]={vehicle=v,horses=horses,net=ack.net,seen=L.now(),lastSave=0,token=lease.token,spawnSource=src,publishPending=true}
  L.leases[id]=nil
+ if L.spawnModes then L.spawnModes[id]=nil end
  TriggerClientEvent(L.E..'spawnAccepted',src,lease.token)
  local suffix=#unverified>0 and (' (RedM horse model unavailable on server, slots '..table.concat(unverified,',')..'; client model verified)') or ''
  spawnStatus(id,'Wagon registered and ready'..suffix,src)
@@ -147,7 +153,16 @@ RegisterNetEvent(L.E..'spawnFailed',function(id,token,why)
  if a and a.src==src and a.token==token then
   a.ack=nil;a.untilTime=L.now()+8
   local previous=(L.spawnStatus or {})[id] or ''
-  spawnStatus(id,'Spawn failed: '..tostring(why):sub(1,140)..' | last server check: '..previous:sub(1,180),src)
+  L.spawnModes=L.spawnModes or {}
+  local alternate=''
+  if a.positionFailure and not a.networkWagon then
+   L.spawnModes[id]=true
+   alternate=' | next attempt: network-first wagon, local horses'
+  elseif a.networkWagon then
+   L.spawnModes[id]=nil
+   alternate=' | next attempt: local-first wagon'
+  end
+  spawnStatus(id,'Spawn failed: '..tostring(why):sub(1,140)..' | last server check: '..previous:sub(1,240)..alternate,src)
  end
 end)
 function L.deploy(src,w)
@@ -219,7 +234,10 @@ function L.worldTick()
    L.leases[w.id]={untilTime=L.now()+10}
   else
    local lease=L.leases[w.id]
-   if lease and lease.untilTime<L.now() then L.leases[w.id]=nil;lease=nil end
+   if lease and lease.untilTime<L.now() then
+    if lease.positionFailure and not lease.networkWagon then L.spawnModes=L.spawnModes or {};L.spawnModes[w.id]=true end
+    L.leases[w.id]=nil;lease=nil
+   end
    if not lease then
     for _,p in pairs(players) do
      if L.near(p.source,w,C.StreamDistance) then L.spawnLease(w,p.source);break end
