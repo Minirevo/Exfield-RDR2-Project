@@ -56,28 +56,68 @@ RegisterNetEvent(E..'spawn',function(d)
  CreateThread(function()
   local ok,err=pcall(function()
    local hash=model(d.model);assert(hash,'Wagon model unavailable')
-   print('[frontier_logistics/spawn] Creating '..d.model..' at saved position')
+   print('[frontier_logistics/spawn] Creating local '..d.model..' at saved position')
    RequestCollisionAtCoord(d.x,d.y,d.z)
-   local v=CreateVehicle(hash,d.x,d.y,d.z,d.heading,true,true,true,false)
-   SetModelAsNoLongerNeeded(hash);assert(v~=0 and DoesEntityExist(v),'Vehicle spawn failed');s.vehicle=v
+   -- Use the exact local spawn flags verified in the model lab.
+   -- Draft-harness native rejects peds that are already networked.
+   local v=CreateVehicle(hash,d.x,d.y,d.z,d.heading,false,false,true,false)
+   SetModelAsNoLongerNeeded(hash);assert(v and v~=0 and DoesEntityExist(v),'Vehicle spawn failed');s.vehicle=v
    SetEntityAsMissionEntity(v,true,true);FreezeEntityPosition(v,true)
-   local nets={}
+   Wait(300)
+   local function getHarness(slot)
+    return Citizen.InvokeNative(0xA8BA0BAE0173457B,v,slot,Citizen.ResultAsInteger())
+   end
+   local slots={}
    for i,h in ipairs(d.horses) do
-    local hh=model(h.model);assert(hh,'Horse model unavailable')
-    local p=GetOffsetFromEntityInWorldCoords(v,i%2==1 and -1.0 or 1.0,3.0+math.floor((i-1)/2)*2,0.0)
-    local ped=CreatePed(hh,p.x,p.y,p.z,d.heading,true,true,false,false)
-    SetModelAsNoLongerNeeded(hh);assert(ped~=0 and DoesEntityExist(ped),'Horse spawn failed')
-    s.horses[#s.horses+1]=ped
+    local slot=tonumber(h.slot_no)
+    assert(slot and slot>=0 and slot<=3 and slot%1==0,'Invalid harness slot')
+    local hh=model(h.model);assert(hh,'Horse model unavailable: '..tostring(h.model))
+    local p=GetOffsetFromEntityInWorldCoords(v,slot%2==0 and -1.0 or 1.0,3.0+math.floor(slot/2)*2,0.0)
+    local ped=CreatePed(hh,p.x,p.y,p.z,d.heading,false,false,false,false)
+    SetModelAsNoLongerNeeded(hh);assert(ped and ped~=0 and DoesEntityExist(ped),'Horse spawn failed')
+    s.horses[#s.horses+1]=ped;slots[i]=slot
     SetEntityAsMissionEntity(ped,true,true)
     pcall(Citizen.InvokeNative,0x283978A15512B2FE,ped,true)
-    local accepted=Citizen.InvokeNative(0x316CDB5B6E8F4110,ped,v,tonumber(h.slot_no),Citizen.ResultAsInteger())
-    assert(accepted==true or accepted==1,'Horse harness rejected')
-    local net=NetworkGetNetworkIdFromEntity(ped);assert(net~=0,'Horse not networked');nets[#nets+1]=net
-    if type(SetNetworkIdCanMigrate)=='function' then pcall(SetNetworkIdCanMigrate,net,true) end
-    print(('[frontier_logistics/spawn] Horse slot %s accepted; net=%s'):format(h.slot_no,net))
+    Wait(250)
+    local accepted
+    for attempt=1,4 do
+     accepted=Citizen.InvokeNative(0x316CDB5B6E8F4110,ped,v,slot,Citizen.ResultAsInteger())
+     if accepted==true or accepted==1 or getHarness(slot)==ped then break end
+     Wait(300)
+    end
+    assert(accepted==true or accepted==1 or getHarness(slot)==ped,('Local horse harness rejected: slot=%s result=%s'):format(slot,tostring(accepted)))
+    Wait(150)
+    assert(getHarness(slot)==ped,('Local harness slot %d does not contain assigned horse'):format(slot))
+    print(('[frontier_logistics/spawn] Local horse slot %d attached'):format(slot))
    end
-   local net=NetworkGetNetworkIdFromEntity(v);assert(net~=0,'Wagon not networked')
-   if type(SetNetworkIdCanMigrate)=='function' then pcall(SetNetworkIdCanMigrate,net,true) end
+   -- Register the wagon and team only AFTER the local harness links exist.
+   -- Do not send local handles to the server or accept a substitute horse.
+   local function register(entity,label)
+    if not NetworkGetEntityIsNetworked(entity) then
+     Citizen.InvokeNative(0x06FAACD625D80CAA,entity)
+    end
+    local deadline=GetGameTimer()+5000
+    repeat
+     if DoesEntityExist(entity) and NetworkGetEntityIsNetworked(entity) then
+      local id=NetworkGetNetworkIdFromEntity(entity)
+      if id and id~=0 then
+       if type(SetNetworkIdCanMigrate)=='function' then pcall(SetNetworkIdCanMigrate,id,true) end
+       print(('[frontier_logistics/spawn] %s network ID=%d'):format(label,id))
+       return id
+      end
+     end
+     Wait(100)
+    until GetGameTimer()>=deadline
+    error(label..' could not become networked',0)
+   end
+   local net=register(v,'Wagon')
+   local nets={}
+   for i,ped in ipairs(s.horses) do nets[i]=register(ped,'Horse slot '..slots[i]) end
+   Wait(500)
+   for i,ped in ipairs(s.horses) do
+    assert(getHarness(slots[i])==ped,('Harness slot %d detached during network registration'):format(slots[i]))
+   end
+   print('[frontier_logistics/spawn] Both assigned horses retained after networking')
    print('[frontier_logistics/spawn] Wagon net='..net..'; waiting for server registration')
    Wait(500)
    local timeout=GetGameTimer()+25000
