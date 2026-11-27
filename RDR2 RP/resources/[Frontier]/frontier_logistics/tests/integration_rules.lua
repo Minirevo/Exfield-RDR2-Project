@@ -33,3 +33,5 @@ print('Network model validation rules passed')
 
 -- Exercise the actual wagon storage and world tick code with stubbed natives/DB.
 dofile('tests/wagon_runtime.lua')
+
+dofile('tests/freight_security.lua')

@@ -80,7 +80,10 @@ local function inventoryView(src,v)
   L.check(w and L.access(src,w,'trade'),'Cargo locked or wagon unavailable')
   local snap=L.cargoSnapshot(src,w);snap.contracts=L.contractView(src,w);return snap
  elseif v.mode=='locked' then
-  L.check(w and L.near(src,L.point(w),C.InteractionDistance),'Approach wagon')
+  L.check(w and w.state=='world' and L.near(src,L.point(w),C.InteractionDistance) and L.stationary(w),'Approach stationary wagon')
+  if L.access(src,w,'trade') then
+   v.mode='cargo';local snap=L.cargoSnapshot(src,w);snap.contracts=L.contractView(src,w);return snap
+  end
   return {mode='locked',wagon=w,manage=L.right(src,w,'trade')}
  elseif v.mode=='bench' then
   local p=L.P:LogisticsBench(src,v.sid,v.fid);L.check(p,'Approach construction bench')
@@ -136,7 +139,8 @@ RegisterNetEvent(L.E..'request',function(ticket,seq,a,d)
    elseif a=='retrySpawn' and v.mode=='registry' then return L.retrySpawn(src,w)
    elseif a=='store' and v.mode=='cargo' then L.store(src,w);L.views[src]=nil;TriggerClientEvent(L.E..'close',src);return 'Wagon stored'
    elseif a=='lock' and (v.mode=='cargo' or v.mode=='locked') then
-    L.check(w and L.right(src,w,'trade') and L.stationary(w) and not L.wagonBusy(w.id),'Management permission required')
+    L.check(w and w.state=='world' and L.right(src,w,'trade') and L.near(src,L.point(w),C.InteractionDistance) and L.stationary(w) and not L.wagonBusy(w.id),'Approach your stationary wagon; management permission required')
+    for player,t in pairs(L.lockTests) do if t.wagon==w.id then L.lockTests[player]=nil;TriggerClientEvent(L.E..'loadingEnd',player,'Lock state changed; attempt ended') end end
     L.U('UPDATE fl_wagons SET locked=? WHERE id=?',{tonumber(w.locked)==1 and 0 or 1,w.id});L.broadcastWagon(L.wagon(w.id));return 'Lock updated'
    elseif a=='pick' and v.mode=='locked' then L.lockStart(src,w);return 'Lockpick started'
    elseif a=='load' and v.mode=='cargo' then

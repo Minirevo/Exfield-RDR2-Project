@@ -15,10 +15,11 @@ local function stock(src,id,perm,all)
 end
 local function nearStock(src,w,id)
  local p=L.B:LogisticsStockPoint(id)
- return p and L.near(src,p,C.InteractionDistance) and L.dist(p,L.point(w))<=C.LoadDistance and L.stationary(w)
+ return p and w and w.state=='world' and L.near(src,p,C.InteractionDistance) and L.near(src,L.point(w),C.InteractionDistance) and L.dist(p,L.point(w))<=C.LoadDistance and L.stationary(w)
 end
-local function reservePlan(src,origin,route,lines,key)
+local function reservePlan(src,origin,route,lines,key,revision)
  local ok,box=L.I:LogisticsRead('s_'..origin);L.check(ok,'Origin stock unavailable')
+ L.check(revision~=nil and revision==box.revision,'Origin stock changed; refresh and select cargo again')
  local found,freight=L.I:LogisticsRead(route);L.check(found,'Freight hold unavailable')
  L.check(type(lines)=='table' and #lines>=1 and #lines<=60,'Select cargo stacks')
  local bySlot={};for _,s in ipairs(box.slots) do bySlot[s.slot]=s end
@@ -41,7 +42,7 @@ function L.createContract(src,d)
  local bank=L.account(src,origin.ownerType,origin.ownerId,'finance');L.check(bank,'Finance permission required')
  local id=L.uuid(true);local route=L.freightRoute(id)
  L.check(L.I:LogisticsEnsure(route,60,1200000),'Freight hold unavailable')
- local plan,metrics=reservePlan(src,origin.id,route,d.lines,id)
+ local plan,metrics=reservePlan(src,origin.id,route,d.lines,id,d.revision)
  L.U("INSERT INTO fl_contracts(id,customer_type,customer_id,customer_bank,origin_id,destination_id,reward,payload,state,deadline,created_at) VALUES(?,?,?,?,?,?,?,?,'fund',?,?)",{id,origin.ownerType,origin.ownerId,bank,origin.id,dest.id,reward,json.encode({plan=plan,grams=metrics.grams,units=metrics.units}),L.now()+hours*3600,L.now()})
  return id
 end
@@ -49,7 +50,7 @@ function L.acceptContract(src,w,id)
  local c=contract(id);L.check(c and c.state=='open' and tonumber(c.deadline)>L.now(),'Contract unavailable')
  L.check(w and w.state=='world' and L.right(src,w,'trade') and L.licensed(w.owner_type,w.owner_id),'Licensed carrier wagon required')
  L.check(L.near(src,L.point(w),C.InteractionDistance) and L.stationary(w) and not L.wagonBusy(w.id),'Approach your stationary wagon')
- L.check(c.customer_id~=w.owner_id,'Cannot carry your own paid contract')
+ L.check(c.customer_type~=w.owner_type or c.customer_id~=w.owner_id,'Cannot carry your own paid contract')
  L.check(#L.freight(w.id)==0,'Only one freight contract per wagon')
  local ok,b=L.I:LogisticsRead(L.route(w.id));local got,f=L.I:LogisticsRead(L.freightRoute(c.id))
  L.check(ok and got and b.weight+f.weight<=b.weightLimit and #b.slots+#f.slots<=b.capacity,'Not enough free wagon capacity')
@@ -67,7 +68,7 @@ function L.contractAction(src,w,id,a)
   L.check(authority(src,c.customer_type,c.customer_id,'trade') and c.state=='open','Only unaccepted contracts may be cancelled')
   update(c,'return');return
  end
- L.check(w and c.wagon_id==w.id and authority(src,c.carrier_type,c.carrier_id,'trade') and L.right(src,w,'trade') and not L.wagonBusy(w.id),'Carrier permission or wagon unavailable')
+ L.check(w and w.state=='world' and c.wagon_id==w.id and authority(src,c.carrier_type,c.carrier_id,'trade') and L.right(src,w,'trade') and L.near(src,L.point(w),C.InteractionDistance) and L.stationary(w) and not L.wagonBusy(w.id),'Approach your stationary carrier wagon')
  if a=='pickup' then
   L.check(c.state=='pickup' and tonumber(c.deadline)>L.now() and nearStock(src,w,c.origin_id),'Approach origin with the assigned wagon before deadline')
   -- Cargo was frozen at order creation. Pickup associates the reserved hold with the physical wagon.
@@ -93,7 +94,7 @@ function L.contractView(src,w)
    local d=json.decode(c.payload);local origin=L.B:LogisticsStockPoint(c.origin_id);local dest=L.B:LogisticsStockPoint(c.destination_id)
    out[#out+1]={id=c.id,state=c.state,origin=origin and origin.name or c.origin_id,destination=dest and dest.name or c.destination_id,
     originPoint=origin,destinationPoint=dest,reward=c.reward,deadline=c.deadline,grams=d.grams,units=d.units,customer=customer,carrier=carrier==true,wagon=c.wagon_id,issue=c.issue,
-    canSteal=theft==true,canAccept=w and c.state=='open' and L.right(src,w,'trade') and L.licensed(w.owner_type,w.owner_id) or false}
+    canSteal=theft==true,canAccept=w and c.state=='open' and tonumber(c.deadline)>L.now() and (c.customer_type~=w.owner_type or c.customer_id~=w.owner_id) and L.right(src,w,'trade') and L.licensed(w.owner_type,w.owner_id) or false}
   end
  end
  return out
@@ -107,7 +108,9 @@ function L.contractTick()
     if paid then update(c,'reserve') elseif why=='insufficient_funds' then update(c,'failed',why) else L.check(false,why) end
    elseif c.state=='reserve' then
     local moved,why=L.I:LogisticsPlan('lg:'..c.id..':reserve',d.plan,false)
-    if moved then update(c,'open') elseif why~='database_error' then update(c,'refund','Stock changed: '..tostring(why)) else L.check(false,why) end
+    if moved then update(c,'open')
+    elseif why=='conflict' or why=='forbidden' or why=='weight' or why=='slots' or why=='capacity' or why=='insufficient_stock' then update(c,'refund','Stock changed: '..tostring(why))
+    else L.check(false,why) end
    elseif (c.state=='open' or c.state=='pickup') and tonumber(c.deadline)<=L.now() then
     update(c,'return','Pickup deadline expired')
    elseif c.state=='return' then
