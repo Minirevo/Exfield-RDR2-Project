@@ -4,6 +4,7 @@ local W=FrontierWeapons
 local R=FrontierWeaponRules
 local E='frontier_inventory:'
 local active,draw,release,reload=nil,nil,nil,nil
+local residual={}
 local sequence=0
 local lastReport=0
 local function nextRequest() sequence=sequence%2147483646+1;return sequence end
@@ -22,12 +23,44 @@ local function held(s) return s and GetPedCurrentHeldWeapon(s.ped)==s.hash end
 local function validPed(s)
  return s and PlayerPedId()==s.ped and LocalPlayer.state.IsInSession and not truth(IsEntityDead(s.ped))
 end
+local function legacyRunning()
+ for _,name in ipairs({'vorp_inventory','vorp_weaponsv2'}) do
+  local state=GetResourceState(name)
+  if state=='started' or state=='starting' then return true end
+ end
+ return false
+end
 local function removeNative(s)
  if not s or not s.created or not DoesEntityExist(s.ped) then return end
- if held(s) then SetCurrentPedWeapon(s.ped,joaat('WEAPON_UNARMED'),false,0,false,false) end
- SetPedAmmoByType(s.ped,s.ammo,0)
- RemoveWeaponFromPed(s.ped,s.hash,true,0)
- s.created=false
+ -- Native projection belongs to Frontier; only remove a model we granted.
+ -- Capture remaining ammunition before calling this function.
+ local ok,err=pcall(function()
+  if held(s) then SetCurrentPedWeapon(s.ped,joaat('WEAPON_UNARMED'),false,0,false,false) end
+  RemoveWeaponFromPed(s.ped,s.hash,true,0)
+  SetPedAmmo(s.ped,s.hash,0)
+  SetPedAmmoByType(s.ped,s.ammo,0)
+ end)
+ if not ok then log('Native removal error: '..tostring(err)) end
+ residual[s.hash]=s
+end
+local function cleanResidual(p)
+ -- A native removal can complete asynchronously. Retry only our own known
+ -- models, never clear arbitrary legacy equipment or grant extra ammunition.
+ for hash,s in pairs(residual) do
+  if s.ped~=p then residual[hash]=nil
+  else
+   local ok,has=pcall(HasPedGotWeapon,p,hash,0,false)
+   local ammo=count(s)
+   if not ok then return false end
+   if truth(has) or ammo>0 or held(s) then
+    removeNative(s)
+    local checked,still=pcall(HasPedGotWeapon,p,hash,0,false)
+    if not checked or truth(still) or count(s)>0 or held(s) then return false end
+   end
+   s.created=false;residual[hash]=nil
+  end
+ end
+ return true
 end
 function W.active() return active~=nil or draw~=nil or release~=nil end
 exports('IsPersistentWeaponActive',W.active)
@@ -73,15 +106,16 @@ RegisterNetEvent(E..'weaponReleaseResult',function(token,ok,reason)
 end)
 local function startDraw(token,slot)
  if not LocalPlayer.state.IsInSession or not token or draw or release or active then return end
- if FrontierGunLab.active() then notice('Disable Gun Lab first.');return end
+ if legacyRunning() then notice('Legacy inventory is still running. Frontier firearm cutover required.');return end
  local p=PlayerPedId()
  if p==0 or truth(IsEntityDead(p)) then return end
- -- Refuse to overwrite a legacy weapon or native regular ammo pool.
+ if not cleanResidual(p) then notice('Native holster is still settling. Retry after the animation.');return end
+ -- Reject unknown native weapons instead of deleting them.
  for _,d in pairs(R.models) do
   local ok,has=pcall(HasPedGotWeapon,p,joaat(d.model),0,false)
   local ammo=tonumber(GetPedAmmoByType(p,joaat(d.nativeAmmo))) or 0
   if not ok or truth(has) or ammo>0 then
-   notice(('Native/VORP conflict: %s owned=%s, ammo=%d. Put away legacy equipment; use a clean test character.'):format(d.model,tostring(has),ammo));return
+   notice(('Unexpected native equipment: %s owned=%s, ammo=%d. Reconnect after the legacy inventory cutover.'):format(d.model,tostring(has),ammo));return
   end
  end
  local request=nextRequest()
@@ -102,7 +136,7 @@ RegisterNetEvent(E..'weaponDrawResult',function(request,ok,data,msg)
  local q=draw;draw=nil
  if not ok then notice(msg or 'Draw refused.');return end
  local d=type(data)=='table' and R.models[data.item]
- if not d or q.ped~=PlayerPedId() or not LocalPlayer.state.IsInSession or truth(IsEntityDead(q.ped)) then
+ if legacyRunning() or not d or q.ped~=PlayerPedId() or not LocalPlayer.state.IsInSession or truth(IsEntityDead(q.ped)) then
   if data and data.lease then TriggerServerEvent(E..'weaponAbandon',data.lease) end
   return
  end
@@ -178,6 +212,11 @@ end
 RegisterCommand('frontierweaponstatus',function()
  if active then notice(('Serial %s | clip %d | native total %d | server allowance %d | reload pending %s'):format(active.serial,clip(active),count(active),active.upper,tostring(reload~=nil)))
  else notice('No persistent firearm drawn.') end
+ local p=PlayerPedId()
+ for _,d in pairs(R.models) do
+  local ok,has=pcall(HasPedGotWeapon,p,joaat(d.model),0,false)
+  notice(('%s | native owned=%s | ammo=%s'):format(d.model,ok and tostring(has) or 'native error',tostring(GetPedAmmoByType(p,joaat(d.nativeAmmo)))))
+ end
 end,false)
 RegisterCommand('frontierweaponholster',function() W.holster() end,false)
 local reloadControl=joaat('INPUT_RELOAD')
@@ -189,7 +228,8 @@ CreateThread(function()
   if release and now-release.started>6000 then abandon('Holster response timed out.') end
   local s=active
   if s then
-   if not validPed(s) then abandon('Character or death state changed.')
+   if legacyRunning() then abandon('Legacy inventory started; Frontier firearm disabled.')
+   elseif not validPed(s) then abandon('Character or death state changed.')
    elseif not truth(HasPedGotWeapon(s.ped,s.hash,0,false)) then abandon('Native weapon was removed.')
    else
     local menu=W.wheelOpen or IsNuiFocused() or IsPauseMenuActive()
@@ -223,4 +263,4 @@ AddEventHandler('onClientResourceStop',function(r)
   reset()
  end
 end)
-AddEventHandler('vorp:SelectedCharacter',function() if W.active() then abandon('Character changed.') end end)
+AddEventHandler('vorp:SelectedCharacter',function() if W.active() then abandon('Character changed.') end;residual={} end)

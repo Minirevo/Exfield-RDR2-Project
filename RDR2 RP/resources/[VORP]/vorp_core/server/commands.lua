@@ -221,47 +221,12 @@ end
 
 --ADDITEMS
 function AddItems(data)
-    local target = tonumber(data.args[1])
-    local item = tostring(data.args[2])
-    local count = tonumber(data.args[3])
-
-    local VORPInv = exports.vorp_inventory
-    local itemCheck = VORPInv:getItemDB(item)
-    local canCarry = VORPInv:canCarryItems(target, count)       --can carry inv space
-    local canCarry2 = VORPInv:canCarryItem(target, item, count) --cancarry item limit
-
-    if not itemCheck then
-        return print(item .. " < item dont exist in the database", 4000)
-    end
-
-    if not canCarry then
-        return CoreFunctions.NotifyObjective(data.source, Translation[Lang].Notify.invfull, 4000)
-    end
-
-    if not canCarry2 then
-        return CoreFunctions.NotifyObjective(data.source, Translation[Lang].Notify.cantcarry, 4000)
-    end
-
-    VORPInv:addItem(target, item, count)
-    sendDiscordLogs(data.config.webhook, data, data.source, item, count)
-    CoreFunctions.NotifyRightTip(target, string.format(Translation[Lang].Notify.AddItems, item, count), 4000)
+    CoreFunctions.NotifyObjective(data.source, "Legacy inventory grants retired. Use Frontier inventory administration.", 4000)
 end
 
 --ADDWEAPONS
 function AddWeapons(data)
-    local target = tonumber(data.args[1])
-    local weaponHash = tostring(data.args[2])
-    local canCarry = exports.vorp_inventory:canCarryWeapons(target, 1, nil, weaponHash)
-    if not canCarry then
-        return CoreFunctions.NotifyObjective(data.source, T.cantCarry, 4000)
-    end
-
-    local result = exports.vorp_inventory:createWeapon(target, weaponHash, {})
-    if not result then
-        return CoreFunctions.NotifyRightTip(target, T.Wepnotexist, 4000)
-    end
-    sendDiscordLogs(data.config.webhook, data, data.source, weaponHash, "")
-    CoreFunctions.NotifyRightTip(target, Translation[Lang].Notify.AddWeapons, 4000)
+    CoreFunctions.NotifyObjective(data.source, "Legacy weapon grants retired. Use Frontier inventory administration.", 4000)
 end
 
 --DELCURRENCY

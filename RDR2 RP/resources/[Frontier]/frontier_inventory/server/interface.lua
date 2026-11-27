@@ -1049,6 +1049,10 @@ RegisterNetEvent(events..'weaponDraw',function(token,slot,request)
  if type(token)~='string' or #token>80 or not WR.integer(slot,1,2) or not WR.integer(request,1,2147483646) then return end
  local response
  local ok,err=admit(src,gunLast,function()
+  for _,name in ipairs({'vorp_inventory','vorp_weaponsv2'}) do
+   local state=GetResourceState(name)
+   if state=='started' or state=='starting' then return false,'forbidden' end
+  end
   local v=wheelViews[src]
   if not v or v.token~=token or GetGameTimer()>v.expires or Inventory.Session(src)~=v.id or not v.weapons[slot] then return false,'conflict' end
   if Inventory.WeaponSessions[src] then return false,'weapon_drawn' end

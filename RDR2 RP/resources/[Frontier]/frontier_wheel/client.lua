@@ -1,5 +1,4 @@
 local E='frontier_inventory:'
-local lab=FrontierGunLab
 local arms=FrontierWeapons
 local inventoryGuns=nil
 local page='main'
@@ -31,6 +30,7 @@ local function callBool(name,...)
 end
 local function blocker()
  if not ready then return 'NUI not ready' end
+ if GetResourceState('vorp_inventory')=='started' or GetResourceState('vorp_inventory')=='starting' then return 'Legacy inventory still running' end
  if not LocalPlayer.state.IsInSession then return 'character not loaded' end
  if arms.busy() then return 'weapon transition' end
  if documents or docsPending then return 'documents open' end
@@ -56,18 +56,18 @@ end
 local function close(commit)
  if not opened then return end
  local item=entries[selected]
- opened=false;manual=false;lab.wheelOpen=false;arms.wheelOpen=false
+ opened=false;manual=false;arms.wheelOpen=false
  SendNUIMessage({type='close'})
  if commit and item then
   if item.kind=='weapon' then
-   if lab.active() then lab.select(item.target) elseif token then arms.select(token,item.target) end
+   if token then arms.select(token,item.target) end
   elseif item.kind=='holster' then
-   lab.holster();arms.holster();TriggerServerEvent(E..'holsterTool')
-   if not lab.active() and not arms.active() then SetCurrentPedWeapon(PlayerPedId(),joaat('WEAPON_UNARMED'),false,0,false,false) end
+   arms.holster();TriggerServerEvent(E..'holsterTool')
+   if not arms.active() then SetCurrentPedWeapon(PlayerPedId(),joaat('WEAPON_UNARMED'),false,0,false,false) end
   elseif item.kind=='consume' and token then
    TriggerServerEvent(E..'wheelConsume',token,item.target)
   elseif item.kind=='tool' and token then
-   lab.holster();local t,slot=token,item.target
+   local t,slot=token,item.target
    arms.holster(function(ok) if ok then TriggerServerEvent(E..'wheelSelect',t,slot) end end)
   elseif item.kind=='toolHolster' and token then TriggerServerEvent(E..'wheelSelect',token,0)
   elseif item.kind=='menu' then
@@ -82,9 +82,7 @@ local function close(commit)
 end
 local function renderPage()
  if page=='main' then
-  local guns
-  if lab.active() then guns=lab.snapshot();guns[1].target=1;guns[2].target=2
-  else guns=arms.decorate(inventoryGuns) end
+  local guns=arms.decorate(inventoryGuns)
   entries=layout.main(guns)
  elseif page=='character' then
   entries=layout.character()
@@ -103,7 +101,7 @@ local function open()
  if opened then return end
  sequence=sequence%2147483646+1
  started=GetGameTimer()
- opened=true;lab.wheelOpen=true;arms.wheelOpen=true;arms.cancelReload();token,slots,selected=nil,nil,0;toolSlots=nil;consumables=nil;inventoryGuns=nil;x,y=0,0
+ opened=true;arms.wheelOpen=true;arms.cancelReload();token,slots,selected=nil,nil,0;toolSlots=nil;consumables=nil;inventoryGuns=nil;x,y=0,0
  page='main';hoveredAt=started
  SendNUIMessage({type='open'});renderPage()
  TriggerServerEvent(E..'wheelOpen',sequence)
@@ -141,13 +139,9 @@ if type(RegisterRawKeymap)=='function' then
  rawAvailable=pcall(RegisterRawKeymap,'frontier_wheel_tab',down,up,0x09,true)
 end
 trace('raw TAB registered: '..tostring(rawAvailable))
-AddEventHandler('frontier_wheel:gunLabChanged',function(on)
- close(false);page='main';if on then enabled=true end
-end)
 RegisterCommand('frontierwheeltest',function()
  enabled=not enabled;close(false);waitRelease=false;rawHeld=false
  if not enabled then
-  if lab.active() then lab.stop('wheel test disabled') end
   arms.holster()
  end
  notice(enabled and ('Test ON: hold TAB. NUI ready='..tostring(ready)..', raw TAB='..tostring(rawAvailable))

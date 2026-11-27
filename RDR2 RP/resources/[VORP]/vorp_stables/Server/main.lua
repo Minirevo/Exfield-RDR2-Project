@@ -1,7 +1,6 @@
 -- SERVER_MAIN
 local db = exports.oxmysql
 local VorpCore = exports.vorp_core:GetCore()
-local VorpInv = exports.vorp_inventory:vorp_inventoryApi()
 -- A draft animal cannot be transferred, discarded, or selected as a riding horse.
 local function logisticsAssigned(id)
     if GetResourceState('frontier_logistics')~='started' then return false end
@@ -80,18 +79,7 @@ function LoadStableContent(src, charId, regInvs)
             TriggerClientEvent(Events.onStableLoaded, src, out)
         end)
 
-        if regInvs ~= nil then
-            for _, ride in pairs(result) do
-                local limit
-                if Config.CustomMaxWeight[ride.modelname] then
-                    limit = Config.CustomMaxWeight[ride.modelname]
-                else
-                    limit = Config.DefaultMaxWeight
-                end
-                local id = ("%s_%s"):format(ride.modelname, charId)
-                VorpInv.registerInventory(id, ride.name, limit, true, Config.ShareInv[ride.type], Config.StackInvIgnore[ride.type])
-            end
-        end
+        -- Saddlebag registration retired until Frontier horse storage is ready.
     end)
 
     db:execute("SELECT charidentifier, firstname, lastname, job FROM characters", function(result)
@@ -129,14 +117,6 @@ RegisterNetEvent(Events.onBuyRide, function(rideName, rideModel, rideType)
             if result.affectedRows > 0 then
                 TriggerClientEvent("vorp:TipRight", src,
                     Config.Lang.TipRidePurchased:gsub("%{rideName}", rideName):gsub("%{price}", price), 4000)
-                local limit
-                if Config.CustomMaxWeight[rideModel] ~= nil then
-                    limit = Config.CustomMaxWeight[rideModel]
-                else
-                    limit = Config.DefaultMaxWeight
-                end
-                local invid = ("%s_%s"):format(rideModel, id)
-                VorpInv.registerInventory(invid, rideName, limit, true, Config.ShareInv[rideType], false)
                 LoadStableContent(src, id)
             end
         end)
@@ -317,26 +297,10 @@ RegisterNetEvent(Events.onTransferRecieve, function(rideId, targetChar, accepted
 end)
 
 local defaultHorse = {}
-RegisterNetEvent(Events.openInventory, function(rideModel, newRide)
+RegisterNetEvent(Events.openInventory, function()
     local src = source
-    local user = VorpCore.getUser(src)
-    if not user then return end
-
-    local character = user.getUsedCharacter
-    local charId = character.charIdentifier
-    local id = ("%s_%s"):format(rideModel, charId)
-
-    local isRegistered = exports.vorp_inventory:isCustomInventoryRegistered(id)
-    if not isRegistered then
-        TriggerClientEvent("vorp:TipRight", src, "This inventory is not registered id: " .. id, 4000)
-        return
-    end
-
-    if defaultHorse[src] and not defaultHorse[src] == newRide then
-        return TriggerClientEvent("vorp:TipRight", src, "cant open inventory of a horse that is not your default", 4000)
-    end
-
-    exports.vorp_inventory:openInventory(src, id)
+    if not VorpCore.getUser(src) then return end
+    TriggerClientEvent("vorp:TipRight", src, "Horse storage is temporarily unavailable during the Frontier inventory migration.", 4000)
 end)
 
 RegisterNetEvent(Events.setDefault, function(newRide, prevRide)
