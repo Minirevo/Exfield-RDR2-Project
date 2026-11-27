@@ -98,3 +98,6 @@ Die Datenbank sperrt betroffene Container in fester Reihenfolge und prüft ihre 
 Auf einem RedM-Testserver mit zwei Clients prüfen: Charakter auswählen und Inventar öffnen, mit Esc und Schaltfläche schließen, bei offenem Inventar die Ressource neu starten und den Mauszeiger prüfen. Danach Testgegenstände hinzufügen, stapeln, teilen, benutzen, geben und ablegen. Beide Spieler sollen gleichzeitig denselben Fund aufheben. Entferne dich vom Lager, wechsle den Routing-Bucket und prüfe die Sperren. Nach reconnect, Charakterwechsel und Serverneustart Bestände und einen noch nicht abgelaufenen Fund kontrollieren.
 
 Falls das Inventar nicht öffnet, zuerst geladenen Frontier-Charakter, OneSync, Reihenfolge und SQL-Migration prüfen. Bei einem nicht sichtbaren Hotkey-Menü die lokale Tastenwahl verwenden. Bei einem grauen Bildschirm die NUI im Testserver mit laufender Bank und sonstigen Overlays prüfen. Die Seite ist beim Start ausgeblendet und setzt keinen Vollbildhintergrund.
+
+## Exclusive inventory deployment
+See RDR2 RP/FRONTIER-INVENTORY-CUTOVER.md. Frontier consumables remain linked to the VORP needs engine until phase 2; old VORP item registration is disabled.

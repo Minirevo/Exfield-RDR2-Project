@@ -27,3 +27,6 @@ Safety tradeoffs: server owns inventory deductions and caps client-reported rema
 Test: lua5.4 tests/weapons.lua in frontier_inventory; existing integration and wheel tests; live empty and loaded draw, switch, tool selection, native aim/fire, quick and delayed satchel reload, partial/empty belt, cancelled retrieval, ammunition counts, holster/reconnect, moving item after holster, serial persistence, death and restart, legacy pool rejection. Native SetAmmoInClip availability/clip restore and mounted behavior require RedM verification.
 
 The pure weapon rules test was executed against byte-for-byte copies of the committed Lua files (Git blob hashes checked); it passed. Native/SQL integration remains unexecuted. The equipped gun is removed from the native ped on holster; visual slings/holster props for stowed weapons are not implemented. The two quick slots accept either regular ammo type and their shared capacity is configurable via InventoryConfig.QuickAmmoCapacity (default 30).
+
+## Phase 1 cutover supersedes Gun Lab instructions
+Gun Lab is no longer in the manifest. Use persistent equipment only. See RDR2 RP/FRONTIER-INVENTORY-CUTOVER.md for deployment and rollback. Legacy inventory must be stopped. No automatic legacy item migration.

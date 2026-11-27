@@ -1,9 +1,3 @@
-local function frontierGunLabActive()
-    if GetResourceState('frontier_wheel') ~= 'started' then return false end
-    local ok, active = pcall(function() return exports.frontier_wheel:IsGunLabActive() or exports.frontier_wheel:IsPersistentWeaponActive() end)
-    return ok and active == true
-end
-
 local PLAYER_AMMO_INFO  = {
     ammo = {}
 }
@@ -154,7 +148,7 @@ if not CONFIG.MANUAL_WEAPON_RELOAD then
         while true do
             local sleep = 500
             -- this thread is to remove ammo one by one so we dont loose the ammo that is on the weapon if we diconnect
-            if not frontierGunLabActive() and not IS_INV_OPEN and PLAYER_AMMO_INFO.ammo and not CACHE.IsDead then
+            if not IS_INV_OPEN and PLAYER_AMMO_INFO.ammo and not CACHE.IsDead then
                 local playerPedId <const> = CACHE.Ped
                 local isArmed <const> = IsPedArmed(playerPedId, 4) == 1
                 local wephash <const> = GetPedCurrentHeldWeapon(playerPedId)
@@ -578,7 +572,7 @@ else
 
         while true do
             local sleep = 1000
-            if not frontierGunLabActive() and not CACHE.IsDead and CACHE.Weapon ~= `WEAPON_UNARMED` and not IS_INV_OPEN then
+            if not CACHE.IsDead and CACHE.Weapon ~= `WEAPON_UNARMED` and not IS_INV_OPEN then
                 if IsPedArmed(CACHE.Ped, 4) == 1 and not BOWS[CACHE.Weapon] then
                     sleep = 0
                     DisableControlAction(0, `INPUT_RELOAD`, true)
@@ -599,7 +593,7 @@ else
         while true do
             local sleep = 800
 
-            if not frontierGunLabActive() and not IS_INV_OPEN and not CACHE.IsDead and CACHE.Weapon ~= `WEAPON_UNARMED` then
+            if not IS_INV_OPEN and not CACHE.IsDead and CACHE.Weapon ~= `WEAPON_UNARMED` then
                 local playerPedId <const> = CACHE.Ped
                 local isArmed <const> = IsPedArmed(playerPedId, 4) == 1 -- only works for guns and bows check with other weapons too
 

@@ -1,12 +1,15 @@
-local last={}
-RegisterNetEvent('frontier_wheel:gunLabRequest',function()
- local src=source
- local now=GetGameTimer()
- if last[src] and now-last[src]<1000 then return end
- last[src]=now
- if not IsPlayerAceAllowed(src,'frontier.wheel.gunlab') or not exports.frontier_core:GetPlayerCharacterId(src) then
-  TriggerClientEvent('frontier_wheel:gunLabDenied',src);return
+-- Gun Lab is retired. Keep only a deployment check; no temporary firearm grants.
+local retired={'vorp_inventory','vorp_weaponsv2'}
+local function check(name)
+ local state=GetResourceState(name)
+ if state=='started' or state=='starting' then
+  print(('[frontier_wheel] ERROR: %s is still active. Stop legacy inventory resources before using Frontier firearms.'):format(name))
  end
- TriggerClientEvent('frontier_wheel:gunLabGrant',src)
+end
+AddEventHandler('onResourceStart',function(name)
+ if name==GetCurrentResourceName() then
+  for _,r in ipairs(retired) do check(r) end
+ else
+  for _,r in ipairs(retired) do if name==r then check(r) end end
+ end
 end)
-AddEventHandler('playerDropped',function() last[source]=nil end)
