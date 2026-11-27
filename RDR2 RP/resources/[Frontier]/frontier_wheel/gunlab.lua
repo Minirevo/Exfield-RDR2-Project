@@ -178,3 +178,31 @@ CreateThread(function()
  end
 end)
 AddEventHandler('onClientResourceStop',function(r) if r==GetCurrentResourceName() then stop('resource stopped') end end)
+
+RegisterCommand('frontierclearweapons', function()
+    if FrontierGunLab.active() then
+        FrontierGunLab.stop('Manual weapon reset')
+    end
+
+    local ped = PlayerPedId()
+
+    SetCurrentPedWeapon(
+        ped, joaat('WEAPON_UNARMED'),
+        false, 0, false, false
+    )
+
+    RemoveAllPedWeapons(ped, true, true)
+    RemoveAllPedAmmo(ped)
+
+    SetPedAmmoByType(ped, joaat('AMMO_REVOLVER'), 0)
+    SetPedAmmoByType(ped, joaat('AMMO_REPEATER'), 0)
+
+    print('[Frontier] All native weapons and ammo cleared.')
+
+    TriggerEvent('chat:addMessage', {
+        args = {
+            'Frontier',
+            'All native weapons and ammunition cleared.'
+        }
+    })
+end, false)
