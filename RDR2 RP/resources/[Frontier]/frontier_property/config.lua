@@ -100,6 +100,7 @@ PropertyConfig = {
         property_station_glass={name="Glass furnace",category='Production stations',model='p_furnace02x',grams=18000,slots=0,price=8500,value=8500,station='glass',dimensions={0.63,0.67,1.08},skill='glassmaking'},
         property_station_apothecary={name="Apothecary table",category='Production stations',model='p_tablework03x',grams=10000,slots=0,price=4000,value=4000,station='apothecary',dimensions={0.82,0.58,1},skill='medicine'},
         property_station_jewellery={name="Jeweller's workbench",category='Production stations',model='p_tablework02x',grams=10000,slots=0,price=5000,value=5000,station='jewellery',dimensions={0.64,0.63,0.81},skill='jewellery'},
+        property_wagon_bench={name='Wagon construction bench',category='Production stations',model='mp005_p_mp_tableplank04x',grams=12000,slots=0,price=8000,value=8000},
         property_storage={name='Storage chest',category='Functional furniture',model='p_chest01x',grams=8000,slots=0,price=3500,value=3500},
         property_counter={name='Sales counter',category='Functional furniture',model='p_sawbucktable01x',grams=12000,slots=0,price=5000,value=5000},
         property_bed={name='Bed',category='Large furniture',model='p_bed01x',grams=10000,slots=5,price=4500,value=4500},

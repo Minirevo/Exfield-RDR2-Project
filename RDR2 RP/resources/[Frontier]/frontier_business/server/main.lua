@@ -454,6 +454,7 @@ fixtureAction=function(src,who,a,d)
   requireThat(f and propertyOwner(who,sid),'Plot owner required')
   local farm=GetResourceState('frontier_farming');requireThat(farm=='missing' or farm=='started' and not exports.frontier_farming:StorageBound('business_'..id),'Unlink farming storage and resolve orders first')
   local production=GetResourceState('frontier_production');requireThat(production=='missing' or production=='started' and not exports.frontier_production:StorageBound('business_'..id),'Unlink production storage and resolve orders first')
+  local logistics=GetResourceState('frontier_logistics');requireThat(logistics~='started' or not exports.frontier_logistics:StockBound('business_'..id),'Resolve freight contracts first')
   requireThat(not exports.frontier_trade:BusinessFixtureBusy(id) and not next(stock(f)) and not S("SELECT id FROM fb_retail WHERE fixture_id=? AND state NOT IN ('complete','failed') LIMIT 1",{id}),'Empty storage and resolve purchases first')
   tx({sql('DELETE FROM fb_prices WHERE fixture_id=?',{id}),sql('DELETE FROM fb_fixtures WHERE id=?',{id})})
  elseif a=='fixturePrice' then
@@ -699,4 +700,33 @@ exports('ProductionStockValid',function(sid,typ,id,storage)
  if GetInvokingResource()~='frontier_production' or not ready or type(storage)~='string' then return false end
  local f=fixture(storage:match('^business_([a-f0-9]+)$'))
  return f and f.kind=='storage' and f.property_id==sid and f.owner_type==typ and f.owner_id==id and validFixture(f)~=nil or false
+end)
+
+exports('LogisticsStock',function(src,all)
+ if GetInvokingResource()~='frontier_logistics' or not ready then return {} end
+ local who=cid(src);if not who then return {} end
+ local out={}
+ for _,f in ipairs(Q("SELECT * FROM fb_fixtures WHERE kind='storage'")) do
+  local p=validFixture(f)
+  if p and fixtureRight(f,who,'stock') and (all or near(src,p,C.storageDistance)) then
+   out[#out+1]={id='business_'..f.id,name=f.name,x=p.x,y=p.y,z=p.z,ownerType=f.owner_type,ownerId=f.owner_id,deposit=fixtureRight(f,who,'deposit')==true,retrieve=fixtureRight(f,who,'retrieve')==true}
+  end
+ end
+ return out
+end)
+exports('LogisticsStockPoint',function(id)
+ if GetInvokingResource()~='frontier_logistics' or not ready or type(id)~='string' then return end
+ local f=fixture(id:match('^business_([a-f0-9]+)$'));local p=f and f.kind=='storage' and validFixture(f)
+ if p then return {id=id,name=f.name,x=p.x,y=p.y,z=p.z,ownerType=f.owner_type,ownerId=f.owner_id} end
+end)
+exports('LogisticsCompanies',function(who)
+ if GetInvokingResource()~='frontier_logistics' or not ready then return {} end
+ local out={}
+ for _,b in ipairs(Q("SELECT id,name FROM fb_companies WHERE status='active'")) do
+  if allowed(company(b.id),who,'trade') then
+   local l=S("SELECT active FROM fb_licenses WHERE owner_type='company' AND owner_id=? AND category='transport'",{b.id})
+   if l and tonumber(l.active)==1 then out[#out+1]={id=b.id,name=b.name} end
+  end
+ end
+ return out
 end)

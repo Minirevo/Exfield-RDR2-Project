@@ -86,6 +86,9 @@ local function finishHorseSpawn(ride)
 end
 
 function CallRide(ride)
+    if ride and (LocalPlayer.state.frontierHarnesses or {})[tostring(ride.id)] then
+        TriggerEvent('vorp:TipRight','Horse assigned to a freight wagon.',3000);return
+    end
     if ride == nil then
         TriggerEvent("vorp:TipRight", Config.Lang.TipNoDefaultHorse, 2000)
         return
@@ -244,7 +247,7 @@ function ActionsOnKeyPress()
     end
     -- Open inventories
     -- //TODO let anyone open if set in Config
-    if CurrentHorse ~= nil and CurrentHorse.pedId and #(GetEntityCoords(PlayerPedId()) - GetEntityCoords(CurrentHorse.pedId)) <= 5.0 and IsControlJustPressed(0, `INPUT_OPEN_SATCHEL_HORSE_MENU`) then
+    if CurrentHorse ~= nil and CurrentHorse.pedId and #(GetEntityCoords(PlayerPedId()) - GetEntityCoords(CurrentHorse.pedId)) <= 5.0 and IsControlJustPressed(0, GetHashKey("INPUT_OPEN_SATCHEL_HORSE_MENU")) then
         TriggerServerEvent(Events.openInventory, CurrentHorse.model, CurrentHorse.id)
     elseif CurrentCart ~= nil and CurrentCart.pedId and #(GetEntityCoords(PlayerPedId()) - GetEntityCoords(CurrentCart.pedId)) <= 5.0 and
         IsControlJustPressed(0, Keys.U) then
@@ -280,3 +283,15 @@ function Interactions()
 end
 
 CreateThread(Interactions)
+
+AddEventHandler('frontier_logistics:dismissStableHorse',function()
+    if CurrentHorse and (LocalPlayer.state.frontierHarnesses or {})[tostring(CurrentHorse.id)] and CurrentHorse.pedId then
+        DeletePed(CurrentHorse.pedId);CurrentHorse.pedId=nil
+    end
+end)
+AddStateBagChangeHandler('frontierHarnesses',nil,function(bagName,key,value)
+    if bagName~=('player:'..GetPlayerServerId(PlayerId())) or type(value)~='table' then return end
+    if CurrentHorse and value[tostring(CurrentHorse.id)] and CurrentHorse.pedId then
+        DeletePed(CurrentHorse.pedId);CurrentHorse.pedId=nil
+    end
+end)

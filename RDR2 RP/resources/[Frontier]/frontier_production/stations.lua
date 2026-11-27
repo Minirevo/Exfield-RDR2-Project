@@ -81,11 +81,25 @@ recipe('extract','apothecary','medicine','Prepare herbal extract',{gather_herbs=
 recipe('tonic','apothecary','medicine','Prepare tonic',{prod_herbal_extract=1,prod_bottle=1},'tonic',1,8,90)
 recipe('ring','jewellery','jewellery','Make gold ring',{prod_gold=1},'prod_gold_ring',1,10,180,true)
 
+-- Freight components are manufactured through the established station/QTE system.
+local components={
+ {'logistics_frame','Wagon frame',8000,'carpentry','carpentry',{wooden_planks=8,prod_nails=12},4},
+ {'logistics_wheel','Wagon wheel',3500,'carpentry','carpentry',{wooden_planks=4,prod_nails=4},3},
+ {'logistics_axle','Wagon axle',6000,'anvil','blacksmithing',{iron_ingot=4,coal=1},4},
+ {'logistics_fittings','Iron wagon fittings',1500,'anvil','blacksmithing',{iron_ingot=2},2},
+ {'logistics_harness','Draft harness',2000,'leatherwork','leatherworking',{prod_leather=4,prod_leather_strap=3},3},
+ {'logistics_lockpick','Lockpick',50,'anvil','blacksmithing',{iron_ingot=1},2},
+}
+for _,p in ipairs(components) do
+ item(p[1],p[2],p[3],true)
+ recipe(p[1],p[4],p[5],p[2],p[6],p[1],1,p[7]*3,120,p[1]~='logistics_lockpick')
+ C.recipes[p[1]].componentRounds=p[7]
+end
 -- Complexity determines the number of timed actions per batch, not the number of output units.
 local tiers={saw=1,handle=1,nails=1,smelt=2,copper=2,refine_gold_dust=2,refine_gold_flakes=2,refine_gold_nugget=2,refine_gold_ore=2,steel=2,horseshoe=2,tan_pelt=2,tan_hide=2,tan_farm_hide=2,leather_strap=1,leather_pouch=3,carpentry_chest=3,table=3,chair=2,cook=1,cook_farm=1,meal=2,preserve_fish=1,bake=2,mill=1,brick=2,shape=1,pottery=3,glass=2,bottle=2,extract=1,tonic=3,ring=4}
 local toolTiers={crude=2,iron=3,steel=4,hardened=5}
 for id,r in pairs(C.recipes) do
- r.rounds=assert(r.material and toolTiers[r.material] or tiers[id],'Missing production tier: '..id)
+ r.rounds=assert(r.material and toolTiers[r.material] or r.componentRounds or tiers[id],'Missing production tier: '..id)
  r.manual=r.rounds*C.roundMs/1000
 end
 

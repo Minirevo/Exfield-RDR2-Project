@@ -2,6 +2,17 @@
 local db = exports.oxmysql
 local VorpCore = exports.vorp_core:GetCore()
 local VorpInv = exports.vorp_inventory:vorp_inventoryApi()
+-- A draft animal cannot be transferred, discarded, or selected as a riding horse.
+local function logisticsAssigned(id)
+    if GetResourceState('frontier_logistics')~='started' then return false end
+    local ok,assigned=pcall(function()return exports.frontier_logistics:HorseAssigned(id)end)
+    return not ok or assigned
+end
+local function denyAssigned(src,id)
+    if not logisticsAssigned(id) then return false end
+    TriggerClientEvent('vorp:TipRight',src,'Horse is assigned to a freight wagon.',4000)
+    return true
+end
 
 CreateThread(function()
     if VorpCore.RegisterJobs then
@@ -198,6 +209,7 @@ RegisterNetEvent(Events.onRemoveComps, function(rideId)
 end)
 
 RegisterNetEvent(Events.onDelete, function(rideId)
+    if denyAssigned(source,rideId) then return end
     local src = source
     local player = VorpCore.getUser(src).getUsedCharacter
     local id = player.charIdentifier
@@ -216,6 +228,7 @@ RegisterNetEvent(Events.onDelete, function(rideId)
 end)
 
 RegisterNetEvent(Events.onTransfer, function(rideId, targetChar, price, activePlayers)
+    if denyAssigned(source,rideId) then return end
     local src = source
     local player = VorpCore.getUser(src).getUsedCharacter
     local id = player.charIdentifier
@@ -247,6 +260,7 @@ RegisterNetEvent(Events.onTransfer, function(rideId, targetChar, price, activePl
 end)
 
 RegisterNetEvent(Events.onTransferRecieve, function(rideId, targetChar, accepted, index, activePlayers)
+    if denyAssigned(source,rideId) then return end
     local src = source
     local player = VorpCore.getUser(src).getUsedCharacter -- seller ?
     local id = player.charIdentifier
@@ -326,6 +340,7 @@ RegisterNetEvent(Events.openInventory, function(rideModel, newRide)
 end)
 
 RegisterNetEvent(Events.setDefault, function(newRide, prevRide)
+    if denyAssigned(source,newRide) then return end
     local src = source
     local player = VorpCore.getUser(src).getUsedCharacter
     local id = player.charIdentifier
@@ -352,6 +367,7 @@ RegisterNetEvent(Events.setDefault, function(newRide, prevRide)
 end)
 
 RegisterNetEvent(Events.onHorseDown, function(rideId, killerObjectHash)
+    if denyAssigned(source,rideId) then return end
     -- HardDeath management
     if not Config.HardDeath then return end
     local src = source

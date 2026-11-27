@@ -49,7 +49,7 @@ function makeButton(text, fn, disabled = false) {
 function meta(item){try{return typeof item.metadata==='string'?JSON.parse(item.metadata):item.metadata||{}}catch{return {}}}
 function canEquip(item){return Boolean(item?.instance&&/^gather_(axe|pickaxe|shovel|pan|knife|rod)_/.test(item.item)&&Number(meta(item).uses)>0)}
 function isEquipped(item){return !!item?.instance&&data?.equipped?.instance===item.instance}
-function glyph(item){const id=item.item||'',s=(item.category||'').toLowerCase();if(item.beltEligible)return /pickaxe/.test(id)?'⛏':/axe/.test(id)?'🪓':/knife/.test(id)?'🔪':'⚒';if(/wood|plank/.test(id))return '🪵';if(/ore|coal|stone|clay|sand/.test(id))return '◆';if(/gold/.test(id))return '◈';if(/bread|meat|food|nahrung/.test(id+' '+s))return '🍞';if(/water|getränke/.test(id+' '+s))return '💧';if(/seed|herb|crop/.test(id))return '🌿';return '◉'}
+function glyph(item){const id=item.item||'',s=(item.category||'').toLowerCase();const freightIcons={logistics_frame:'▤',logistics_wheel:'☸',logistics_axle:'↔',logistics_fittings:'⚙',logistics_harness:'♧',logistics_lockpick:'⚿',property_wagon_bench:'▥'};if(freightIcons[id])return freightIcons[id];if(item.beltEligible)return /pickaxe/.test(id)?'⛏':/axe/.test(id)?'🪓':/knife/.test(id)?'🔪':'⚒';if(/wood|plank/.test(id))return '🪵';if(/ore|coal|stone|clay|sand/.test(id))return '◆';if(/gold/.test(id))return '◈';if(/bread|meat|food|nahrung/.test(id+' '+s))return '🍞';if(/water|getränke/.test(id+' '+s))return '💧';if(/seed|herb|crop/.test(id))return '🌿';return '◉'}
 function stackCompatible(a,b){
  return Boolean(a&&b&&!a.instance&&!b.instance&&a.item===b.item&&a.metadata===b.metadata&&Number(a.maxStack)>1);
 }

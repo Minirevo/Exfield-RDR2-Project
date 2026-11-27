@@ -1106,3 +1106,133 @@ trusted('GatheringSmith',function(owner,source,character,job,key,preview)
  if changed==belt then return Inventory.Commit(key,actor,fingerprint,bag,belt) end
  return Inventory.Commit(key,actor,fingerprint,bag)
 end)
+
+-- Only frontier_logistics is permitted to use these private routes. They never use the public s_ namespace.
+local function logisticsRoute(id)
+ return type(id)=='string' and #id<=80 and (id:match('^lg_w_[a-f0-9]+$') or id:match('^lg_c_[a-f0-9]+$') or id:match('^lg_f_[a-f0-9]+$') or id:match('^p_f_[a-f0-9]+$') or id:match('^s_business_[a-f0-9]+$') or id:match('^s_property_[a-f0-9]+$'))
+end
+local function logisticsLoad(id)
+ if not logisticsRoute(id) then return false,'invalid_route' end
+ return Inventory.Load(id)
+end
+trusted('LogisticsEnsure',function(resource,id,slots,grams)
+ if resource~='frontier_logistics' or type(id)~='string' or not id:match('^lg_[wcf]_[a-f0-9]+$') or not Inventory.Int(slots,200) or not Inventory.Int(grams,100000000) then return false,'forbidden' end
+ return Inventory.Ensure(id,'storage',slots,grams)
+end)
+trusted('LogisticsRead',function(resource,id)
+ if resource~='frontier_logistics' then return false,'forbidden' end
+ local ok,box=logisticsLoad(id);return ok,ok and Inventory.Present(box) or box
+end)
+local function logisticsCommit(key,fingerprint,boxes)
+ local changes={}
+ for _,box in pairs(boxes) do
+  local entries={}
+  for slot,r in pairs(box.slots) do entries[#entries+1]={slot=slot,item=r.item,quantity=r.quantity,metadata=r.metadata,instance=r.instance} end
+  changes[#changes+1]={id=box.id,revision=box.revision,entries=entries}
+ end
+ table.sort(changes,function(a,b)return a.id<b.id end)
+ local ok,result=Inventory.Db('query','CALL frontier_inventory_logistics_commit_v1(?,?,?,?)',{key,'resource:frontier_logistics',fingerprint,json.encode(changes)})
+ local row=ok and result and type(result[1])=='table' and result[1][1]
+ if not row then return false,'database_error' end
+ return row.code=='ok',row.code
+end
+local function lgReplay(key,fingerprint)
+ return Inventory.Replay(key,'resource:frontier_logistics',fingerprint)
+end
+-- Optimistic whole-plan commit: all participating revisions must still match after loading.
+trusted('LogisticsPlan',function(resource,key,plan,preview)
+ if resource~='frontier_logistics' or not requestKey(key) or type(plan)~='table' or type(plan.lines)~='table' or #plan.lines<1 or #plan.lines>80 or type(plan.revisions)~='table' then return false,'invalid_request' end
+ local fingerprint=plan.fingerprint
+ if type(fingerprint)~='string' or #fingerprint>50000 then return false,'invalid_request' end
+ if not preview then local ok,replay=lgReplay(key,fingerprint);if not ok then return false,replay end;if replay then return true,'replayed' end end
+ local boxes={};local count=0
+ local function load(id)
+  if boxes[id] then return boxes[id] end
+  if count>=16 then return nil,'too_many_containers' end
+  local ok,box=logisticsLoad(id);if not ok then return nil,box end
+  if box.revision~=plan.revisions[id] then return nil,'conflict' end
+  boxes[id]=box;count=count+1;return box
+ end
+ local grams,units=0,0
+ for _,line in ipairs(plan.lines) do
+  if type(line)~='table' or not logisticsRoute(line.from) or not logisticsRoute(line.to) or line.from==line.to then return false,'invalid_route' end
+  local from,e=load(line.from);if not from then return false,e end
+  local to,why=load(line.to);if not to then return false,why end
+  local entry=from.slots[line.slot]
+  if not entry or entry.item~=line.item or (entry.instance or '')~=(line.instance or '') or entry.metadata~=line.metadata or not Inventory.Int(line.quantity,entry.quantity) then return false,'conflict' end
+  local def=Inventory.items[entry.item];if not def or not def.transfer or not def.store then return false,'forbidden' end
+  local ok,stack=Inventory.Take(from,line.slot,line.quantity);if not ok then return false,stack end
+  local put,err=Inventory.Place(to,stack);if not put then return false,err end
+  grams=grams+def.grams*line.quantity;units=units+line.quantity
+ end
+ if plan.wagon then
+  local box,e=load(plan.wagon);if not box then return false,e end
+  local extraWeight=tonumber(plan.freightWeight) or 0;local extraSlots=tonumber(plan.freightSlots) or 0
+  local used=0;for _ in pairs(box.slots) do used=used+1 end
+  if Inventory.Weight(box)+extraWeight>box.weight_limit or used+extraSlots>box.slot_limit then return false,'reserved_freight_capacity' end
+ end
+ if preview then return true,{grams=grams,units=units} end
+ return logisticsCommit(key,fingerprint,boxes)
+end)
+-- Exact whole-container move (freight pickup/delivery/refund). Operation receipt survives retries.
+trusted('LogisticsMoveAll',function(resource,key,fromId,toId)
+ if resource~='frontier_logistics' or not requestKey(key) or not logisticsRoute(fromId) or not logisticsRoute(toId) or fromId==toId then return false,'invalid_request' end
+ local fingerprint='move:'..fromId..':'..toId
+ local checked,replay=lgReplay(key,fingerprint);if not checked then return false,replay end;if replay then return true,'replayed' end
+ local ok,from=logisticsLoad(fromId);if not ok then return false,from end
+ local found,to=logisticsLoad(toId);if not found then return false,to end
+ if not next(from.slots) then return false,'empty' end
+ local moved,why=productionMove(from,to);if not moved then return false,why end
+ return logisticsCommit(key,fingerprint,{from,to})
+end)
+-- Deterministic destruction selection is frozen by operation ID, original stack slot and container.
+-- Retry uses the same selection; no reroll after a database failure.
+trusted('LogisticsRecover',function(resource,key,fromIds,toId)
+ if resource~='frontier_logistics' or not requestKey(key) or type(fromIds)~='table' or #fromIds<1 or #fromIds>14 or not logisticsRoute(toId) then return false,'invalid_request' end
+ local fingerprint='wreck:'..table.concat(fromIds,':')..':'..toId
+ local checked,replay=lgReplay(key,fingerprint);if not checked then return false,replay end;if replay then return true,'replayed' end
+ local ok,to=logisticsLoad(toId);if not ok then return false,to end
+ local boxes={to};local seen={[toId]=true}
+ for _,id in ipairs(fromIds) do
+  if seen[id] then return false,'invalid_route' end;seen[id]=true
+  local found,from=logisticsLoad(id);if not found then return false,from end
+  for slot,entry in pairs(from.slots) do
+   local hash=GetHashKey(key..':'..id..':'..slot) & 0xffffffff
+   local numerator=entry.quantity*90
+   local keep=math.floor(numerator/100)+(hash%100<numerator%100 and 1 or 0)
+   if keep>0 then
+    local put,why=Inventory.Place(to,{item=entry.item,quantity=keep,metadata=entry.metadata,instance=entry.instance})
+    if not put then return false,why end
+   end
+  end
+  from.slots={};boxes[#boxes+1]=from
+ end
+ return logisticsCommit(key,fingerprint,boxes)
+end)
+-- Consume parts and return their frozen weighted quality with one atomic receipt.
+trusted('LogisticsConsume',function(resource,key,route,needs,preview,expectedRevision)
+ if resource~='frontier_logistics' or not requestKey(key) or not logisticsRoute(route) or type(needs)~='table' or #needs<1 or #needs>20 then return false,'invalid_request' end
+ local parts={route,tostring(expectedRevision or '')}
+ for _,need in ipairs(needs) do parts[#parts+1]=tostring(need.id)..':'..tostring(need.count) end
+ local fingerprint='parts:'..table.concat(parts,':')
+ if not preview then local ok,replay=lgReplay(key,fingerprint);if not ok then return false,replay end;if replay then return true,'replayed' end end
+ local ok,box=logisticsLoad(route);if not ok then return false,box end
+ if expectedRevision and box.revision~=expectedRevision then return false,'conflict' end
+ local quality,total=0,0
+ for _,need in ipairs(needs) do
+  if not Inventory.items[need.id] or not Inventory.Int(need.count,10000) then return false,'invalid_item' end
+  local left=need.count
+  for slot=1,box.slot_limit do
+   local entry=box.slots[slot]
+   if entry and entry.item==need.id then
+    local n=math.min(left,entry.quantity);local metadata=json.decode(entry.metadata or '{}');local q=math.max(0,math.min(100,tonumber(metadata.quality) or 50))
+    quality=quality+q*n;total=total+n
+    local taken,why=Inventory.Take(box,slot,n);if not taken then return false,why end
+    left=left-n;if left==0 then break end
+   end
+  end
+  if left>0 then return false,'missing '..need.id end
+ end
+ if preview then return true,{quality=math.floor(quality/total+.5),revision=box.revision} end
+ return logisticsCommit(key,fingerprint,{box})
+end)

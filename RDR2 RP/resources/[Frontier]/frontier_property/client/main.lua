@@ -178,7 +178,7 @@ local function interact()
     if interior then action('interior'); return end
     local d=nearest()
     if d then
-        if d.action=='farmManage' then TriggerEvent('frontier_farming:manageSign',d.bid) elseif d.action=='production' then TriggerEvent('frontier_production:stationOpen',d.sid,d.bid) else action(d.action,{sid=d.sid,bid=d.bid}) end
+        if d.action=='farmManage' then TriggerEvent('frontier_farming:manageSign',d.bid) elseif d.action=='production' then TriggerEvent('frontier_production:stationOpen',d.sid,d.bid) elseif d.action=='wagonBench' then TriggerEvent('frontier_logistics:bench',d.sid,d.bid) else action(d.action,{sid=d.sid,bid=d.bid}) end
         return
     end
     local p=GetEntityCoords(PlayerPedId())

@@ -18,8 +18,18 @@ LogisticsConfig={
     },
     -- Provisional model-specific attachment positions; calibrate in the lab.
     CargoOffsets={
+        supplywagon={{x=0,y=-.99,z=.2},{x=0,y=0,z=.2}},
         default={{x=0,y=0,z=.8},{x=-.4,y=-.6,z=.8},{x=.4,y=-.6,z=.8},{x=-.4,y=.6,z=.8},{x=.4,y=.6,z=.8}},
     },
+    -- Only the verified supply wagon is enabled for live use in this release.
+    EnabledModels={supplywagon=true},
+    PriceMinor={supplywagon=10500},
+    Depots={{name='Valentine freight yard',x=-366.0,y=789.0,z=116.2,heading=90},{name='Blackwater freight yard',x=-864.5,y=-1367.0,z=43.3,heading=0}},
+    DepotDistance=12,InteractionDistance=5,LoadDistance=10,StreamDistance=150,SpawnLeaseSeconds=25,
+    LockpickMs=4500,LockpickItem='logistics_lockpick',
+    Assembly={logistics_frame=1,logistics_wheel=4,logistics_axle=2,logistics_fittings=4,logistics_harness=2},
+    Repair={logistics_wheel=1,logistics_fittings=1},
+    ValidatedModels={supplywagon={wagonHash=-1753201617,harnesses={{slot=0,horseHash=1066034872},{slot=1,horseHash=1066034872}},crateDimensions={x=1.16285264492034,y=.83414453268051,z=1.00063988566398}}},
     HorseModel='a_c_horse_shire_darkbay',
     RecoveryPercent=90,
     MaxCargoPlanLines=80,
