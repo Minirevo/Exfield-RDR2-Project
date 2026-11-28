@@ -62,7 +62,8 @@ assert(resets==before)
 step(FrontierMedicalConfig.stateTimeoutMs+1);assert(resets==before)
 -- Owner symptom UI and hit cue are separate from the ragdoll thread.
 handlers['frontier_medical:state']({life=1,token='test',down=false,dead=false,symptoms={{kind='bleeding',level='warning',text='You are bleeding.'}}})
-assert(nui[#nui].type=='symptoms')
+assert(nui[#nui].type=='dispatchPatient' and nui[#nui].active==false)
+assert(nui[#nui-1].type=='symptoms')
 handlers['frontier_medical:injuryFeedback']('test','You were hit.')
 assert(nui[#nui].type=='injuryFeedback')
 local count=#nui
