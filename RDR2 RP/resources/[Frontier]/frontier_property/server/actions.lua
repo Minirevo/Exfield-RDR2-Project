@@ -5,6 +5,7 @@ function request(src,action,d)
     local s=settlement(d.sid); local b=s and type(d.bid)=='string' and s.buildings[d.bid] or nil
     if action=='market' then view(src,'market'); return end
     if action=='shop' then
+        if GetResourceState('frontier_shops')=='started' then return notice(src,'Use /shop at the general store.') end
         if nearShop(src) then view(src,'shop') else notice(src,'Approach a property general store (Valentine, Rhodes or Blackwater).') end
         return
     end
@@ -28,6 +29,7 @@ function request(src,action,d)
     if action=='enter' then return end
     if action=='furnitureMenu' then local plot=plotAt(src,id);if plot then view(src,'furnitureMenu',plot) end;return end
     if action=='buyItem' then
+        if GetResourceState('frontier_shops')=='started' then return notice(src,'Use the general store for new purchases.') end
         if not nearShop(src) then return notice(src,'You are too far from the general store.') end
         if type(d.item)~='string' then return notice(src,'Select a shop item.') end
         local def=d.item==C.Kit.id and C.Kit or C.Tools[d.item] or C.Furniture[d.item]

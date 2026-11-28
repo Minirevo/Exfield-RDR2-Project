@@ -31,6 +31,9 @@ RegisterNUICallback('refresh',function(_,cb)if opened then TriggerServerEvent(E.
 RegisterNUICallback('checkout',function(d,cb)
  if opened and ticket and type(d)=='table' then TriggerServerEvent(E..'checkout',ticket,d.mode,d.lines);cb({ok=true}) else cb({ok=false}) end
 end)
+RegisterNUICallback('farmOrder',function(d,cb)
+ if opened and ticket and type(d)=='table' then TriggerServerEvent(E..'farmOrder',ticket,d);cb({ok=true}) else cb({ok=false}) end
+end)
 local prompt,group
 CreateThread(function()
  group=GetRandomIntInRange(0,0xffffff);prompt=UiPromptRegisterBegin()

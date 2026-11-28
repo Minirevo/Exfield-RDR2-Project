@@ -238,7 +238,7 @@ CreateThread(function()
 end)
 AddEventHandler('onClientResourceStop',function(r) if r==GetCurrentResourceName() then endWork();for id in pairs(vegModifiers) do clearVeg(id) end;for _,e in pairs(entities) do DeleteEntity(e.handle) end;if focused then SetNuiFocus(false,false) end end end)
 
-RegisterCommand('farmshop',function() TriggerServerEvent(E..'action','shop',{}) end,false)
+RegisterCommand('farmshop',function() if GetResourceState('frontier_shops')=='started' then ExecuteCommand('shop') else TriggerServerEvent(E..'action','shop',{}) end end,false)
 RegisterNetEvent(E..'shop',function(d) if source~=65535 then return end;focused=true;SetNuiFocus(true,true);SendNUIMessage({type='shop',data=d}) end)
 
 local function clearSlaughterSpawn(token)
@@ -408,7 +408,9 @@ CreateThread(function()
  while true do Wait(1500);local p=GetEntityCoords(PlayerPedId())
   for i,q in ipairs(C.suppliers) do
    local dist=#(p-vector3(q.x,q.y,q.z))
-   if dist<60 and not suppliers[i] then
+   if GetResourceState('frontier_shops')=='started' then
+    if suppliers[i] then DeleteEntity(suppliers[i]);suppliers[i]=nil end
+   elseif dist<60 and not suppliers[i] then
     local h=spawn({model=C.supplierModel,x=q.x,y=q.y,z=q.z,heading=0,ped=true})
     if h then suppliers[i]=h;TaskStandStill(h,-1);FreezeEntityPosition(h,true) end
    elseif dist>75 and suppliers[i] then DeleteEntity(suppliers[i]);suppliers[i]=nil end
@@ -418,7 +420,9 @@ end)
 CreateThread(function()
  while true do
   local p=GetEntityCoords(PlayerPedId());local shop=false
-  for _,q in ipairs(C.suppliers) do if #(p-vector3(q.x,q.y,q.z))<4 then shop=true;break end end
+  if GetResourceState('frontier_shops')~='started' then
+   for _,q in ipairs(C.suppliers) do if #(p-vector3(q.x,q.y,q.z))<4 then shop=true;break end end
+  end
   local farm=false
   if not shop then for _,v in ipairs(world) do local b=v.b;if #(p-vector3(b.x,b.y,b.z))<math.max(b.width,b.length)/2+C.reach then farm=true;break end end end
   if not focused and (shop or farm) and not (type(IsNuiFocused)=='function' and IsNuiFocused()) then

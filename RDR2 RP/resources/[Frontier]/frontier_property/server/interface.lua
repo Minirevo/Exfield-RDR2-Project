@@ -44,3 +44,12 @@ function nearShop(src)
     end
     return false
 end
+
+exports('ShopCatalog',function()
+ if GetInvokingResource()~='frontier_shops' then return false,'forbidden' end
+ local out={}
+ out[C.Kit.id]={id=C.Kit.id,name=C.Kit.name,category='Settlement',buy=C.Kit.price}
+ for id,d in pairs(C.Tools) do out[id]={id=id,name=d.name,category=id:match('^gather_') and 'Tools' or 'Settlement',buy=d.price} end
+ for id,d in pairs(C.Furniture) do out[id]={id=id,name=d.name,category=d.category or 'Furniture',buy=d.price} end
+ return true,out
+end)

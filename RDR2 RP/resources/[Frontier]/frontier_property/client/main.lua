@@ -12,6 +12,7 @@ local function close()
 end
 local function action(a,d) TriggerServerEvent(E..'action',a,d or {}) end
 local function atShop(pos,s)
+    if GetResourceState('frontier_shops')=='started' then return false end
     return (pos.x-s.x)^2+(pos.y-s.y)^2<=C.ShopDistance^2 and math.abs(pos.z-s.z)<=C.ShopHeightTolerance
 end
 local function remove(o) if o and DoesEntityExist(o) then DeleteEntity(o) end end
@@ -162,7 +163,7 @@ RegisterNUICallback('action',function(d,cb)
 end)
 RegisterCommand('propertyfurniture',function() action('furnitureMenu') end,false)
 RegisterCommand('propertymarket',function() action('market') end,false)
-RegisterCommand('propertyshop',function() action('shop') end,false)
+RegisterCommand('propertyshop',function() if GetResourceState('frontier_shops')=='started' then ExecuteCommand('shop') else action('shop') end end,false)
 RegisterCommand('propertyexit',function() action('exit') end,false)
 RegisterCommand('propertystop',function() action('stopWork') end,false)
 local function nearest()
