@@ -91,3 +91,11 @@ function Inventory.Present(container, forBrowser)
     return { slots = slots, capacity = container.slot_limit, weight = Inventory.Weight(container),
         weightLimit = container.weight_limit, available = container.slot_limit - used, label = container.label, revision = container.revision }
 end
+
+-- Department-issued stock is not a tradable commodity. Ordinary copies of
+-- the same item remain usable and transferable.
+function Inventory.IsDepartmentSupply(stack)
+ if not stack or type(stack.metadata)~='string' then return false end
+ local ok,meta=pcall(json.decode,stack.metadata)
+ return ok and type(meta)=='table' and meta.medical_department==true
+end

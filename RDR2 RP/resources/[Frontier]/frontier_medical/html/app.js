@@ -42,6 +42,7 @@ function render(){if(!data)return;
  const mode=document.querySelector('#access-mode');
  mode.textContent=data.medic?(data.selfTest?'PROFESSIONAL MEDIC · SELF-TEST ENABLED':'PROFESSIONAL MEDIC'):'BASIC FIRST AID';
  mode.classList.toggle('licensed',data.medic===true);
+ if(data.billing&&Number(data.debt?.count)>0)mode.textContent+=' · '+data.debt.count+' outstanding invoice(s)';
  document.querySelector('#basic-pulse').textContent=data.pulse||'Not checked';
  document.querySelector('#basic-breathing').textContent=data.breathing||'Not checked';
  if(data.medic){

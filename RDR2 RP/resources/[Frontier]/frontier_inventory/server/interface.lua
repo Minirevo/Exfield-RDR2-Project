@@ -567,7 +567,7 @@ local function tradeMove(owner, delivery, character, item, quantity, taking)
     local from,to=player,box;if not taking then from,to=box,player end
     local remaining=quantity
     for slot=1,from.slot_limit do local stack=from.slots[slot]
-        if stack and stack.item==item then
+        if stack and stack.item==item and (not taking or not Inventory.IsDepartmentSupply(stack)) then
             local chunk=math.min(remaining,stack.quantity);local removed,value=Inventory.Take(from,slot,chunk);if not removed then return false,value end
             if not confiscate then local placed,issue=Inventory.Place(to,value);if not placed then return false,issue end end
             remaining=remaining-chunk;if remaining==0 then break end
@@ -664,7 +664,7 @@ local function productionMove(from,to,requested)
             local remaining=item.count
             for slot=1,from.slot_limit do
                 local entry=from.slots[slot]
-                if entry and entry.item==item.id then
+                if entry and entry.item==item.id and not Inventory.IsDepartmentSupply(entry) then
                     local amount=math.min(remaining,entry.quantity)
                     local ok,stack=Inventory.Take(from,slot,amount)
                     if not ok then return false,stack end
@@ -680,6 +680,7 @@ local function productionMove(from,to,requested)
         for slot=1,from.slot_limit do
             local stack=from.slots[slot]
             if stack then
+                if Inventory.IsDepartmentSupply(stack) then return false,'forbidden' end
                 local ok,reason=Inventory.Place(to,stack)
                 if not ok then return false,reason end
                 from.slots[slot]=nil
@@ -987,12 +988,14 @@ trusted('DeliverMedicalSupplies',function(resource,character,key,changes)
  local loaded,box=Inventory.Load('p_'..character);if not loaded then return false,box end
  for _,v in ipairs(list) do
   local def=Inventory.items[v.item]
+  local meta=json.decode(def.metadata);meta.medical_department=true
+  local metadata=json.encode(meta)
   if def.stackable then
-   local put,err=Inventory.Place(box,{item=v.item,quantity=v.count,metadata=def.metadata});if not put then return false,err end
+   local put,err=Inventory.Place(box,{item=v.item,quantity=v.count,metadata=metadata});if not put then return false,err end
   else
    for i=1,v.count do
     local instance=Inventory.Uuid();if not instance then return false,'database_error' end
-    local put,err=Inventory.Place(box,{item=v.item,quantity=1,metadata=def.metadata,instance=instance});if not put then return false,err end
+    local put,err=Inventory.Place(box,{item=v.item,quantity=1,metadata=metadata,instance=instance});if not put then return false,err end
    end
   end
  end
@@ -1577,7 +1580,7 @@ trusted('LogisticsPlan',function(resource,key,plan,preview)
   local to,why=load(line.to);if not to then return false,why end
   local entry=from.slots[line.slot]
   if not entry or entry.item~=line.item or (entry.instance or '')~=(line.instance or '') or entry.metadata~=line.metadata or not Inventory.Int(line.quantity,entry.quantity) then return false,'conflict' end
-  local def=Inventory.items[entry.item];if not def or not def.transfer or not def.store then return false,'forbidden' end
+  local def=Inventory.items[entry.item];if not def or not def.transfer or not def.store or Inventory.IsDepartmentSupply(entry) then return false,'forbidden' end
   local ok,stack=Inventory.Take(from,line.slot,line.quantity);if not ok then return false,stack end
   local put,err=Inventory.Place(to,stack);if not put then return false,err end
   grams=grams+def.grams*line.quantity;units=units+line.quantity

@@ -5,7 +5,7 @@ local core,eco,inv=exports.frontier_core,exports.frontier_economy,exports.fronti
 local E='frontier_medical:'
 local A,account
 local sessions,locks,last={}, {}, {}
-local processing={}
+local processing,characterLocks,funded={},{},{}
 local ready=false
 local function query(method,sql,args) return A.db(method,sql,args) end
 local function name(src)
@@ -47,27 +47,33 @@ function H.capture(src,v,key,item,region,life)
  VALUES(?,?,?,?,?,?,?,?,?,?,?,?)]],{key,v.patient,patientName,v.actor,doctorName,life,station,region,item,fee.label,fee.price,os.time()})
  if n==nil then A.notify(src,'Treatment will continue, but the billing record could not be saved.') end
 end
-local function dueSummary(id)
+function H.debt(id)
  local row=query('single',[[SELECT COUNT(*) AS count,COALESCE(SUM(amount_minor),0) AS total,
  COALESCE(SUM(CASE WHEN due_at<=? THEN 1 ELSE 0 END),0) AS overdue
  FROM frontier_medical_invoices WHERE patient=? AND status IN ('pending','reported','paying')]],{os.time(),id})
  return row or {count=0,total=0,overdue=0}
 end
+local function issue(src,patient,doctor,life,waive)
+ local result=query('query','CALL frontier_medical_issue_invoice_v1(?,?,?,?,?,?)',{patient,doctor,life,waive and 'waived' or 'pending',os.time(),os.time()+C.invoiceDueSeconds})
+ local row=result and result[1] and result[1][1]
+ if row and row.code=='ok' then
+  notice(doctor,('Invoice MED-%s · %s · %s'):format(row.invoice_id,money(row.amount_minor),waive and 'waived' or 'issued'))
+  if not waive then notice(patient,('Medical invoice MED-%s for %s received. Open /medicalbills to review or pay.'):format(row.invoice_id,money(row.amount_minor))) end
+ else A.notify(src,row and row.code=='no_charges' and 'No unbilled successful treatments.' or 'Invoice could not be confirmed. Refresh billing.') end
+end
 function H.chart(src,v,action)
  if not H.canBill(src,v) or not A.validView(src,v) then return A.notify(src,'Billing requires an on-duty medic treating another character.') end
  if action~='billing' then
   if A.working[src] or not v.life then return end
-  local result=query('query','CALL frontier_medical_issue_invoice_v1(?,?,?,?,?,?)',{v.patient,v.actor,v.life,action=='issueBill' and 'pending' or 'waived',os.time(),os.time()+C.invoiceDueSeconds})
-  local row=result and result[1] and result[1][1]
-  if row and row.code=='ok' then
-   A.notify(src,('Invoice MED-%s · %s · %s'):format(row.invoice_id,money(row.amount_minor),action=='issueBill' and 'issued' or 'waived'))
-   if action=='issueBill' then notice(v.patient,('Medical invoice MED-%s for %s received. Open /medicalbills to review or pay.'):format(row.invoice_id,money(row.amount_minor))) end
-  else A.notify(src,row and row.code=='no_charges' and 'No unbilled successful treatments.' or 'Invoice could not be confirmed. Refresh billing.') end
+  issue(src,v.patient,v.actor,v.life,action=='waiveCharges')
  end
  local lines=query('query',[[SELECT label,region,price_minor,created_at FROM frontier_medical_charges
  WHERE patient=? AND doctor=? AND life=? AND eligible=TRUE AND invoice_id IS NULL ORDER BY created_at,request_key]],{v.patient,v.actor,v.life}) or {}
- local debt=dueSummary(v.patient)
- if A.validView(src,v) and H.canBill(src,v) then TriggerClientEvent(E..'billingView',src,v.ticket,{lines=lines,debt=debt}) end
+ local debt=H.debt(v.patient)
+ if A.validView(src,v) and H.canBill(src,v) then
+  v.debt=debt;v.debtAt=GetGameTimer()
+  TriggerClientEvent(E..'billingView',src,v.ticket,{lines=lines,debt=debt})
+ end
 end
 local function debitOrderInner(o)
  if o.status~='pending' then return o.status end
@@ -87,7 +93,10 @@ local function debitOrder(o)
  local key='supply:'..o.id
  if processing[key] then return 'pending' end
  processing[key]=true
- local ok,result=pcall(debitOrderInner,o);processing[key]=nil
+ local ok,result=pcall(function()
+  local fresh=query('single','SELECT * FROM frontier_medical_supply_orders WHERE id=?',{o.id})
+  return fresh and debitOrderInner(fresh) or 'pending'
+ end);processing[key]=nil
  if not ok then print('[frontier_medical] Supply debit: '..tostring(result));return 'pending' end
  return result
 end
@@ -154,7 +163,10 @@ local function payInvoice(row)
  local key='bill:'..tostring(row.id)
  if processing[key] then return end
  processing[key]=true
- local ok,err=pcall(payInvoiceInner,row);processing[key]=nil
+ local ok,err=pcall(function()
+  local fresh=query('single','SELECT * FROM frontier_medical_invoices WHERE id=?',{row.id})
+  if fresh and fresh.status=='paying' then payInvoiceInner(fresh) end
+ end);processing[key]=nil
  if not ok then print('[frontier_medical] Invoice payment: '..tostring(err)) end
 end
 local function getInvoice(id)
@@ -216,6 +228,8 @@ local function view(src,v,search,before)
  local payload={ticket=v.ticket,mode=v.mode,station=v.station,name=v.mode=='station' and C.stations[v.station].name or v.mode=='police' and 'Medical debt reports' or 'My medical invoices',invoices=rows,more=more}
  if v.mode=='station' then
   payload.duty=A.duty(src)==true;payload.supplies=C.supplies;payload.kits=C.kits;payload.owned={}
+  payload.unbilled=query('query',[[SELECT MIN(request_key) AS charge_key,MIN(patient_name) AS patient_name,life,COUNT(*) AS count,SUM(price_minor) AS amount_minor,MIN(created_at) AS created_at
+   FROM frontier_medical_charges WHERE doctor=? AND eligible=TRUE AND invoice_id IS NULL GROUP BY patient,life ORDER BY created_at DESC LIMIT 40]],{v.actor}) or {}
   for item in pairs(C.supplies) do local ok,n=inv:GetItemCount(src,item);if ok then payload.owned[item]=n end end
   local ok,balance=eco:GetAccountBalance(account);if ok then payload.balance=balance.balance_minor end
   local ok2,history=eco:GetAccountTransactions(account,30);if ok2 then payload.ledger=history end
@@ -227,14 +241,17 @@ local function view(src,v,search,before)
  if sessions[src]==v and allowed(src,v) then TriggerClientEvent(E..'hospitalView',src,payload) end
 end
 local function run(src,fn)
- if locks[src] then return end
+ local actor=A.cid(src)
+ if not actor or locks[src] or characterLocks[actor] then return end
  local t=GetGameTimer();if last[src] and t-last[src]<400 then return end;last[src]=t
- local lock={};locks[src]=lock
+ local lock={};locks[src]=lock;characterLocks[actor]=lock
  local ok,err=pcall(fn)
  if locks[src]==lock then locks[src]=nil end
+ if characterLocks[actor]==lock then characterLocks[actor]=nil end
  if not ok then print('[frontier_medical] Hospital request failed: '..tostring(err));A.notify(src,'Hospital request could not be confirmed. Refresh before retrying.') end
 end
 function H.clear(src) sessions[src]=nil;locks[src]=nil;last[src]=nil;H.dutyStation[src]=nil end
+function H.isOpen(src) local v=sessions[src];return v and allowed(src,v) or false end
 function H.init(context)
  A=context
  RegisterNetEvent(E..'hospitalOpen',function(mode,station)
@@ -243,6 +260,8 @@ function H.init(context)
   run(src,function()
    local v={actor=A.cid(src),mode=mode,station=type(station)=='string' and station or nil}
    if not v.actor or not allowed(src,v) or A.views[src] or A.working[src] then return A.notify(src,'Hospital access unavailable.') end
+   local existing=sessions[src]
+   if existing and allowed(src,existing) and existing.mode==mode and existing.station==v.station then return view(src,existing) end
    v.ticket=query('scalar','SELECT UUID()')
    if not v.ticket or not allowed(src,v) then return end
    sessions[src]=v;view(src,v)
@@ -260,6 +279,10 @@ function H.init(context)
    elseif action=='duty' and v.mode=='station' then A.setDuty(src,A.duty(src) and 'off' or 'on',v.station)
    elseif (action=='kit' or action=='item') and v.mode=='station' then order(src,v,action,type(id)=='string' and id or '',count)
    elseif action=='collect' and v.mode=='station' then collect(src,v)
+   elseif (action=='issueFromCharge' or action=='waiveFromCharge') and v.mode=='station' and A.duty(src) and not A.testing(src) then
+    if type(id)~='string' or #id>80 then return end
+    local row=query('single','SELECT patient,doctor,life FROM frontier_medical_charges WHERE request_key=? AND doctor=? AND eligible=TRUE AND invoice_id IS NULL',{id,v.actor})
+    if row and allowed(src,v) and A.duty(src) then issue(src,row.patient,row.doctor,tonumber(row.life),action=='waiveFromCharge') end
    elseif action=='pay' or action=='waive' or action=='cancel' or action=='report' then invoiceAction(src,v,action,id)
    elseif action~='refresh' then return end
    view(src,v,search,before)
@@ -269,9 +292,15 @@ function H.init(context)
   while true do
    if ready and not A.legacy() then
     local ok,err=pcall(function()
-     eco:CreditAccount(account,C.initialFunding,{key='med-state:initial',reason='Initial medical department funding'})
+     if not funded.initial then
+      local ok,why=eco:CreditAccount(account,C.initialFunding,{key='med-state:initial',reason='Initial medical department funding'})
+      if ok or why=='idempotency_conflict' then funded.initial=true end
+     end
      local hour=math.floor(os.time()/C.fundingInterval)
-     eco:CreditAccount(account,C.hourlyFunding,{key='med-state:'..hour,reason='Hourly state medical funding',reference=tostring(hour)})
+     if funded.hour~=hour then
+      local ok,why=eco:CreditAccount(account,C.hourlyFunding,{key='med-state:'..hour,reason='Hourly state medical funding',reference=tostring(hour)})
+      if ok or why=='idempotency_conflict' then funded.hour=hour end
+     end
      for _,o in ipairs(query('query',"SELECT * FROM frontier_medical_supply_orders WHERE status='pending' ORDER BY created_at LIMIT 30") or {}) do
       -- Do not race the interactive request; retry durable debits only when its character has no request in progress.
       local src=online(o.doctor);if not src or not locks[src] then debitOrder(o) end

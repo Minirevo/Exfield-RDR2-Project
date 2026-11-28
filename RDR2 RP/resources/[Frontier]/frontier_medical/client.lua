@@ -165,7 +165,8 @@ AddEventHandler('onClientResourceStop',function(r) if r==GetCurrentResourceName(
 -- Hospital screens share focus ownership with the existing examination chart.
 local function hospitalOpen(mode,station)
  if not playing() or opened or hospitalTicket or not state or state.down or state.dead then return end
- hospitalRequested=GetGameTimer()
+ local now=GetGameTimer();if hospitalRequested and now-hospitalRequested<2000 then return end
+ hospitalRequested=now
  TriggerServerEvent(E..'hospitalOpen',mode,station)
 end
 RegisterCommand('medicalbills',function() hospitalOpen('patient') end,false)
@@ -203,6 +204,12 @@ end)
 -- Station coordinates come from the retired VORP medical resource.
 -- Local scenery peds; no client coordinates are trusted by the server.
 local HC=FrontierHospitalConfig
+RegisterCommand('hospital',function()
+ if not playing() then return end
+ local pos=GetEntityCoords(PlayerPedId())
+ for id,st in pairs(HC.stations) do if (pos.x-st.x)^2+(pos.y-st.y)^2+(pos.z-st.z)^2<=HC.reach^2 then return hospitalOpen('station',id) end end
+ TriggerEvent('chat:addMessage',{args={'Medical','Visit a hospital counter first.'}})
+end,false)
 local peds,attempts={},{}
 local prompt,group
 local function deleteClerk(id)

@@ -212,6 +212,11 @@ local function snapshot(src,v)
  local visible,wounds,actions,findings,procedures={},{},{},{},{}
  local licensed=medic(src)
  local billing=licensed and H.canBill(src,v) or false
+ if billing and (not v.debtAt or GetGameTimer()-v.debtAt>=15000) then
+  v.debt=H.debt(v.patient);v.debtAt=GetGameTimer()
+  if v.snapshotSeq~=seq or not validView(src,v) then return end
+  billing=H.canBill(src,v);licensed=medic(src)
+ end
  for _,r in ipairs(C.regions) do
   visible[r]=M.visible(s,r)
   local examined=v.examined[r]==true
@@ -230,13 +235,13 @@ local function snapshot(src,v)
   if v.vitals then vitals.pulse=all.pulse;vitals.respiration=all.respiration;vitals.circulation=all.circulation end
   if v.temperature then vitals.temperature=all.temperature end
  end
- TriggerClientEvent(E..'view',src,{ticket=v.ticket,target=v.target,self=src==v.target,status=status,visible=visible,wounds=wounds,actions=actions,pulse=v.pulse and M.pulse(s,now) or 'Not checked',breathing=v.breathing and M.breathing(s) or 'Not checked',busy=working[src]~=nil,medic=licensed==true,billing=billing==true,findings=licensed and findings or nil,procedures=licensed and procedures or nil,vitals=vitals,selfTest=selfTest(src,v)==true})
+ TriggerClientEvent(E..'view',src,{ticket=v.ticket,target=v.target,self=src==v.target,status=status,visible=visible,wounds=wounds,actions=actions,pulse=v.pulse and M.pulse(s,now) or 'Not checked',breathing=v.breathing and M.breathing(s) or 'Not checked',busy=working[src]~=nil,medic=licensed==true,billing=billing==true,debt=billing and v.debt or nil,findings=licensed and findings or nil,procedures=licensed and procedures or nil,vitals=vitals,selfTest=selfTest(src,v)==true})
 end
 RegisterNetEvent(E..'open',function(target)
  local src=source
  if type(target)~='number' or target%1~=0 or target<1 then return end
  local now=GetGameTimer();if lastOpen[src] and now-lastOpen[src]<1000 then return end;lastOpen[src]=now
- if not capable(src) or not nearby(src,target) or working[src] then return notify(src,'Patient unavailable or too far away') end
+ if not capable(src) or not nearby(src,target) or working[src] or H.isOpen(src) then return notify(src,'Patient unavailable or too far away') end
  local actor,patient=cid(src),cid(target)
  local ticket=db('scalar','SELECT UUID()');if not ticket or cid(src)~=actor or cid(target)~=patient then return end
  local v={ticket=ticket,actor=actor,patient=patient,target=target,expires=now+C.viewMs,examined={},profExam={},pulse=false}

@@ -1,6 +1,6 @@
 -- Run from frontier_medical: lua5.4 tests/unconscious.lua
 -- Exercise the actual client loop with a deterministic mock of the native timer.
-dofile('config.lua')
+dofile('config.lua');dofile('hospital_config.lua')
 local now,ped,expires,ragCalls,resets,blocked=100,1,0,0,0,0
 local mounted,vehicle,attached,dead=false,false,false,false
 local handlers,threads={},{}

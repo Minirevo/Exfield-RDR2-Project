@@ -202,7 +202,7 @@ end
 local function moveBetween(from, to, slot, quantity, target, permission)
     local ok, item = Inventory.Take(from, slot, quantity)
     if not ok then return false, item end
-    if permission and not Inventory.items[item.item][permission] then return false, 'forbidden' end
+    if permission and (not Inventory.items[item.item][permission] or Inventory.IsDepartmentSupply(item)) then return false, 'forbidden' end
     return Inventory.Place(to, item, target)
 end
 
@@ -412,7 +412,7 @@ function Inventory.Change(ctx, container, add, item, quantity, metadata)
     else
         for slot = 1, container.slot_limit do
             local entry = container.slots[slot]
-            if entry and entry.item == item and (not metadata or metadata == entry.metadata) then
+            if entry and entry.item == item and (not metadata or metadata == entry.metadata) and (ctx.actor=='resource:frontier_medical' or not Inventory.IsDepartmentSupply(entry)) then
                 local count = math.min(entry.quantity, quantity)
                 Inventory.Take(container, slot, count)
                 quantity = quantity - count

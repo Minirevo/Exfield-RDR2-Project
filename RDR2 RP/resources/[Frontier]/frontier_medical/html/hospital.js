@@ -1,7 +1,7 @@
 'use strict';
 (()=>{
 const root=document.querySelector('#hospital'),content=document.querySelector('#hospital-content'),notice=document.querySelector('#hospital-notice');
-let data=null,tab='service',search='',before=null,detail=null;
+let data=null,tab='service',search='',before=null,detail=null,confirmation=null;
 const send=(action,extra={})=>post('hospitalAction',{action,search,before,...extra});
 const cash=n=>'$'+(Number(n||0)/100).toFixed(2);
 const date=n=>n?new Date(Number(n)*1000).toLocaleString():'—';
@@ -9,6 +9,13 @@ function el(tag,text,cls){const n=document.createElement(tag);if(text!==undefine
 function button(text,fn,disabled=false){const b=el('button',text);b.disabled=disabled;b.onclick=fn;return b}
 function line(label,value){const n=el('div',undefined,'record-line');n.append(el('span',label),el('strong',String(value)));return n}
 function heading(s){content.append(el('h2',s))}
+function confirmAction(label,fn){
+ confirmation={label,fn};render();
+}
+function renderConfirmation(){
+ if(!confirmation)return;
+ const n=el('div',undefined,'hospital-entry');n.append(el('p',confirmation.label),actions(button('Confirm',()=>{const fn=confirmation.fn;confirmation=null;fn();render()}),button('Back',()=>{confirmation=null;render()})));content.prepend(n);
+}
 function actions(...nodes){const n=el('div',undefined,'actions');n.append(...nodes);return n}
 function render(){
  if(!data)return;
@@ -57,11 +64,16 @@ function render(){
    if(detail.payment_receipt)content.append(line('Payment receipt',detail.payment_receipt),line('Paid at',date(detail.paid_at)));
    if(detail.reported_at)content.append(line('Police referral',date(detail.reported_at)));
    const buttons=[];
-   if(detail.canPay)buttons.push(button('Pay from bank account',()=>{const id=detail.id;detail=null;send('pay',{id})}));
-   if(detail.canResolve){buttons.push(button('Waive invoice',()=>{if(confirm('Waive this invoice?')){const id=detail.id;detail=null;send('waive',{id})}}),button('Cancel invoice',()=>{if(confirm('Cancel this invoice?')){const id=detail.id;detail=null;send('cancel',{id})}}))}
-   if(detail.canReport)buttons.push(button('Refer overdue invoice to police',()=>{if(confirm('Refer this overdue invoice?')){const id=detail.id;detail=null;send('report',{id})}}));
+   if(detail.canPay)buttons.push(button('Pay from bank account',()=>confirmAction('Pay '+cash(detail.amount_minor)+' from your bank account?',()=>{const id=detail.id;detail=null;send('pay',{id})})));
+   if(detail.canResolve){buttons.push(button('Waive invoice',()=>{confirmAction('Waive this invoice?',()=>{const id=detail.id;detail=null;send('waive',{id})})}),button('Cancel invoice',()=>{confirmAction('Cancel this invoice?',()=>{const id=detail.id;detail=null;send('cancel',{id})})}))}
+   if(detail.canReport)buttons.push(button('Refer overdue invoice to police',()=>{confirmAction('Refer this overdue invoice?',()=>{const id=detail.id;detail=null;send('report',{id})})}));
    content.append(actions(...buttons));
   }else{
+   if(data.mode==='station'&&data.unbilled?.length){
+    heading('Unbilled completed treatments');
+    for(const r of data.unbilled){const n=el('div',undefined,'hospital-entry');n.append(line(r.patient_name+' · '+r.count+' treatment(s)',cash(r.amount_minor)),el('p','Recorded '+date(r.created_at),'hint'),actions(button('Issue invoice',()=>confirmAction('Issue invoice for '+cash(r.amount_minor)+'?',()=>send('issueFromCharge',{id:r.charge_key})),!data.duty),button('Waive charges',()=>confirmAction('Waive these charges?',()=>send('waiveFromCharge',{id:r.charge_key})),!data.duty)));content.append(n)}
+    heading('Issued invoices');
+   }
    const input=el('input');input.placeholder='Patient, doctor or MED-number';input.value=search;input.maxLength=80;
    content.append(actions(input,button('Search',()=>{search=input.value;before=null;send('refresh')}),button('Newest',()=>{before=null;search='';send('refresh')})));
    for(const r of data.invoices||[]){const n=el('div',undefined,'hospital-entry');n.append(line('MED-'+r.id+' · '+r.patient_name,cash(r.amount_minor)),el('p',r.status+' · '+r.doctor_name+' · '+date(r.created_at),'hint'),button('View receipt',()=>send('detail',{id:String(r.id)})));content.append(n)}
@@ -69,15 +81,16 @@ function render(){
    if(data.more&&data.invoices.length)content.append(button('Older invoices',()=>{before=String(data.invoices.at(-1).id);send('refresh')}));
   }
  }
+ renderConfirmation();
 }
-root.querySelectorAll('[data-hospital-tab]').forEach(b=>b.onclick=()=>{if(b.hidden)return;tab=b.dataset.hospitalTab;detail=null;render()});
+root.querySelectorAll('[data-hospital-tab]').forEach(b=>b.onclick=()=>{if(b.hidden)return;tab=b.dataset.hospitalTab;detail=null;confirmation=null;render()});
 document.querySelector('#hospital-close').onclick=()=>post('hospitalClose');
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!root.hidden)post('hospitalClose')});
 window.addEventListener('message',({data:m})=>{
- if(m?.type==='hospitalClose'){root.hidden=true;data=null;detail=null;return}
+ if(m?.type==='hospitalClose'){root.hidden=true;data=null;detail=null;confirmation=null;return}
  if(m?.type==='hospitalView'){
   if(!data||data.ticket!==m.data.ticket){tab=m.data.mode==='station'?'service':'archive';search='';before=null;detail=null;notice.textContent=''}
-  data=m.data;root.hidden=false;render();
+  data=m.data;confirmation=null;root.hidden=false;render();
  }
  if(m?.type==='hospitalDetail'&&data){detail=m.data;tab='archive';render()}
  if(m?.type==='notice'&&!root.hidden)notice.textContent=m.message;
