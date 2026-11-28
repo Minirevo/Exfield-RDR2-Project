@@ -1,3 +1,6 @@
+# Retired on Frontier
+This resource is no longer active on this server. The manifest loads only a retirement notice; the original source remains for rollback. Use frontier_medical for treatment, medic roles, and emergency calls. Do not restore the old manifest while Frontier Medical is active. VORP Core remains responsible for native death/respawn.
+
 # **VORP MEDIC Script**
 
 This is a medic system for RedM using the VORP framework. It integrates various doctor-related functionalities, such as an on-duty system, shared/private storages, job management, and more. The script is designed for small to large servers and offers customization options to suit different server needs.

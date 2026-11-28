@@ -5,12 +5,37 @@ local requestAt=0
 local symptomVisible=false
 local feedbackAt=-10000
 local feedbackActive=false
+local dispatchBlip,dispatchNumber=nil,nil
 local function truth(v) return v==true or v==1 end
 local function native(name,...)
  local fn=_G[name];if type(fn)~='function' then return nil end
  local ok,a,b=pcall(fn,...);if ok then return a,b end
 end
 local function playing() return LocalPlayer.state.IsInSession==true end
+local function clearDispatchMarker(number)
+ if number and dispatchNumber~=number then return end
+ if dispatchBlip and dispatchBlip~=0 then pcall(RemoveBlip,dispatchBlip) end
+ dispatchBlip=nil;dispatchNumber=nil
+end
+RegisterNetEvent(E..'dispatchMarker',function(number,pos)
+ if source~=65535 or not playing() or type(number)~='number' or type(pos)~='table' or type(pos.x)~='number' or type(pos.y)~='number' or type(pos.z)~='number' then return end
+ clearDispatchMarker()
+ local ok,blip=pcall(Citizen.InvokeNative,0x554D9D53F696D002,joaat('BLIP_STYLE_CHALLENGE_OBJECTIVE'),pos.x,pos.y,pos.z,Citizen.ResultAsInteger())
+ if ok and blip and blip~=0 then
+  dispatchBlip=blip;dispatchNumber=number
+  pcall(SetBlipSprite,blip,joaat('blip_mp_travelling_saleswoman'),true)
+  pcall(Citizen.InvokeNative,0x9CB1A1623062F402,blip,'Medical emergency #'..number)
+ else
+  TriggerEvent('chat:addMessage',{args={'Medical',('Map marker unavailable. Emergency coordinates: %.0f, %.0f'):format(pos.x,pos.y)}})
+ end
+end)
+RegisterNetEvent(E..'dispatchClear',function(number)
+ if source==65535 then clearDispatchMarker(number) end
+end)
+RegisterNetEvent(E..'dispatchPatient',function(active,message)
+ if source~=65535 or not playing() then return end
+ SendNUIMessage({type='dispatchPatient',active=active==true,message=type(message)=='string' and message or ''})
+end)
 local function clearFeedback()
  if symptomVisible then SendNUIMessage({type='symptoms',symptoms={}});symptomVisible=false end
  if feedbackActive then SendNUIMessage({type='clearFeedback'});feedbackActive=false end
@@ -40,6 +65,7 @@ RegisterNetEvent(E..'state',function(v)
   TriggerEvent('chat:addMessage',{args={'Medical',msg}})
  end
  if v.down and opened then close() end
+ if not v.down or v.dead then SendNUIMessage({type='dispatchPatient',active=false}) end
 end)
 RegisterNetEvent(E..'injuryFeedback',function(token,message)
  if source~=65535 or not playing() or not state or state.token~=token or state.down or state.dead or type(message)~='string' then return end
@@ -52,6 +78,7 @@ CreateThread(function()
   Wait(1000)
   if not playing() or not state or GetGameTimer()-received>=C.stateTimeoutMs or truth(native('IsPlayerDead',PlayerId())) then
    if feedbackActive then clearFeedback() end
+   clearDispatchMarker();SendNUIMessage({type='dispatchPatient',active=false})
   end
  end
 end)
@@ -117,5 +144,5 @@ RegisterNUICallback('action',function(d,cb)
  if opened and ticket and type(d)=='table' then TriggerServerEvent(E..'action',ticket,d.action,d.region,d.item) end
  cb({ok=true})
 end)
-RegisterNetEvent('vorp:SelectedCharacter',function() state=nil;received=0;requestAt=0;feedbackAt=-10000;clearFeedback();FrontierMedicalAdapter.reset();if opened then close() end end)
-AddEventHandler('onClientResourceStop',function(r) if r==GetCurrentResourceName() and opened then close() end end)
+RegisterNetEvent('vorp:SelectedCharacter',function() state=nil;received=0;requestAt=0;feedbackAt=-10000;clearFeedback();clearDispatchMarker();SendNUIMessage({type='dispatchPatient',active=false});FrontierMedicalAdapter.reset();if opened then close() end end)
+AddEventHandler('onClientResourceStop',function(r) if r==GetCurrentResourceName() then clearDispatchMarker();if opened then close() end end end)

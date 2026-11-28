@@ -4,6 +4,9 @@ local E='frontier_medical:'
 local ready=false
 local cache,views,working,reports,lastOpen,lastAction={},{},{},{},{},{}
 local reportCounter=0
+local D=FrontierMedicalDispatch
+local board=D.new()
+local dispatchPublish,dispatchClear,dispatchTick
 local testMedics,operations,patientLocks,testAt={},{},{},{}
 local finishOperation,beginOperation,sendStage
 local function ace(src,permission)
@@ -28,7 +31,8 @@ local function db(method,sql,args)
 end
 local function cid(src) return core:GetPlayerCharacterId(src) end
 local function legacy()
- local x=GetResourceState('vorp_medic');return x=='started' or x=='starting'
+ local x=GetResourceState('vorp_medic')
+ return (x=='started' or x=='starting') and GetResourceMetadata('vorp_medic','frontier_retired',0)~='medical-v1'
 end
 local function death(src)
  local ok,v=pcall(function()
@@ -75,6 +79,7 @@ local function publish(src,id,s,rev)
  r.symptoms=M.symptoms(s,os.time())
  cache[src]={id=id,state=s,revision=rev}
  TriggerClientEvent(E..'state',src,r)
+ if dispatchPublish then dispatchPublish(src,id,s) end
 end
 local function nearby(a,b)
  if not cid(a) or not cid(b) or GetPlayerRoutingBucket(a)~=GetPlayerRoutingBucket(b) then return false end
@@ -501,7 +506,171 @@ local function tick(p)
  if before~=json.encode(s) then if not write(id,s,rev) then return end;rev=rev+1 end
  publish(src,id,s,rev)
 end
+-- Emergency calls are independent of the medical chart, inventory, and native death UI.
+-- No client can choose coordinates or declare someone unconscious.
+local function position(src)
+ local p=GetPlayerPed(src)
+ if p==0 or not DoesEntityExist(p) then return end
+ local c=GetEntityCoords(p)
+ if not c then return end
+ return {x=c.x,y=c.y,z=c.z}
+end
+local function downPatient(src)
+ local v=cache[src]
+ if not ready or legacy() or not v or cid(src)~=v.id or not v.state.down or v.state.dead or death(src) then return end
+ return v
+end
+local function responderReady(src)
+ return board.duty[src]~=nil and board.duty[src]==cid(src) and medic(src) and capable(src)
+end
+local function marker(src,call)
+ TriggerClientEvent(E..'dispatchMarker',src,call.number,call.pos)
+end
+local function clearMarker(src,call)
+ TriggerClientEvent(E..'dispatchClear',src,call.number)
+end
+local function announce(call,except)
+ local count=0
+ for src in pairs(board.duty) do
+  if src~=except and src~=call.source and responderReady(src) and GetPlayerRoutingBucket(src)==call.bucket then
+   count=count+1
+   notify(src,('Emergency #%d: unconscious patient (ID %d). /medicaccept %d'):format(call.number,call.source,call.number))
+  end
+ end
+ call.lastNotice=GetGameTimer()
+ return count
+end
+local function closeCall(call,reason)
+ if not D.close(board,call) then return end
+ if call.responder and cid(call.responder)==call.responderId then
+  clearMarker(call.responder,call);notify(call.responder,('Emergency #%d closed: %s.'):format(call.number,reason))
+ end
+ if cid(call.source)==call.patient then
+  TriggerClientEvent(E..'dispatchPatient',call.source,false)
+  notify(call.source,('Emergency #%d closed: %s.'):format(call.number,reason))
+ end
+end
+local function releaseCall(call,reason)
+ local src,id=D.release(call)
+ if src and cid(src)==id then clearMarker(src,call);notify(src,('Emergency #%d released: %s.'):format(call.number,reason)) end
+ if cid(call.source)==call.patient then
+  TriggerClientEvent(E..'dispatchPatient',call.source,true,'Awaiting an available medic.')
+  notify(call.source,'Your emergency call is awaiting another medic.')
+ end
+ announce(call,src)
+end
+local function openCall(src,v)
+ local pos=position(src);if not pos then return end
+ local bucket=GetPlayerRoutingBucket(src)
+ local old=board.calls[src]
+ if old and not D.same(old,v.id,v.state.life,bucket) then closeCall(old,'patient session changed') end
+ local call,created=D.open(board,src,v.id,v.state.life,bucket,pos)
+ if created then
+  local count=announce(call)
+  local msg=count>0 and 'Emergency call sent. Awaiting an available medic.' or 'Emergency call queued. No on-duty medic is currently available.'
+  TriggerClientEvent(E..'dispatchPatient',src,true,msg);notify(src,msg)
+ end
+ return call,created
+end
+dispatchPublish=function(src,id,state)
+ local call=board.calls[src]
+ if not state.down or state.dead then
+  if call then closeCall(call,state.dead and 'patient died' or 'patient regained consciousness') end
+  return
+ end
+ if death(src) then if call then closeCall(call,'patient died') end;return end
+ if C.dispatch.automatic then openCall(src,{id=id,state=state}) end
+end
+dispatchClear=function(src)
+ local own=board.calls[src]
+ if own then closeCall(own,'patient disconnected or changed character') end
+ board.duty[src]=nil
+ for _,call in pairs(board.calls) do if call.responder==src then releaseCall(call,'medic unavailable') end end
+end
+dispatchTick=function()
+ for src in pairs(board.duty) do
+  if board.duty[src]~=cid(src) or not medic(src) then board.duty[src]=nil end
+ end
+ for _,call in pairs(board.calls) do
+  local v=downPatient(call.source)
+  if not v or not D.same(call,v.id,v.state.life,GetPlayerRoutingBucket(call.source)) then
+   closeCall(call,'patient no longer unconscious or unavailable')
+  else
+   if call.responder and (not responderReady(call.responder) or call.responderId~=cid(call.responder) or GetPlayerRoutingBucket(call.responder)~=call.bucket) then
+    releaseCall(call,'medic unavailable')
+   end
+   local pos=position(call.source)
+   if pos then
+    local a=call.pos;local distance=(a.x-pos.x)^2+(a.y-pos.y)^2+(a.z-pos.z)^2
+    if distance>=C.dispatch.markerMove^2 then call.pos=pos;if call.responder then marker(call.responder,call) end end
+   end
+   if not call.responder and GetGameTimer()-(call.lastNotice or 0)>=C.dispatch.reminderMs then announce(call) end
+  end
+ end
+end
+RegisterCommand('mediccall',function(src,args)
+ if src<=0 then return end
+ local target=args[1] and tonumber(args[1]) or src
+ if not target or target%1~=0 or target<1 then return notify(src,'Usage: /mediccall [patient ID]') end
+ if target~=src and (not capable(src) or not nearby(src,target)) then return notify(src,'Stand beside the unconscious patient.') end
+ local v=downPatient(target)
+ if not v then return notify(src,'Only a living unconscious patient can request emergency help.') end
+ local call,created=openCall(target,v)
+ if not call then return notify(src,'Patient location unavailable.') end
+ if target~=src or not created then notify(src,('Emergency #%d %s.'):format(call.number,created and 'sent' or 'already active')) end
+end,false)
+RegisterCommand('medicduty',function(src,args)
+ if src<=0 then return end
+ if not medic(src) then return notify(src,'Medic licence or temporary medic access required.') end
+ local mode=args[1] or (board.duty[src] and 'off' or 'on')
+ if mode=='off' then
+  board.duty[src]=nil
+  for _,call in pairs(board.calls) do if call.responder==src then releaseCall(call,'medic off duty') end end
+  return notify(src,'You are off duty.')
+ end
+ if mode~='on' then return notify(src,'Usage: /medicduty on|off') end
+ if not capable(src) then return notify(src,'You must be conscious to go on duty.') end
+ if board.duty[src]==cid(src) then return notify(src,'You are already on duty. Use /mediccalls.') end
+ board.duty[src]=cid(src);notify(src,'You are on duty. Use /mediccalls to see open emergencies.')
+ for _,call in pairs(board.calls) do
+  if not call.responder and call.bucket==GetPlayerRoutingBucket(src) and downPatient(call.source) then
+   notify(src,('Emergency #%d: unconscious patient (ID %d). /medicaccept %d'):format(call.number,call.source,call.number))
+  end
+ end
+end,false)
+RegisterCommand('mediccalls',function(src)
+ if src<=0 then return end
+ if not responderReady(src) then return notify(src,'Go on duty with /medicduty on first.') end
+ local count=0
+ for _,call in pairs(board.calls) do
+  if call.bucket==GetPlayerRoutingBucket(src) and downPatient(call.source) then
+   count=count+1;notify(src,('Emergency #%d · patient ID %d · %s'):format(call.number,call.source,call.responder==src and 'assigned to you' or call.responder and 'assigned' or 'open'))
+  end
+ end
+ if count==0 then notify(src,'No active emergencies in your area.') end
+end,false)
+RegisterCommand('medicaccept',function(src,args)
+ if src<=0 then return end
+ if not responderReady(src) then return notify(src,'Go on duty with /medicduty on first.') end
+ local number=tonumber(args[1]);local call=number and D.find(board,number)
+ local v=call and downPatient(call.source)
+ if not v or not D.same(call,v.id,v.state.life,GetPlayerRoutingBucket(call.source)) then return notify(src,'Emergency no longer available.') end
+ local ok,why=D.claim(board,call,src,cid(src),GetPlayerRoutingBucket(src))
+ if not ok then return notify(src,why=='busy' and 'Release your current call first.' or 'Emergency already assigned or unavailable.') end
+ local pos=position(call.source);if pos then call.pos=pos end
+ marker(src,call);notify(src,('Emergency #%d accepted. Patient marked on your map. Use /medical %d when nearby.'):format(call.number,call.source))
+ TriggerClientEvent(E..'dispatchPatient',call.source,true,'A medic has accepted your emergency call.')
+ notify(call.source,'A medic has accepted your emergency call.')
+end,false)
+RegisterCommand('medicrelease',function(src)
+ if src<=0 then return end
+ for _,call in pairs(board.calls) do
+  if call.responder==src and call.responderId==cid(src) then releaseCall(call,'medic released the call');return end
+ end
+ notify(src,'You have no assigned emergency.')
+end,false)
 local function clear(src)
+ dispatchClear(src)
  local o=operations[src]
  if o then
   -- On disconnect the durable operation expires as a failure. No client
@@ -523,6 +692,7 @@ MySQL.ready(function()
   if not legacy() then
    for _,p in pairs(core:GetPlayers()) do local ok,err=pcall(tick,p);if not ok then print('[frontier_medical] '..tostring(err)) end end
   else cache={};reports={} end
+  dispatchTick()
   for src,v in pairs(views) do
    if not validView(src,v) then
     if operations[src] then finishOperation(src,operations[src],'failed') end
