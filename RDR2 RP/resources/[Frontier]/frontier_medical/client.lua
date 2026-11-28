@@ -102,6 +102,16 @@ end)
 RegisterNetEvent(E..'closeView',function(t)
  if source==65535 and ticket==t and opened then close() end
 end)
+RegisterNetEvent(E..'operationStage',function(t,d)
+ if source==65535 and opened and ticket==t and type(d)=='table' then SendNUIMessage({type='operationStage',data=d}) end
+end)
+RegisterNetEvent(E..'operationEnd',function(key)
+ if source==65535 and opened then SendNUIMessage({type='operationEnd',key=key}) end
+end)
+RegisterNUICallback('operationPress',function(d,cb)
+ if opened and ticket and type(d)=='table' then TriggerServerEvent(E..'operationPress',d.key,d.stage) end
+ cb({ok=true})
+end)
 RegisterNUICallback('close',function(_,cb) close();cb({ok=true}) end)
 RegisterNUICallback('action',function(d,cb)
  if opened and ticket and type(d)=='table' then TriggerServerEvent(E..'action',ticket,d.action,d.region,d.item) end

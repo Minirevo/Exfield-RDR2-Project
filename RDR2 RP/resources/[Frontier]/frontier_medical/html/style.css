@@ -12,3 +12,6 @@
 #injury-vignette.hit{opacity:.65}#injury-vignette.distress{opacity:.38}#injury-vignette.hit.distress{opacity:.7}
 main{z-index:3}
 @media(prefers-reduced-motion:reduce){#injury-vignette{transition:none}}
+
+#professional{border-top:1px solid #6e604c;margin-top:14px}#findings,#vitals{white-space:pre-line;font-size:14px;line-height:1.5;margin:8px 0;padding:8px;background:#191610;border-radius:4px}
+#vitals:empty{display:none}#operation{border:1px solid #a28b64;background:#30271e;padding:12px;margin-top:14px;border-radius:4px}#operation-track{height:30px;background:#15120f;position:relative;border:1px solid #9a805f;margin-bottom:10px;overflow:hidden}#operation-zone{position:absolute;height:100%;background:#58734d}#operation-needle{position:absolute;height:100%;width:3px;background:#fff0ce;box-shadow:0 0 5px #fff}#operation-press{width:100%}

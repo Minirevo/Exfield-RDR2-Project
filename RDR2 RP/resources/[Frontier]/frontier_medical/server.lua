@@ -4,6 +4,14 @@ local E='frontier_medical:'
 local ready=false
 local cache,views,working,reports,lastOpen,lastAction={},{},{},{},{},{}
 local reportCounter=0
+local testMedics,operations,patientLocks,testAt={},{},{},{}
+local finishOperation,beginOperation,sendStage
+local function admin(src) return src>0 and IsPlayerAceAllowed(src,C.adminAce) end
+local function medic(src)
+ local id=core:GetPlayerCharacterId(src)
+ return id and (IsPlayerAceAllowed(src,C.medicAce) or (testMedics[src]==id and admin(src))) or false
+end
+local function selfTest(src,v) return src==v.target and testMedics[src]==v.actor and admin(src) end
 local function db(method,sql,args)
  local ok,v=pcall(MySQL[method].await,sql,args)
  if not ok then print('[frontier_medical] Database error: '..method);return nil end
@@ -177,20 +185,32 @@ local function snapshot(src,v)
  local seq=v.snapshotSeq
  local s=read(v.patient);if not s or v.snapshotSeq~=seq or not validView(src,v) then return end
  if v.life and v.life~=s.life then
+  if operations[src] then finishOperation(src,operations[src],'failed') end
   views[src]=nil;working[src]=nil;TriggerClientEvent(E..'closeView',src,v.ticket);return
  end
  v.life=s.life
  local now=os.time()
- local visible,wounds,actions={},{},{}
+ local visible,wounds,actions,findings,procedures={},{},{},{},{}
+ local licensed=medic(src)
  for _,r in ipairs(C.regions) do
   visible[r]=M.visible(s,r)
   local examined=v.examined[r]==true
   if examined then wounds[r]=M.exam(s,r,now) end
   actions[r]={}
   for item in pairs(C.items) do actions[r][item]=M.observedTreatment(s,item,r,now,examined,src==v.target) end
+  if licensed and v.profExam[r] then
+   findings[r]=M.professionalFindings(s,r);procedures[r]={}
+   for id in pairs(C.procedures) do procedures[r][id]=(src~=v.target or selfTest(src,v)) and M.procedureEligible(s,r,id,now) end
+  end
  end
  local status=s.dead and 'Dead' or s.down and 'Unconscious' or 'Conscious'
- TriggerClientEvent(E..'view',src,{ticket=v.ticket,target=v.target,self=src==v.target,status=status,visible=visible,wounds=wounds,actions=actions,pulse=v.pulse and M.pulse(s,now) or 'Not checked',breathing=v.breathing and M.breathing(s) or 'Not checked',busy=working[src]~=nil})
+ local vitals
+ if licensed and (v.vitals or v.temperature) then
+  local all=M.vitals(s,now);vitals={}
+  if v.vitals then vitals.pulse=all.pulse;vitals.respiration=all.respiration;vitals.circulation=all.circulation end
+  if v.temperature then vitals.temperature=all.temperature end
+ end
+ TriggerClientEvent(E..'view',src,{ticket=v.ticket,target=v.target,self=src==v.target,status=status,visible=visible,wounds=wounds,actions=actions,pulse=v.pulse and M.pulse(s,now) or 'Not checked',breathing=v.breathing and M.breathing(s) or 'Not checked',busy=working[src]~=nil,medic=licensed==true,findings=licensed and findings or nil,procedures=licensed and procedures or nil,vitals=vitals,selfTest=selfTest(src,v)==true})
 end
 RegisterNetEvent(E..'open',function(target)
  local src=source
@@ -199,12 +219,15 @@ RegisterNetEvent(E..'open',function(target)
  if not capable(src) or not nearby(src,target) or working[src] then return notify(src,'Patient unavailable or too far away') end
  local actor,patient=cid(src),cid(target)
  local ticket=db('scalar','SELECT UUID()');if not ticket or cid(src)~=actor or cid(target)~=patient then return end
- local v={ticket=ticket,actor=actor,patient=patient,target=target,expires=now+C.viewMs,examined={},pulse=false}
+ local v={ticket=ticket,actor=actor,patient=patient,target=target,expires=now+C.viewMs,examined={},profExam={},pulse=false}
  views[src]=v;snapshot(src,v)
 end)
 RegisterNetEvent(E..'close',function(ticket)
  local src=source;local v=views[src]
- if v and v.ticket==ticket then views[src]=nil;working[src]=nil end
+ if v and v.ticket==ticket then
+  if operations[src] then finishOperation(src,operations[src],'failed') end
+  views[src]=nil;working[src]=nil
+ end
 end)
 RegisterNetEvent(E..'action',function(ticket,action,region,item)
  local src=source;local v=views[src]
@@ -215,6 +238,17 @@ RegisterNetEvent(E..'action',function(ticket,action,region,item)
   v.examined[region]=true;return snapshot(src,v)
  elseif action=='pulse' then v.pulse=true;return snapshot(src,v)
  elseif action=='breathing' then v.breathing=true;return snapshot(src,v)
+ elseif action=='professional' then
+  if not medic(src) or not validRegion(region) then return end
+  v.profExam[region]=true;v.examined[region]=true;return snapshot(src,v)
+ elseif action=='vitals' or action=='temperature' then
+  if not medic(src) then return end
+  local item=action=='vitals' and 'stethoscope' or 'thermometer'
+  local ok,has=inv:HasItem(src,item,1)
+  if not ok or not has then return notify(src,'Missing '..C.equipment[item]) end
+  if not validView(src,v) or not medic(src) then return end
+  v[action]=true;return snapshot(src,v)
+ elseif action=='procedure' then return beginOperation(src,v,region,item)
  elseif action~='treat' or type(region)~='string' or not validRegion(region) or not C.items[item] then return end
  local s=read(v.patient)
  if not s or s.life~=v.life or not M.observedTreatment(s,item,region,os.time(),v.examined[region],src==v.target) then return notify(src,'No eligible observed injury for that treatment') end
@@ -239,6 +273,164 @@ RegisterNetEvent(E..'action',function(ticket,action,region,item)
   SetTimeout(1500,function() if validView(src,v) then snapshot(src,v) end end)
  end)
 end)
+-- Durable operations are paid before the challenge begins. The outbox uses the
+-- exact inventory receipt and a patient-life CAS; an unpaid attempt has no effect.
+local function releaseOperation(src,o)
+ if operations[src]==o then operations[src]=nil end
+ if patientLocks[o.patient]==o then patientLocks[o.patient]=nil end
+ if working[src]==o then working[src]=nil end
+end
+local function operationValid(src,o)
+ return operations[src]==o and working[src]==o and medic(src) and validView(src,o.view)
+  and (src~=o.view.target or selfTest(src,o.view)) and os.time()<o.expires
+end
+finishOperation=function(src,o,outcome)
+ if operations[src]~=o or o.finishing then return end
+ o.finishing=true
+ if not o.key then releaseOperation(src,o);return end
+ if outcome=='success' and not operationValid(src,o) then outcome='failed' end
+ -- On DB uncertainty the row remains pending and expires as a paid failure.
+ local n=db('update',[[UPDATE frontier_medical_operations SET outcome=? WHERE request_key=? AND outcome='pending' AND applied=FALSE]],{outcome,o.key})
+ releaseOperation(src,o)
+ if cid(src)==o.doctor then
+  TriggerClientEvent(E..'operationEnd',src,o.key)
+  notify(src,n==1 and (outcome=='success' and 'Procedure completed; awaiting medical record.' or outcome=='complication' and 'Procedure complication. Reassess the patient.' or 'Procedure failed or interrupted.') or 'Procedure outcome pending.')
+  if validView(src,o.view) then snapshot(src,o.view) end
+ end
+end
+sendStage=function(src,o)
+ if not operationValid(src,o) then return finishOperation(src,o,'failed') end
+ o.stage=o.stage+1;o.center=math.random(950,2250);o.started=GetGameTimer()
+ TriggerClientEvent(E..'operationStage',src,o.view.ticket,{key=o.key,stage=o.stage,total=o.def.stages,label=o.def.label,
+  center=o.center,window=o.window,duration=C.stageTimeoutMs})
+ local stage=o.stage
+ SetTimeout(C.stageTimeoutMs+250,function()
+  if operations[src]==o and o.stage==stage then finishOperation(src,o,'failed') end
+ end)
+end
+beginOperation=function(src,v,r,id)
+ local def=type(id)=='string' and C.procedures[id]
+ if not def or not validRegion(r) or not medic(src) or not v.profExam[r] or (src==v.target and not selfTest(src,v)) then return notify(src,'Professional procedure unavailable.') end
+ if working[src] or patientLocks[v.patient] then return notify(src,'A procedure is already in progress.') end
+ -- Reserve the patient and actor before any yielding calls. Close/disconnect
+ -- during setup cannot allow an unpaid challenge or a second operation.
+ local o={view=v,patient=v.patient,doctor=v.actor,region=r,id=id,def=def,stage=0,expires=os.time()+C.operationSeconds}
+ operations[src]=o;working[src]=o;patientLocks[v.patient]=o
+ local function refuse(msg) releaseOperation(src,o);if cid(src)==v.actor then notify(src,msg) end end
+ local current=read(v.patient)
+ if not current or current.life~=v.life or not M.procedureEligible(current,r,id,os.time()) or not operationValid(src,o) then return refuse('Patient no longer eligible.') end
+ local pending=db('scalar',[[SELECT COUNT(*) FROM frontier_medical_operations o
+ LEFT JOIN frontier_inventory_receipts r ON r.request_key=o.request_key AND r.completed=TRUE AND BINARY r.actor=BINARY 'resource:frontier_medical' AND BINARY r.fingerprint=BINARY o.fingerprint
+ WHERE o.patient=? AND o.applied=FALSE AND (o.expires_at>=? OR r.request_key IS NOT NULL)]],{v.patient,os.time()})
+ if pending==nil or tonumber(pending)>0 then return refuse('A previous operation is still being resolved.') end
+ local ok,has=inv:HasItem(src,def.supply,1)
+ if not ok or not has then return refuse('Missing supply: '..def.supply) end
+ if def.instrument then
+  ok,has=inv:HasItem(src,def.instrument,1)
+  if not ok or not has then return refuse('Missing instrument: '..def.instrument) end
+ end
+ local skillOk,skill=exports.frontier_skills:GetSkill(src,'doctoring')
+ local level=skillOk and skill.level or 1
+ o.window=def.window+math.floor((level-1)*2)
+ local uuid=db('scalar','SELECT UUID()')
+ if not uuid or not operationValid(src,o) then return refuse('Procedure interrupted.') end
+ o.key='op:'..uuid:gsub('-','')
+ o.life=current.life
+ local fp=json.encode({'change',false,v.actor,false,def.supply,1,false})
+ local inserted=db('update',[[INSERT INTO frontier_medical_operations(request_key,patient,life,doctor,region,procedure_id,fingerprint,expires_at,testing)
+ VALUES(?,?,?,?,?,?,?,?,?)]],{o.key,v.patient,o.life,v.actor,r,id,fp,o.expires,selfTest(src,v) and 1 or 0})
+ if inserted~=1 or not operationValid(src,o) then
+  if inserted==1 then finishOperation(src,o,'failed') else refuse('Operation could not be recorded.') end
+  return
+ end
+ local paid,why=inv:RemoveItem(src,def.supply,1,nil,o.key)
+ if not paid then
+  finishOperation(src,o,'failed')
+  if cid(src)==v.actor then notify(src,'Supply payment not confirmed: '..tostring(why)) end
+  return
+ end
+ if not operationValid(src,o) then finishOperation(src,o,'failed');return end
+ snapshot(src,v);sendStage(src,o)
+end
+RegisterNetEvent(E..'operationPress',function(key,stage)
+ local src=source;local o=operations[src]
+ if not o or o.key~=key or o.stage~=stage or not o.started or o.finishing then return end
+ if not operationValid(src,o) then return finishOperation(src,o,'failed') end
+ local elapsed=GetGameTimer()-o.started;o.started=nil
+ local result=M.scoreStage(elapsed,o.center,o.window)
+ if result~='success' then return finishOperation(src,o,result) end
+ if o.stage>=o.def.stages then return finishOperation(src,o,'success') end
+ sendStage(src,o)
+end)
+local function applyOperations()
+ local now=os.time()
+ local rows=db('query',[[SELECT o.* FROM frontier_medical_operations o JOIN frontier_inventory_receipts r
+ ON r.request_key=o.request_key AND r.completed=TRUE AND BINARY r.actor=BINARY 'resource:frontier_medical' AND BINARY r.fingerprint=BINARY o.fingerprint
+ WHERE o.applied=FALSE AND (o.outcome<>'pending' OR o.expires_at<=?) ORDER BY o.expires_at LIMIT 100]],{now}) or {}
+ for _,o in ipairs(rows) do
+  local state,rev=read(o.patient)
+  if state then
+   local result=o.outcome=='pending' and 'failed' or o.outcome
+   local changed=tonumber(o.life)==state.life and M.applyProcedure(state,o.region,o.procedure_id,result,now)
+   local xp=changed and result=='success' and not (o.testing==true or tonumber(o.testing)==1)
+   local n=db('update',[[UPDATE frontier_medical_state m JOIN frontier_medical_operations o ON o.patient=m.character_id
+    JOIN frontier_inventory_receipts r ON r.request_key=o.request_key AND r.completed=TRUE AND BINARY r.actor=BINARY 'resource:frontier_medical' AND BINARY r.fingerprint=BINARY o.fingerprint
+    SET m.state=?,m.revision=m.revision+1,o.applied=TRUE,o.outcome=?,o.xp_due=?
+    WHERE o.request_key=? AND o.applied=FALSE AND m.revision=? AND o.outcome=?]],
+    {json.encode(state),result,xp and 1 or 0,o.request_key,rev,o.outcome})
+   if n and n>0 then
+    for _,p in pairs(core:GetPlayers()) do
+     if p.frontierCharacterId==o.patient then publish(p.source,o.patient,state,rev+1);if changed then notify(p.source,result=='success' and 'Professional treatment applied.' or 'Treatment complication.') end end
+     if p.frontierCharacterId==o.doctor and result=='success' and not changed then notify(p.source,'Treatment no longer applicable; supplies spent.') end
+    end
+   end
+  end
+ end
+ local awards=db('query',[[SELECT request_key,doctor,procedure_id FROM frontier_medical_operations WHERE xp_due=TRUE AND xp_awarded=FALSE LIMIT 100]]) or {}
+ for _,o in ipairs(awards) do
+  local def=C.procedures[o.procedure_id]
+  if def and exports.frontier_skills:GrantXP(o.doctor,'doctoring',def.xp,o.request_key) then
+   db('update','UPDATE frontier_medical_operations SET xp_awarded=TRUE WHERE request_key=?',{o.request_key})
+  end
+ end
+ -- Remove only old unpaid attempts, not paid receipts or unresolved outcomes.
+ db('update',[[DELETE o FROM frontier_medical_operations o LEFT JOIN frontier_inventory_receipts r ON r.request_key=o.request_key
+ WHERE o.applied=FALSE AND o.expires_at<? AND r.request_key IS NULL]],{now-86400})
+end
+RegisterCommand('medictest',function(src,args)
+ if not admin(src) then return end
+ local id=cid(src);if not id then return notify(src,'Load a character first.') end
+ if operations[src] then return notify(src,'Finish the operation first.') end
+ if args[1]=='off' or (not args[1] and testMedics[src]==id) then testMedics[src]=nil;notify(src,'Temporary medic access disabled.')
+ elseif args[1]=='on' or not args[1] then testMedics[src]=id;notify(src,'Temporary medic access enabled, including self-procedures. Reopen /medical.')
+ else notify(src,'Usage: /medictest on|off') end
+end,false)
+RegisterCommand('medicalinjure',function(src,args)
+ if not admin(src) or not ready or legacy() then return end
+ local id=cid(src);if not id or death(src) or patientLocks[id] or working[src] then return notify(src,'Test character unavailable or undergoing treatment.') end
+ local now=GetGameTimer();if testAt[src] and now-testAt[src]<1000 then return end;testAt[src]=now
+ local r,kind=args[1],args[2]
+ local reset=r=='reset'
+ local raw=tonumber(args[3]) or 30
+ if not reset and (not validRegion(r) or type(kind)~='string' or raw%1~=0 or raw<1 or raw>200) then
+  return notify(src,'Usage: /medicalinjure <region> <penetrating|blunt|fall|cut|burn|bite|fracture|internal|organ|bullet|splinter|deep|shock> [raw 1-200], or reset')
+ end
+ local pending=db('scalar',[[SELECT COUNT(*) FROM frontier_medical_operations o JOIN frontier_inventory_receipts r
+ ON r.request_key=o.request_key AND r.completed=TRUE WHERE o.patient=? AND o.applied=FALSE]],{id})
+ if pending==nil or tonumber(pending)>0 then return notify(src,'Wait for previous operation to resolve.') end
+ for _=1,5 do
+  local state,rev=read(id)
+  if not state or state.dead or cid(src)~=id then return notify(src,'Test reset cannot resurrect a dead character.') end
+  if reset then
+   local new=M.new(state.life)
+   new.reportToken=state.reportToken;new.reportSeq=state.reportSeq;state=new
+  elseif not M.testInjury(state,r,kind,raw,os.time()) then return notify(src,'Invalid preset for region.') end
+  if write(id,state,rev) then
+   publish(src,id,state,rev+1);notify(src,reset and 'Test injuries reset.' or ('Test injury: '..r..' / '..kind));return
+  end
+ end
+ notify(src,'Test update conflicted; retry.')
+end,false)
 local function tick(p)
  local src,id=p.source,p.frontierCharacterId
  if cid(src)~=id then return end
@@ -255,21 +447,32 @@ local function tick(p)
  if before~=json.encode(s) then if not write(id,s,rev) then return end;rev=rev+1 end
  publish(src,id,s,rev)
 end
-local function clear(src) cache[src]=nil;views[src]=nil;working[src]=nil;reports[src]=nil;lastOpen[src]=nil;lastAction[src]=nil end
+local function clear(src)
+ local o=operations[src]
+ if o then
+  -- On disconnect the durable operation expires as a failure. No client
+  -- identity or payment can be reused to finish it after reconnect.
+  releaseOperation(src,o)
+ end
+ testMedics[src]=nil;testAt[src]=nil
+ cache[src]=nil;views[src]=nil;working[src]=nil;reports[src]=nil;lastOpen[src]=nil;lastAction[src]=nil
+end
 AddEventHandler('playerDropped',function() clear(tonumber(source) or source) end)
 AddEventHandler('frontier:playerUnloaded',function(p) clear(p.source) end)
 MySQL.ready(function()
  while not ready do
-  ready=db('query','SELECT character_id FROM frontier_medical_state LIMIT 0')~=nil and db('query','SELECT request_key FROM frontier_medical_treatments LIMIT 0')~=nil
-  if not ready then print('[frontier_medical] Apply sql/migrations/001_medical.sql');Wait(5000) end
+  ready=db('query','SELECT character_id FROM frontier_medical_state LIMIT 0')~=nil and db('query','SELECT request_key FROM frontier_medical_treatments LIMIT 0')~=nil and db('query','SELECT request_key FROM frontier_medical_operations LIMIT 0')~=nil
+  if not ready then print('[frontier_medical] Apply sql/migrations/001_medical.sql and 002_professional.sql');Wait(5000) end
  end
- CreateThread(function() while true do if not legacy() then applyTreatments() end;Wait(1000) end end)
+ CreateThread(function() while true do if not legacy() then applyTreatments();applyOperations() end;Wait(1000) end end)
  while true do
   if not legacy() then
    for _,p in pairs(core:GetPlayers()) do local ok,err=pcall(tick,p);if not ok then print('[frontier_medical] '..tostring(err)) end end
   else cache={};reports={} end
   for src,v in pairs(views) do
-   if not validView(src,v) then views[src]=nil;working[src]=nil;TriggerClientEvent(E..'closeView',src,v.ticket)
+   if not validView(src,v) then
+    if operations[src] then finishOperation(src,operations[src],'failed') end
+    views[src]=nil;working[src]=nil;TriggerClientEvent(E..'closeView',src,v.ticket)
    else
     local ok,err=pcall(snapshot,src,v)
     if not ok then print('[frontier_medical] View refresh failed: '..tostring(err)) end

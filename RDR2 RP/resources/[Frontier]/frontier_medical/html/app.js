@@ -2,7 +2,7 @@
 const chart=document.querySelector('#chart'),labels={head:'Head',chest:'Chest',abdomen:'Abdomen',left_arm:'Left arm',right_arm:'Right arm',left_leg:'Left leg',right_leg:'Right leg'};
 const regions=[...document.querySelectorAll('svg [data-region]')];
 const hit=document.querySelector('#hit'),symptoms=document.querySelector('#symptoms'),vignette=document.querySelector('#injury-vignette');
-let data=null,region='chest',hitTimer=null;
+let data=null,region='chest',hitTimer=null,operation=null,animation=null;
 const post=(route,payload={})=>fetch('https://'+GetParentResourceName()+'/'+route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});
 function select(r){if(!labels[r])return;region=r;render();}
 regions.forEach(n=>{
@@ -31,6 +31,15 @@ function render(){if(!data)return;
   b.disabled=!!data.busy||data.actions?.[region]?.[item]!==true;
   b.title=b.disabled&&!data.busy?(item==='splint'&&!w?'Examine closely first.':item==='tonic'&&!data.self&&!w?'Examine closely first.':'No eligible injury for this treatment.'):'';
  });
+ const professional=document.querySelector('#professional');
+ professional.hidden=!data.medic;
+ if(data.medic){
+  const values=data.vitals||{};
+  document.querySelector('#vitals').textContent=[values.pulse!==undefined?'Pulse: '+values.pulse+' bpm':null,values.respiration!==undefined?'Breathing: '+values.respiration+'/min':null,values.circulation?'Circulation: '+values.circulation:null,values.temperature?'Temperature: '+values.temperature:null].filter(Boolean).join(' · ');
+  document.querySelector('#findings').textContent=(data.findings?.[region]||['Perform a clinical assessment.']).join('\n');
+  document.querySelector('#professional-hint').textContent=data.self&&!data.selfTest?'Professional procedures require another medic.':'Procedures consume supplies. Some require a surgical instrument kit.';
+  document.querySelectorAll('[data-procedure]').forEach(b=>b.disabled=!!data.busy||data.procedures?.[region]?.[b.dataset.procedure]!==true);
+ }
  document.querySelector('#progress').textContent=data.busy?'Treatment in progress — remain nearby.':'';
 }
 function clearHit(){clearTimeout(hitTimer);hitTimer=null;hit.hidden=true;vignette.classList.remove('hit');}
@@ -49,12 +58,39 @@ function showSymptoms(values){
  symptoms.hidden=!symptoms.children.length;
  vignette.classList.toggle('distress',severe);
 }
+const operationPanel=document.querySelector('#operation'),needle=document.querySelector('#operation-needle'),zone=document.querySelector('#operation-zone'),press=document.querySelector('#operation-press');
+function endOperation(key){
+ if(key&&operation?.key!==key)return;
+ if(animation!==null)cancelAnimationFrame(animation);
+ animation=null;operation=null;operationPanel.hidden=true;
+}
+function startOperation(d){
+ endOperation();operation={...d,start:performance.now(),pressed:false};
+ operationPanel.hidden=false;press.disabled=false;
+ document.querySelector('#operation-title').textContent=d.label;
+ document.querySelector('#operation-stage').textContent='Precision stage '+d.stage+' of '+d.total;
+ zone.style.left=(Math.max(0,d.center-d.window)/d.duration*100)+'%';
+ zone.style.width=(Math.min(d.duration,d.center+d.window)-Math.max(0,d.center-d.window))/d.duration*100+'%';
+ function frame(t){
+  if(!operation||operation.pressed)return;
+  const elapsed=Math.max(0,t-operation.start);
+  needle.style.left=Math.min(100,elapsed/d.duration*100)+'%';
+  if(elapsed<d.duration)animation=requestAnimationFrame(frame);else press.disabled=true;
+ }
+ animation=requestAnimationFrame(frame);
+}
+press.onclick=()=>{
+ if(!operation||operation.pressed||press.disabled)return;
+ operation.pressed=true;press.disabled=true;
+ post('operationPress',{key:operation.key,stage:operation.stage});
+};
+document.querySelectorAll('[data-procedure]').forEach(b=>b.onclick=()=>post('action',{action:'procedure',region,item:b.dataset.procedure}));
 document.querySelector('#close').onclick=()=>post('close');
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!chart.hidden)post('close');});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!chart.hidden)post('close');else if(e.key===' '&&operation&&!e.repeat){e.preventDefault();press.click();}});
 document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>post('action',{action:b.dataset.action,region}));
 document.querySelectorAll('[data-item]').forEach(b=>b.onclick=()=>post('action',{action:'treat',region,item:b.dataset.item}));
 window.addEventListener('message',({data:m})=>{
- if(m?.type==='close'){chart.hidden=true;data=null;return}
+ if(m?.type==='close'){endOperation();chart.hidden=true;data=null;return}
  if(m?.type==='view'){
   if(!data||data.ticket!==m.data.ticket){
    region=Object.keys(labels).find(r=>m.data.visible?.[r]?.bleeding)||Object.keys(labels).find(r=>m.data.visible?.[r]?.wounded)||'chest';
@@ -62,6 +98,8 @@ window.addEventListener('message',({data:m})=>{
   }
   data=m.data;chart.hidden=false;render();
  }
+ if(m?.type==='operationStage'&&data)startOperation(m.data);
+ if(m?.type==='operationEnd')endOperation(m.key);
  if(m?.type==='notice')document.querySelector('#notice').textContent=m.message;
  if(m?.type==='symptoms')showSymptoms(m.symptoms);
  if(m?.type==='injuryFeedback'&&typeof m.message==='string')showHit(m.message);
