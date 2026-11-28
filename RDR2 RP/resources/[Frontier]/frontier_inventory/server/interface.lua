@@ -1744,7 +1744,7 @@ trusted('ShopDefinition',function(owner,item)
  return true,{name=d.name,description=d.description,grams=d.grams,maxStack=d.maxStack,classification=d.classification}
 end)
 trusted('ShopBasket',function(owner,character,order,mode,serialized)
- if owner~='frontier_shops' or not Inventory.Id(character,64) or not character:match('^f_[a-f0-9]+$') or not tradeUuid(order) or (mode~='grant' and mode~='take' and mode~='previewGrant' and mode~='previewTake') or type(serialized)~='string' or #serialized>10000 then return false,'invalid_request' end
+ if (owner~='frontier_shops' and owner~='frontier_horses') or not Inventory.Id(character,64) or not character:match('^f_[a-f0-9]+$') or not tradeUuid(order) or (mode~='grant' and mode~='take' and mode~='previewGrant' and mode~='previewTake') or type(serialized)~='string' or #serialized>10000 then return false,'invalid_request' end
  local valid,lines=pcall(json.decode,serialized)
  if not valid or type(lines)~='table' or #lines<1 or #lines>20 then return false,'invalid_request' end
  local preview=mode=='previewGrant' or mode=='previewTake'
@@ -1765,6 +1765,7 @@ trusted('ShopBasket',function(owner,character,order,mode,serialized)
   if type(line)~='table' or not Inventory.Id(line.id,48) or seen[line.id] or not Inventory.Int(line.quantity,100) then return false,'invalid_request' end
   seen[line.id]=true
   local d=Inventory.items[line.id];if not d then return false,'invalid_item' end
+  if owner=='frontier_horses' and not ({horse_saddle=true,horse_saddlebags=true,horse_brush=true,horse_stirrups=true,farm_hay=true})[line.id] then return false,'forbidden' end
   if grant then
    if d.stackable then local placed,why=Inventory.Place(box,{item=line.id,quantity=line.quantity,metadata=d.metadata});if not placed then return false,why end
    else
@@ -1790,4 +1791,11 @@ trusted('ShopBasket',function(owner,character,order,mode,serialized)
  end
  if preview then return true end
  return Inventory.Commit(key,actor,fp,box)
+end)
+
+trusted('HorseStorage',function(resource,src,id)
+ if resource~='frontier_horses' or type(id)~='string' or not id:match('^horse_[a-f0-9]+$') or #id>48 then return false,'forbidden' end
+ local ok,err=Inventory.CreateStorage({id=id,name='Horse saddlebags',slots=12,grams=25000,ace=''})
+ if not ok then return false,err end
+ return open(src,0,id)
 end)

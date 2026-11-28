@@ -1,0 +1,21 @@
+name: Frontier horse checks
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'RDR2 RP/resources/**/frontier_horses/**'
+      - 'RDR2 RP/resources/**/frontier_farming/**'
+      - 'RDR2 RP/resources/**/frontier_logistics/**'
+      - 'RDR2 RP/resources/**/frontier_inventory/**'
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y lua5.4
+      - working-directory: RDR2 RP/resources/[Frontier]
+        run: |
+          find frontier_horses frontier_farming frontier_logistics frontier_inventory -name '*.lua' -print0 | xargs -0 -n1 luac5.4 -p
+          node --check frontier_horses/html/app.js
+          cd frontier_horses && lua5.4 tests/rules.lua

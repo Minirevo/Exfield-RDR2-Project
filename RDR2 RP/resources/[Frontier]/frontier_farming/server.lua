@@ -620,7 +620,21 @@ end
   else s[d.sex]=s[d.sex]+1 end
   batch(f,s,{{item='farm_'..d.species..'_'..d.sex,count=-1}})
  elseif a=='mountHorse' then
-  return checkout(src,f,b,s,d.horse)
+  if GetResourceState('frontier_horses')~='started' then return checkout(src,f,b,s,d.horse) end
+  local h,i=horseById(s,d.horse)
+  check(h and not h.listed and h.health>=30 and h.age>=C.species.horse.mature*3600,'Horse unavailable')
+  h.gear=h.gear or {}
+  if not h.gear.saddle then local ok,n=inv:GetItemCount(src,'horse_saddle');check(ok and n>=1,'Buy a saddle at a public stable first') end
+  local ok,site=exports.frontier_horses:RanchDestination(src);check(ok and site,site)
+  h.name=h.name or C.horseBreeds[h.breed].label
+  table.remove(s.horses,i);R.horseCounts(s)
+  check(MySQL.transaction.await({
+   {query='INSERT INTO frontier_horses(id,owner_type,owner_id,stable,status,model,name,record,updated) VALUES(?,?,?,?,?,?,?,?,?)',values={h.id,f.owner_type,f.owner_id,site,'stored',C.horseBreeds[h.breed].model,h.name,json.encode(h),os.time()}},
+   {query='UPDATE ff_facilities SET state=? WHERE id=?',values={json.encode(s),f.id}}
+  }),'Horse transfer failed')
+  local released,why=exports.frontier_horses:RanchRelease(src,h.id)
+  if not released then notice(src,'Horse moved to '..site..' stable. Retrieve there: '..tostring(why));return view(src) end
+  return
  elseif a=='listHorse' or a=='unlistHorse' then
   local h=horseById(s,d.horse);check(s.species=='horse' and h,'Horse unavailable')
   if a=='listHorse' then

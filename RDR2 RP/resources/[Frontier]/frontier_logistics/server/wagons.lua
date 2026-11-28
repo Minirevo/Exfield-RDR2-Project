@@ -77,85 +77,9 @@ function L.assign(src, w, ids)
         ' horses, or clear assignment'
     )
 
-    local horses = L.horses(src)
-    local owned = {}
-
-    for _, h in ipairs(horses) do
-        owned[tostring(h.id)] = h
-    end
-
-    local p = L.Core:GetPlayer(src)
-    local seen = {}
-
-    local tx = {
-        {
-            query = 'DELETE FROM fl_harnesses WHERE wagon_id=?',
-            values = {w.id}
-        }
-    }
-
-    for slot, id in ipairs(ids) do
-        id = tostring(id)
-
-        local h = owned[id]
-
-        L.check(
-            h
-            and not seen[id]
-            and (
-                not h.wagon_id
-                or h.wagon_id == w.id
-            ),
-            'Horse unavailable or already assigned'
-        )
-
-        L.check(
-            (tonumber(h.injured) or 0) == 0,
-            'Use healthy horses'
-        )
-
-        L.check(
-            type(h.modelname) == 'string'
-            and h.modelname:lower():match('^a_c_horse_'),
-            'Invalid horse model'
-        )
-
-        L.check(
-            h.modelname:lower() == C.HorseModel,
-            'Use the tested Dark Bay Shire horses for this release'
-        )
-
-        seen[id] = true
-
-        tx[#tx + 1] = {
-            query = [[
-                INSERT INTO fl_harnesses
-                (
-                    horse_id,
-                    wagon_id,
-                    slot_no,
-                    character_id,
-                    provider_id,
-                    model
-                )
-                VALUES(?,?,?,?,?,?)
-            ]],
-
-            values = {
-                h.id,
-                w.id,
-                slot - 1,
-                p.frontierCharacterId,
-                p.providerCharacterId,
-                h.modelname
-            }
-        }
-    end
-
-    L.check(
-        MySQL.transaction.await(tx),
-        'Assignment failed'
-    )
+    L.check(GetResourceState('frontier_horses')=='started','Start Frontier Horses')
+    local ok,why=exports.frontier_horses:AssignDraftTeam(src,w.id,ids)
+    L.check(ok,why)
 
     L.assignmentState()
 
@@ -229,21 +153,8 @@ function L.spawnLease(w, src)
     end
 
     for _, h in ipairs(a) do
-        local actual = L.S(
-            [[
-                SELECT id, modelname
-                FROM stables
-                WHERE id=?
-                AND charidentifier=?
-                AND type='horse'
-            ]],
-            {h.horse_id, h.provider_id}
-        )
-
-        if not actual
-            or tostring(actual.modelname):lower()
-                ~= tostring(h.model):lower() then
-
+        if GetResourceState('frontier_horses')~='started'
+            or not exports.frontier_horses:ValidateDraft(tostring(h.horse_id),w.id,h.model) then
             spawnStatus(
                 w.id,
                 'Assigned horse ownership/model no longer matches',
@@ -1273,6 +1184,6 @@ exports('HorseAssigned', function(horse)
 
     return L.V(
         'SELECT horse_id FROM fl_harnesses WHERE horse_id=?',
-        {tonumber(horse) or -1}
+        {tostring(horse)}
     ) ~= nil
 end)

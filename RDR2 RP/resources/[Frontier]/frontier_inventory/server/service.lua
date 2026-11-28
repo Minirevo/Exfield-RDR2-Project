@@ -101,6 +101,7 @@ function Inventory.BeltEligible(item)
 end
 function Inventory.Storage(source, id)
     if not Inventory.Id(id, 48) then return false, 'invalid_request' end
+    if id:match('^horse_') and (GetResourceState('frontier_horses')~='started' or not exports.frontier_horses:CanAccessSaddlebags(source,id)) then return false,'forbidden' end
     if id:match('^property_') then
         if GetResourceState('frontier_property')~='started' or not exports.frontier_property:CanAccessCampStorage(source,id) then return false,'forbidden' end
     end
@@ -178,6 +179,7 @@ local function latest(source, id, guard)
 end
 
 local function commit(ctx, ...)
+    if ctx.source and type(ctx.storage)=='string' and ctx.storage:match('^horse_') and (GetResourceState('frontier_horses')~='started' or not exports.frontier_horses:CanAccessSaddlebags(ctx.source,ctx.storage)) then return false,'forbidden' end
     if ctx.source and type(ctx.storage)=='string' and ctx.storage:match('^property_') then
         if GetResourceState('frontier_property')~='started' or not exports.frontier_property:CanAccessCampStorage(ctx.source,ctx.storage) then return false,'forbidden' end
     end

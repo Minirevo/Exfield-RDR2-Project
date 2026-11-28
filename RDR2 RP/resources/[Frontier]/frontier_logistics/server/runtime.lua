@@ -105,8 +105,8 @@ function L.dealer(src)
 end
 
 function L.horses(src)
- local p=L.Core:GetPlayer(src);if not p or not p.providerCharacterId then return {} end
- return L.Q("SELECT s.id,s.name,s.modelname,s.injured,h.wagon_id,h.slot_no FROM stables s LEFT JOIN fl_harnesses h ON s.id=h.horse_id WHERE s.charidentifier=? AND s.type='horse' AND (s.status IS NULL OR s.status='' OR s.status='{}')",{p.providerCharacterId})
+ if GetResourceState('frontier_horses')~='started' then return {} end
+ return exports.frontier_horses:DraftCandidates(src)
 end
 function L.assignments(id)
  return L.Q('SELECT horse_id,slot_no,model,provider_id,character_id FROM fl_harnesses WHERE wagon_id=? ORDER BY slot_no',{id})

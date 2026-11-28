@@ -152,7 +152,7 @@ function render(){
     const adult=h.age>=data.species.horse.mature*3600,wait=Math.max(0,data.trainingInterval-(data.now-h.trainedAt));
     const train=el('section',null,pgs.Training);el('h2',h.breed+' · '+h.sex+' · '+h.id.slice(-6),train);
     actionPanel(train,f,'Train horse','trainHorse',{chest:false,condition:adult&&h.health>=60&&!h.listed&&h.training<100&&wait===0,reason:'Requires adult healthy unlisted horse, training below 100 and completed cooldown ('+wait+'s remaining)',extra:()=>({horse:h.id})});
-    actionPanel(box,f,'Ride horse','mountHorse',{chest:false,condition:adult&&!h.listed&&h.health>=30,reason:'Requires a healthy adult unlisted horse',extra:()=>({horse:h.id})});
+    actionPanel(box,f,'Release riding horse','mountHorse',{chest:false,condition:adult&&!h.listed&&h.health>=30,reason:'Requires a healthy adult unlisted horse and a saddle from the stable',extra:()=>({horse:h.id})});
     const sales=el('section',null,pgs.Sales);el('h2',h.breed+' · '+h.sex+' · '+h.id.slice(-6),sales);
     const price=el('input',null,sales);price.type='number';price.min=1;price.value=h.listed||Math.round((h.genes.speed+h.genes.stamina+h.genes.health)*60*(.25+.75*h.care/100)*(.5+.5*h.health/100)*(1+h.training/200)*(adult?1:.5));
     if(h.listed)button(sales,'Unlist horse','unlistHorse',()=>({horse:h.id}));else button(sales,'List horse (price in cents)','listHorse',()=>({horse:h.id,price:Number(price.value)}));

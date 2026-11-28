@@ -25,6 +25,7 @@ InventoryConfig = {
         frontier_medical = true,
         frontier_jobs = true,
         frontier_shops = true,
+        frontier_horses = true,
         frontier_production = true,
         frontier_logistics = true,
         frontier_gathering = true,
