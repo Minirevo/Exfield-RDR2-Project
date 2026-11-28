@@ -1,6 +1,6 @@
 local R=SkillsRules
 local core=exports.frontier_core
-local allowed={frontier_gathering=true,frontier_farming=true,frontier_production=true,frontier_property=true,frontier_logistics=true}
+local allowed={frontier_gathering=true,frontier_farming=true,frontier_production=true,frontier_property=true,frontier_logistics=true,frontier_medical=true}
 local function character(src) return core:GetPlayerCharacterId(src) end
 local function valid(id) return type(id)=='string' and #id<=64 and id:match('^f_[a-f0-9]+$') end
 local function stats(id,skill)

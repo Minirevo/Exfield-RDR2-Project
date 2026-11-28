@@ -4,12 +4,12 @@ local M,C=FrontierMedicalModel,FrontierMedicalConfig
 local valid={};for _,r in ipairs(C.regions) do valid[r]=true end
 local function clamp(v) return math.max(0,math.min(C.max,math.floor(tonumber(v) or 0))) end
 function M.new(life)
- return {life=life or 1,blood=C.max,pain=0,trauma=0,oxygen=C.max,deprivation=0,lastDrowning=0,tonicUntil=0,down=false,dead=false,nativeSeen=false,wounds={}}
+ return {life=life or 1,blood=C.max,pain=0,trauma=0,oxygen=C.max,deprivation=0,shock=0,lastDrowning=0,tonicUntil=0,down=false,dead=false,nativeSeen=false,wounds={}}
 end
 -- Upgrade existing persisted JSON in place, without discarding V1 injuries.
 function M.normalize(s)
  s.trauma=clamp(s.trauma or 0);s.oxygen=clamp(s.oxygen==nil and C.max or s.oxygen)
- s.deprivation=clamp(s.deprivation or 0);s.lastDrowning=tonumber(s.lastDrowning) or 0
+ s.shock=clamp(s.shock or 0);s.deprivation=clamp(s.deprivation or 0);s.lastDrowning=tonumber(s.lastDrowning) or 0
  -- V1 only set dead after observing provider death. New deaths explicitly set false.
  if s.nativeSeen==nil then s.nativeSeen=s.dead==true end
  return s
@@ -33,6 +33,7 @@ function M.status(s,now)
  if s.dead or s.blood<=0 then return 'dead' end
  if s.down then return 'unconscious' end
  if s.blood<550 or M.pain(s,now)>650 or (s.trauma or 0)>=450 or (s.oxygen or C.max)<650 or (s.deprivation or 0)>=500 then return 'critical' end
+ if (s.shock or 0)>=450 then return 'critical' end
  if next(s.wounds) or s.blood<950 or (s.trauma or 0)>0 or (s.oxygen or C.max)<950 or (s.deprivation or 0)>0 then return 'injured' end
  return 'stable'
 end
@@ -42,8 +43,8 @@ function M.updateDown(s,now)
   s.dead=true;s.down=true;return
  end
  local p=M.pain(s,now)
- if s.blood<=C.downBlood or p>=C.downPain or s.trauma>=C.downTrauma or s.oxygen<=C.downOxygen or s.deprivation>=C.downDeprivation then s.down=true
- elseif s.down and s.blood>=C.wakeBlood and p<C.wakePain and s.trauma<=C.wakeTrauma and s.oxygen>=C.wakeOxygen and s.deprivation<=C.wakeDeprivation then s.down=false end
+ if s.blood<=C.downBlood or p>=C.downPain or s.trauma>=C.downTrauma or s.oxygen<=C.downOxygen or s.deprivation>=C.downDeprivation or s.shock>=C.shockDown then s.down=true
+ elseif s.down and s.blood>=C.wakeBlood and p<C.wakePain and s.trauma<=C.wakeTrauma and s.oxygen>=C.wakeOxygen and s.deprivation<=C.wakeDeprivation and s.shock<=C.shockWake then s.down=false end
 end
 function M.injure(s,region,kind,damage,now)
  if s.dead or s.blood<=0 then return false end
@@ -58,7 +59,7 @@ function M.injure(s,region,kind,damage,now)
  local bleed=kind=='penetrating' and math.ceil(damage*.8) or (kind=='cut' or kind=='bite') and math.ceil(damage*.5) or kind=='burn' and 0 or math.ceil(damage*.12)
  w.bleed=math.min(100,w.bleed+bleed)
  if (region:find('_arm',1,true) or region:find('_leg',1,true)) and (kind=='fall' and damage>=20 or damage>=45) then w.fracture=true;w.splinted=false end
- s.wounds[region]=w;s.pain=clamp(s.pain+damage*9);M.updateDown(s,now);return true
+ s.wounds[region]=w;if M.advancedInjury then M.advancedInjury(w,region,kind,damage) end;s.pain=clamp(s.pain+damage*9);M.updateDown(s,now);return true
 end
 local kinds={penetrating=true,cut=true,fall=true,blunt=true,burn=true,bite=true}
 local function integer(n,min,max) return type(n)=='number' and n%1==0 and n>=min and n<=max end
@@ -102,17 +103,18 @@ end
 function M.tick(s,now,nourished)
  M.updateDown(s,now)
  if s.dead then return end
- local bleeding=M.bleed(s)
+ local bleeding=math.min(150,M.bleed(s)+(M.internalBleed and M.internalBleed(s) or 0))
  if bleeding>0 then s.blood=clamp(s.blood-bleeding)
  elseif nourished then s.blood=clamp(s.blood+C.bloodRecovery) end
  s.pain=clamp(s.pain-C.painRecovery)
  if now-s.lastDrowning>=C.drowningQuietSeconds then s.oxygen=clamp(s.oxygen+C.oxygenRecovery) end
+ if M.advancedTick then M.advancedTick(s,now) end
  if nourished then
   s.trauma=clamp(s.trauma-C.traumaRecovery)
   s.deprivation=clamp(s.deprivation-C.deprivationRecovery)
  end
  for r,w in pairs(s.wounds) do
-  if w.bleed==0 and (not w.fracture or w.splinted) and nourished then
+  if w.bleed==0 and (not w.fracture or w.splinted) and nourished and (not M.canHeal or M.canHeal(w)) then
    w.severity=clamp(w.severity-C.woundRecovery)
    if w.severity==0 then s.wounds[r]=nil end
   end
@@ -182,6 +184,7 @@ function M.symptoms(s,now)
  elseif bleed>0 then out[#out+1]={kind='bleeding',level='warning',text='You are bleeding.'} end
  if s.blood<450 then out[#out+1]={kind='weakness',level='severe',text='You feel very faint.'}
  elseif s.blood<750 then out[#out+1]={kind='weakness',level='warning',text='You feel weak and light-headed.'} end
+ if (s.shock or 0)>=500 and s.blood>=750 then out[#out+1]={kind='weakness',level='warning',text='You feel cold and unsteady.'} end
  if (s.oxygen or C.max)<650 then out[#out+1]={kind='breathing',level='severe',text='You are struggling to breathe.'} end
  if M.pain(s,now)>=500 then out[#out+1]={kind='pain',level='severe',text='You are in severe pain.'}
  elseif M.pain(s,now)>=100 then out[#out+1]={kind='pain',level='warning',text='Your injuries hurt.'} end
