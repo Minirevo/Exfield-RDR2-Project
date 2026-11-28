@@ -3,12 +3,14 @@ local ticket,shown,opening,pending,work
 local seq=0
 local previewRecipes,previewObject,previewCam,previewVersion={},nil,nil,0
 local previewRotation=0
+local previewAsset=nil
 local function tell(s)TriggerEvent('chat:addMessage',{args={'Production',tostring(s)}})end
 local function ui(d)SendNUIMessage(d)end
 local function stopPreview()
  previewVersion=previewVersion+1
  if previewObject and DoesEntityExist(previewObject) then DeleteEntity(previewObject) end;previewObject=nil
  if previewCam then RenderScriptCams(false,false,0,true,true,0);DestroyCam(previewCam,false);previewCam=nil end
+ if previewAsset then pcall(Citizen.InvokeNative,0xC3896D03E2852236,previewAsset);previewAsset=nil end
 end
 local function cachePreview(data)
  previewRecipes={};for _,r in pairs(data.recipes or {}) do if r.manualOnly and r.model then previewRecipes[r.id]=r end end
@@ -65,7 +67,19 @@ RegisterNUICallback('gunPreview',function(d,cb)
    local ped=PlayerPedId();local p=GetOffsetFromEntityInWorldCoords(ped,0.0,1.5,0.9)
    local c=GetOffsetFromEntityInWorldCoords(ped,1.65,1.5,1.2)
    local hash=joaat(r.model)
-   local obj=Citizen.InvokeNative(0x9888652B8BA77F73,hash,0,p.x,p.y,p.z,false,1.0,Citizen.ResultAsInteger())
+   -- Unlike the old VORP preview, the player need not already own/equip this model.
+   previewAsset=hash
+   Citizen.InvokeNative(0x72D4CB5DB927009C,hash,0,true)
+   local untilLoaded=GetGameTimer()+8000
+   local function loaded()
+    local result=Citizen.InvokeNative(0xFF07CF465F48B830,hash,Citizen.ResultAsInteger())
+    return result==1 or result==true
+   end
+   while shown and version==previewVersion and not loaded() and GetGameTimer()<untilLoaded do Wait(50) end
+   if not shown or version~=previewVersion then return end
+   if not loaded() then error('Display asset streaming timed out: '..r.model) end
+   -- Parameter six means showWorldModel, not network ownership.
+   local obj=Citizen.InvokeNative(0x9888652B8BA77F73,hash,0,p.x,p.y,p.z,true,1.0,Citizen.ResultAsInteger())
    if not obj or obj==0 then error('Weapon preview unavailable') end
    local deadline=GetGameTimer()+3000
    while shown and version==previewVersion and not DoesEntityExist(obj) and GetGameTimer()<deadline do Wait(50) end
@@ -73,16 +87,16 @@ RegisterNUICallback('gunPreview',function(d,cb)
    if not DoesEntityExist(obj) then error('Weapon preview could not initialize') end
    if NetworkGetEntityIsNetworked(obj) then DeleteEntity(obj);error('Unexpected networked preview') end
    previewObject=obj;previewRotation=GetEntityHeading(ped)+90
-   SetEntityAsMissionEntity(obj,true,true);FreezeEntityPosition(obj,true);SetEntityCollision(obj,false,false);SetEntityInvincible(obj,true);SetEntityHeading(obj,previewRotation)
+   SetEntityAsMissionEntity(obj,true,true);FreezeEntityPosition(obj,true);SetEntityCollision(obj,false,false);SetEntityInvincible(obj,true);SetEntityVisible(obj,true);SetEntityHeading(obj,previewRotation)
    for _,h in ipairs(hashes) do pcall(Citizen.InvokeNative,0x74C9090FDD1BB48E,obj,h,-1,true) end
-   previewCam=CreateCam('DEFAULT_SCRIPTED_CAMERA',true)
+   previewCam=Citizen.InvokeNative(0x40C23491CE83708E,'DEFAULT_SCRIPTED_CAMERA',c.x,c.y,c.z,0.0,0.0,0.0,48.0,false,0,Citizen.ResultAsInteger())
    if not previewCam or previewCam==0 then previewCam=nil;error('Preview camera unavailable') end
-   SetCamCoord(previewCam,c.x,c.y,c.z);PointCamAtCoord(previewCam,p.x,p.y,p.z);SetCamFov(previewCam,48.0)
+   PointCamAtCoord(previewCam,p.x,p.y,p.z)
    SetCamActive(previewCam,true);RenderScriptCams(true,false,0,true,true,0)
   end)
   if version==previewVersion and shown then
    if not ok then print('[frontier_production] Preview: '..tostring(err));stopPreview() end
-   ui({type='gunPreviewStatus',ok=ok,message=ok and '' or 'Live preview could not load; crafting remains available.'})
+   ui({type='gunPreviewStatus',ok=ok,message=ok and '' or ('Preview failed: '..tostring(err)..' (see F8)')})
   end
  end)
 end)
