@@ -10,7 +10,7 @@ function field(p,title,type='text'){const l=el('label',title,p),i=el(type==='tex
 function select(p,title,opts){const i=field(p,title,'select');for(const [v,t] of opts){const o=el('option',t,i);o.value=v}return i}
 function article(p,title,desc,meta){const a=el('article',undefined,p);el('h3',title,a);if(desc)el('p',desc,a);if(meta){const m=el('p',meta,a);m.className='meta'}return a}
 function actions(a){const n=el('div',undefined,a);n.className='actions';return n}
-function waypoint(p,id){btn(p,'Mark on map',()=>post('waypoint',{id}).then(r=>{$('status').textContent=r.ok?'Employer marked on map.':'Waypoint unavailable.'}))}
+function waypoint(p,id){btn(p,'Mark on map',()=>post('waypoint',{id}).then(r=>{$('status').textContent=r.ok?'GPS route set. Close the menu to follow it.':'Waypoint unavailable.'}))}
 let confirmation=null;
 function confirmDo(text,op,payload){
  if(confirmation)confirmation.remove();
@@ -42,5 +42,6 @@ function render(){if(!data)return;const p=$('content'),n=$('tabs');p.replaceChil
  ({board,mine,manage,applications})[tab](p);if(!p.children.length)el('p','No entries yet.',p)}
 function close(){unlock();document.body.hidden=true;post('close').catch(()=>{})}
 $('close').onclick=close;$('refresh').onclick=()=>send('refresh');
+$('clearRoute').onclick=()=>post('clearRoute').then(r=>{$('status').textContent=r.ok?'Employment route cleared.':'Unable to clear route.'});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')close()});
 window.addEventListener('message',e=>{const d=e.data;if(d.type==='view'){if(!data||data.ticket!==d.data.ticket)tab='';data=d.data;unlock();document.body.hidden=false;render()}else if(d.type==='notice'){unlock();$('status').textContent=d.message;render()}else if(d.type==='close'){unlock();document.body.hidden=true;data=null}});

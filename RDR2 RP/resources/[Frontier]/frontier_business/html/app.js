@@ -43,18 +43,18 @@ function render(){
  if(companyId===null||(companyId!==''&&!companies.some(b=>b.id===companyId)))companyId=companies[0]?.id||'';
  const b=company();const options=[['','Personal'],...companies.map(c=>[c.id,c.name+(c.status==='active'?'':' · '+c.status)])];
  const picker=select(ctx,'Working as',options,companyId);picker.onchange=()=>{companyId=picker.value;tab='overview';render()};
- let pages=b?[['overview','Overview'],['finance','Finances'],['employees','Employees & ranks'],['ownership','Ownership & votes'],['property','Properties'],['stock','Storage'],['trade','Trade'],['licenses','Licenses'],['receipts','Receipts'],['history','Activity log']]:[['overview','Personal overview'],['licenses','Personal licenses'],['receipts','Personal receipts'],['orders','Purchases']];
+ let pages=b?[['overview','Overview'],['finance','Finances'],['employees','Employees & ranks'],['recruitment','Employment & recruitment'],['ownership','Ownership & votes'],['property','Properties'],['stock','Storage'],['trade','Trade'],['licenses','Licenses'],['receipts','Receipts'],['history','Activity log']]:[['overview','Personal overview'],['licenses','Personal licenses'],['receipts','Personal receipts'],['orders','Purchases']];
  pages.push(['inbox','Invitations'],['registry','Government registry']);
  if(!pages.some(([k])=>k===tab))tab='overview';
  for(const [k,t] of pages)button(nav,t,()=>setTab(k),{cls:k===tab?'active':''});
- const handlers={overview:overview,finance:finance,employees:employees,ownership:ownership,property:property,stock:stock,trade:trade,licenses:licenses,receipts:receipts,history:history,orders:orders,inbox:inbox,registry:registry};
+ const handlers={overview:overview,finance:finance,employees:employees,recruitment:recruitment,ownership:ownership,property:property,stock:stock,trade:trade,licenses:licenses,receipts:receipts,history:history,orders:orders,inbox:inbox,registry:registry};
  handlers[tab](root,b);lock();
 }
 function overview(p,b){
  intro(p,b?b.name:'Personal ledger',b?b.description:'Manage your personal licenses, invitations and purchases.');
  const m=el('div',undefined,p,'metrics');
- if(b){if(rights(b,'hire'))button(p,'Employment & recruitment',()=>post('jobs',{company:b.id}));metric(m,'Company status',b.status);metric(m,'Bank balance',b.balance===undefined?'Private':money(b.balance));metric(m,'Employees',vals(b.employees).length);metric(m,'Registered locations',vals(b.locations).length);
- let s=panel(p,'Company shortcuts');for(const [k,t] of [['finance','Finances'],['property','Property rights'],['stock','Storage'],['employees','Employees'],['trade','Trade']])button(actions(s),t,()=>setTab(k));
+ if(b){metric(m,'Company status',b.status);metric(m,'Bank balance',b.balance===undefined?'Private':money(b.balance));metric(m,'Employees',vals(b.employees).length);metric(m,'Registered locations',vals(b.locations).length);
+ let s=panel(p,'Company shortcuts');for(const [k,t] of [['finance','Finances'],['property','Property rights'],['stock','Storage'],['employees','Employees'],['recruitment','Employment & recruitment'],['trade','Trade']])button(actions(s),t,()=>setTab(k));
  hint(s,'Registration and licenses are available at a government registry. Property rights and stock ownership are separate.');
  if(b.status==='liquidating')hint(s,'Recovery ends '+new Date(Number(b.liquidate_until)*1000).toLocaleString()+'.');}
  else{metric(m,'Companies',vals(state.companies).length);metric(m,'Licenses',vals(state.personal).length);metric(m,'Invitations',vals(state.invites).length+vals(state.offers).length);metric(m,'Paid purchases',vals(state.orders).length)}
@@ -66,8 +66,21 @@ function finance(p,b){intro(p,'Finances','Manage the company bank account, taxes
  s=panel(c,'Dividend payout');let d=field(s,'Distribution amount (USD)','number');csubmit(s,'Propose distribution',b,'dividend',()=>({amount:amount(d)}));
  s=panel(c,'Automatic dividend policy');let mode=select(s,'Policy',['disabled','manual','fixed','percentage'].map(k=>[k,k]),b.dividend_mode),value=field(s,'Amount (USD) or percentage','number',Number(b.dividend_amount)/100),reserve=field(s,'Minimum reserve (USD)','number',Number(b.reserve_minor)/100);csubmit(s,'Propose policy',b,'dividendPolicy',()=>({mode:mode.value,amount:amount(value),reserve:amount(reserve)}));hint(s,'Review and approve proposals in Ownership & votes.');
 }
+function recruitment(p,b){
+ intro(p,'Employment & recruitment','Advertise permanent positions and funded one-time work on town employment boards.');
+ const s=panel(p,'Employment office');
+ if(!rights(b,'hire')){hint(s,'An active company and Hire & dismiss permission are required to manage job advertisements.');return}
+ hint(s,'Publish job advertisements, review applications, and approve completed tasks. Reserving paid tasks also requires Withdraw funds permission.');
+ button(s,'Open employment management',()=>openRecruitment(b));
+}
+async function openRecruitment(b){
+ try{
+  const r=await post('jobs',{company:b.id});
+  if(!r.ok)status(r.message||'Employment management could not open.','error');
+ }catch(e){status('Employment resource unavailable. Verify frontier_jobs is started.','error')}
+}
 function employees(p,b){intro(p,'Employees & ranks','Employment is voluntary, and wages are determined by the assigned rank.');let c=el('div',undefined,p,'columns'),s=panel(c,'Employees');const ranks=vals(b.ranks);for(const e of vals(b.employees)){let r=row(s,e.character_id,ranks.find(x=>x.id===e.rank_id)?.name||'Unknown rank');if(rights(b,'hire'))csubmit(r,'Dismiss',b,'fire',{target:e.character_id},{cls:'danger'})}if(!vals(b.employees).length)empty(s,'No employees yet.');
- if(rights(b,'hire')){s=panel(c,'Invite employee');let target=field(s,'Online player ID','number'),rank=select(s,'Rank',ranks.map(r=>[r.id,r.name+' · '+money(r.wage)]));csubmit(s,'Send invitation',b,'hire',()=>({target:number(target),rank:rank.value}),{disabled:!ranks.length});if(!ranks.length)hint(s,'Create a rank before hiring.')}
+ if(rights(b,'hire')){s=panel(c,'Recruitment advertisements');button(s,'Manage job postings',()=>setTab('recruitment'));s=panel(c,'Invite employee');let target=field(s,'Online player ID','number'),rank=select(s,'Rank',ranks.map(r=>[r.id,r.name+' · '+money(r.wage)]));csubmit(s,'Send invitation',b,'hire',()=>({target:number(target),rank:rank.value}),{disabled:!ranks.length});if(!ranks.length)hint(s,'Create a rank before hiring.')}
  s=panel(p,'Existing ranks');for(const r of ranks)row(s,r.name,'Level '+r.level_no+' · '+money(r.wage)+' every 10 minutes · '+Object.keys(decode(r.rights)).filter(k=>decode(r.rights)[k]).map(label).join(', '));if(!ranks.length)empty(s,'No ranks configured.');
  if(rights(b,'ranks')){s=panel(p,'Create rank');let n=field(s,'Rank name'),level=field(s,'Hierarchy level','number','1'),w=field(s,'Paycheck per 10 minutes (USD)','number','0'),grid=el('div',undefined,s,'checks'),checks={};for(const k of vals(state.permissions))checks[k]=check(grid,k);csubmit(s,'Create rank',b,'rank',()=>({name:n.value,level:number(level),wage:amount(w),rights:Object.fromEntries(Object.entries(checks).map(([k,v])=>[k,v.checked]))}))}
  if(vals(b.employees).some(e=>e.character_id===state.characterId))submit(panel(p,'Your employment'),'Resign','resign',{}, {cls:'danger'});

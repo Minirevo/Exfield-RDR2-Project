@@ -1,5 +1,6 @@
 -- Coordinates are provisional: check each prompt and NPC on the test server.
 JobsConfig={
+ boardSprite='blip_job_board',employerSprite='blip_job',
  boardProp='p_noticeboard01x', -- provisional asset, prompt still works if unavailable
  reach=4.0,stream=65.0,duration=86400,postingDuration=604800,perCharacterDaily=3,perJobDaily=25,maxCompanyOpen=20,maxReward=100000,
  boards={

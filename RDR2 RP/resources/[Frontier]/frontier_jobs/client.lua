@@ -2,6 +2,7 @@ local C=JobsConfig
 local E='frontier_jobs:'
 local ticket,opened,requested
 local peds,blips,boards={},{},{}
+local routeTarget
 local function close()
  if ticket then TriggerServerEvent(E..'close',ticket) end
  ticket=nil;opened=false;requested=nil;SetNuiFocus(false,false);SendNUIMessage({type='close'})
@@ -22,14 +23,39 @@ RegisterNUICallback('close',function(_,cb) close();cb({ok=true}) end)
 RegisterNUICallback('action',function(d,cb)
  if opened and ticket then TriggerServerEvent(E..'action',ticket,d.op,d.data or {});cb({ok=true}) else cb({ok=false}) end
 end)
+local function clearRoute()
+ if not routeTarget then return end
+ Citizen.InvokeNative(0x4426D65E029A4DC0,false) -- SET_GPS_MULTI_ROUTE_RENDER
+ Citizen.InvokeNative(0x9E0AB9AAEE87CE28) -- CLEAR_GPS_MULTI_ROUTE
+ routeTarget=nil
+end
 RegisterNUICallback('waypoint',function(d,cb)
- local p=C.employers[d.id] or C.boards[d.id]
- if not p then cb({ok=false});return end
- local ok=pcall(function()
-  if type(SetNewWaypoint)=='function' then SetNewWaypoint(p.x,p.y)
-  else Citizen.InvokeNative(0x3D3D15AF7BCAAF83,p.x,p.y) end
+ local id=type(d)=='table' and d.id
+ local p=id and (C.employers[id] or C.boards[id])
+ if not opened or not p then cb({ok=false});return end
+ local ok,err=pcall(function()
+  -- RedM uses GPS routes; SetNewWaypoint is a GTA native.
+  Citizen.InvokeNative(0x9E0AB9AAEE87CE28)
+  Citizen.InvokeNative(0x3D3D15AF7BCAAF83,joaat('COLOR_RED'),true,true)
+  Citizen.InvokeNative(0x64C59DD6834FA942,p.x+0.0,p.y+0.0,p.z+0.0,false)
+  Citizen.InvokeNative(0x4426D65E029A4DC0,true)
+  routeTarget=p
  end)
+ if not ok then print('[frontier_jobs] GPS route failed: '..tostring(err)) end
  cb({ok=ok})
+end)
+RegisterNUICallback('clearRoute',function(_,cb)
+ local ok=pcall(clearRoute);cb({ok=ok})
+end)
+RegisterCommand('clearjobroute',function() pcall(clearRoute) end,false)
+CreateThread(function()
+ while true do
+  if routeTarget then
+   local p=GetEntityCoords(PlayerPedId())
+   if (p.x-routeTarget.x)^2+(p.y-routeTarget.y)^2+(p.z-routeTarget.z)^2<=C.reach^2 then pcall(clearRoute) end
+  end
+  Wait(1000)
+ end
 end)
 AddEventHandler(E..'manage',function(id) if type(id)=='string' then open('manage',id) end end)
 RegisterCommand('myjobs',function() open('personal') end,false)
@@ -45,16 +71,48 @@ RegisterCommand('jobs',function()
  local mode,id=nearest();if mode then open(mode,id) else open('personal') end
 end,false)
 local prompt,group
-CreateThread(function()
- for id,p in pairs(C.boards) do
-  local ok,b=pcall(Citizen.InvokeNative,0x554D9D53F696D002,1664425300,p.x,p.y,p.z)
-  if ok and b and b~=0 then
-   blips[id]=b
-   pcall(SetBlipSprite,b,joaat('blip_ambient_job'),true)
-   pcall(Citizen.InvokeNative,0x9CB1A1623062F402,b,p.name)
+local function removeMarkers()
+ for key,b in pairs(blips) do
+  if DoesBlipExist(b) then RemoveBlip(b) end
+  blips[key]=nil
+ end
+end
+local function createMarkers()
+ local count=0
+ for kind,locations in pairs({board=C.boards,employer=C.employers}) do
+  for id,p in pairs(locations) do
+   local key=kind..':'..id
+   if not blips[key] or not DoesBlipExist(blips[key]) then
+    local ok,err=pcall(function()
+     local b=BlipAddForCoords(1664425300,p.x+0.0,p.y+0.0,p.z+0.0)
+     if not b or b==0 or not DoesBlipExist(b) then error('blip creation failed') end
+     blips[key]=b
+     SetBlipSprite(b,joaat(kind=='board' and C.boardSprite or C.employerSprite),false)
+     BlipAddModifier(b,joaat('BLIP_MODIFIER_MP_COLOR_32'))
+     SetBlipName(b,p.name)
+    end)
+    if not ok then
+     if blips[key] and DoesBlipExist(blips[key]) then RemoveBlip(blips[key]) end
+     blips[key]=nil;print('[frontier_jobs] Marker '..key..': '..tostring(err))
+    end
+   end
+   if blips[key] then count=count+1 end
   end
  end
+ return count
+end
+-- Character selection may reset map state. Recreate only missing blips after spawn.
+CreateThread(function()
+ while true do
+  if NetworkIsPlayerActive(PlayerId()) then createMarkers() end
+  Wait(10000)
+ end
 end)
+RegisterCommand('jobmarkers',function()
+ removeMarkers()
+ local count=createMarkers()
+ TriggerEvent('chat:addMessage',{args={'Employment',('Created %d employment map markers.'):format(count)}})
+end,false)
 CreateThread(function()
  group=GetRandomIntInRange(0,0xffffff);prompt=UiPromptRegisterBegin()
  UiPromptSetControlAction(prompt,joaat('INPUT_CONTEXT_X'));UiPromptSetText(prompt,VarString(10,'LITERAL_STRING','Employment'))
@@ -113,5 +171,5 @@ AddEventHandler('onClientResourceStop',function(r)
  close();if prompt then UiPromptDelete(prompt) end
  for _,ped in pairs(peds) do DeleteEntity(ped) end
  for _,obj in pairs(boards) do if obj then DeleteEntity(obj) end end
- for _,blip in pairs(blips) do RemoveBlip(blip) end
+ removeMarkers();pcall(clearRoute)
 end)

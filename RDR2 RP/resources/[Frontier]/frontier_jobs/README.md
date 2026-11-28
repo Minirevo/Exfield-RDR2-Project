@@ -15,3 +15,6 @@ Run lua5.4 tests/rules.lua from this resource, node --check html/app.js, and syn
 4. Publish company recruitment and funded task; insufficient balance must not publish. Test application, two different workers racing acceptance, own company rejection, completion review, approval once, cancellation refund and worker abandonment.
 5. Attempt forged client requests, wrong character/board/employer, revoked company permission, and recovery during restart.
 This is not a live-tested release. Wages and coordinates are gameplay defaults, not calibrated final values.
+
+## Business navigation and map hotfix
+Employment & recruitment is now a dedicated Business sidebar page and is linked from Employees & ranks. Select an active company, open the page, then Open employment management. The server still checks hire permission. The Jobs menu now uses RedM GPS multi-route natives and map markers use existing game sprites for notice boards and employers. /jobmarkers rebuilds all markers and reports the count; /clearjobroute clears the current employment route. Routes also clear on arrival. No SQL change. Restart frontier_jobs and frontier_business after pulling; reconnect if the client still shows an old NUI. Verify six board markers and four employer markers in-game.
