@@ -13,7 +13,8 @@ local function row(id) if R.uuid(id) then return S('SELECT * FROM frontier_jobs_
 local function position(src)
  local ok,p=inv:GetJobsPosition(src);if ok then return p end
 end
-local function near(src,p) return R.near(position(src),p,C.reach) end
+local function near(src,p,r) return R.near(position(src),p,r or C.reach) end
+local function nearEmployer(src,id) return near(src,C.employers[id],C.employerReach) end
 local function company(id) if type(id)=='string' and #id==32 then return S('SELECT id,name,status FROM fb_companies WHERE id=?',{id}) end end
 local function manage(who,id) return business:HasCompanyPermission(id,who,'hire') end
 local function funds(who,id) return business:GetCompanyAccount(id,who,'withdraw') end
@@ -90,7 +91,7 @@ end
 local function validView(src,v)
  if not v or cid(src)~=v.who then return false end
  if v.mode=='board' then return near(src,C.boards[v.place]) end
- if v.mode=='employer' then return near(src,C.employers[v.place]) end
+ if v.mode=='employer' then return nearEmployer(src,v.place) end
  if v.mode=='manage' then return manage(v.who,v.place) end
  return v.mode=='personal'
 end
@@ -114,6 +115,18 @@ local function view(src,v)
   if v.mode=='board' then data.postings=publicPostings() end
  end
  data.mine=Q("SELECT id,kind,state,title,description,employer,template,item,quantity,loan,wants_loan,reward,town,expires,receipt FROM frontier_jobs_contracts WHERE worker=? ORDER BY created DESC LIMIT 60",{v.who})
+ local pos=position(src)
+ local counts={}
+ for _,j in ipairs(data.mine) do
+  if j.kind=='npc' and C.employers[j.employer] then
+   j.nearEmployer=R.near(pos,C.employers[j.employer],C.employerReach)
+   j.employerName=C.employers[j.employer].name
+   if j.state=='active' and j.item then
+    if counts[j.item]==nil then local ok,n=inv:GetItemCount(src,j.item);counts[j.item]=ok and n or false end
+    j.collected=counts[j.item]
+   end
+  end
+ end
  if v.mode=='manage' then
   local b=company(v.place);if not b then return end
   data.company=b;data.canFund=funds(v.who,b.id)~=nil
@@ -197,11 +210,16 @@ local function action(src,v,op,d)
   need(U("UPDATE frontier_jobs_contracts SET state='active',worker=?,worker_name=?,worker_bank=?,expires=? WHERE id=? AND state='open'",{v.who,name(src),a,now()+C.duration,j.id})==1,'Already accepted.')
   return 'Task accepted. Coordinate with the employer; payment is reserved.'
  elseif op=='deliver' then
-  need(j.kind=='npc' and R.canSubmit(j,v.who,now()) and v.mode=='employer' and v.place==j.employer,'Deliver to the correct employer before expiry.')
+  need(j.kind=='npc' and R.canSubmit(j,v.who,now()),'Contract unavailable or expired.')
+  need(nearEmployer(src,j.employer),'Return to '..(C.employers[j.employer] and C.employers[j.employer].name or 'the employer')..' to deliver.')
+  local ok,count=inv:GetItemCount(src,j.item)
+  need(ok and count>=tonumber(j.quantity),'Not enough '..j.item..' in your satchel.')
+  if tonumber(j.wants_loan)==1 then need(not pendingHarvest(v.who),'Finish your gathering action or use /gatherrecover first.') end
+  need(cid(src)==v.who and nearEmployer(src,j.employer),'Move closer to your employer.')
   need(transition(j.id,'active','delivering'),'Contract changed.')
   local ok,why=advance(j.id);return ok and 'Delivery received and paid.' or 'Delivery pending: '..tostring(why)
  elseif op=='retry' then
-  need(j.worker==v.who and j.state=='loaning' and v.mode=='employer' and v.place==j.employer,'Visit the employer for equipment.')
+  need(j.worker==v.who and j.state=='loaning' and nearEmployer(src,j.employer),'Visit the employer for equipment.')
   local ok,why=advance(j.id);return ok and 'Equipment received.' or 'Equipment pending: '..tostring(why)
  elseif op=='submitTask' then
   need(j.kind=='task' and R.canSubmit(j,v.who,now()),'Task unavailable.')

@@ -2,7 +2,7 @@
 JobsConfig={
  boardSprite='blip_job_board',employerSprite='blip_job',
  boardProp='p_noticeboard01x', -- provisional asset, prompt still works if unavailable
- reach=4.0,stream=65.0,duration=86400,postingDuration=604800,perCharacterDaily=3,perJobDaily=25,maxCompanyOpen=20,maxReward=100000,
+ reach=4.0,employerReach=8.0,stream=85.0,spawnRetryMs=12000,fallbackPed='S_M_M_UNIBUTCHERS_01',duration=86400,postingDuration=604800,perCharacterDaily=3,perJobDaily=25,maxCompanyOpen=20,maxReward=100000,
  boards={
   valentine={name='Valentine saloon employment board',x=-311.3,y=805.4,z=118.98},
   strawberry={name='Strawberry employment board',x=-1789.66,y=-387.918,z=159.32},

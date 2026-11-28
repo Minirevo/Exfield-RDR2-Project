@@ -2,6 +2,8 @@ local C=JobsConfig
 local E='frontier_jobs:'
 local ticket,opened,requested
 local peds,blips,boards={},{},{}
+local attempts={}
+local function radius(mode) return mode=='employer' and C.employerReach or C.reach end
 local routeTarget
 local function close()
  if ticket then TriggerServerEvent(E..'close',ticket) end
@@ -63,12 +65,28 @@ local function nearest()
  local pos=GetEntityCoords(PlayerPedId());local best,dist,mode
  for m,group in pairs({board=C.boards,employer=C.employers}) do for id,p in pairs(group) do
   local n=(pos.x-p.x)^2+(pos.y-p.y)^2+(pos.z-p.z)^2
-  if n<=C.reach^2 and (not dist or n<dist) then best,dist,mode=id,n,m end
+  if n<=radius(m)^2 and (not dist or n<dist) then best,dist,mode=id,n,m end
  end end
  return mode,best
 end
 RegisterCommand('jobs',function()
+ -- Explicit interaction remains usable without an NPC or a HUD prompt.
+ if opened then close() end
  local mode,id=nearest();if mode then open(mode,id) else open('personal') end
+end,false)
+RegisterCommand('jobdebug',function()
+ local pos=GetEntityCoords(PlayerPedId())
+ local best,dist,kind,place
+ for mode,locations in pairs({board=C.boards,employer=C.employers}) do
+  for id,p in pairs(locations) do
+   local n=(pos.x-p.x)^2+(pos.y-p.y)^2+(pos.z-p.z)^2
+   if not dist or n<dist then best,dist,kind,place=id,n,mode,p end
+  end
+ end
+ if not best then return end
+ local ped=peds[best]
+ local msg=('Nearest %s %s: %.1fm (reach %.1fm); NPC exists=%s; menu=%s; player %.2f %.2f %.2f; point %.2f %.2f %.2f'):format(kind,best,math.sqrt(dist),radius(kind),tostring(ped~=nil and DoesEntityExist(ped)),tostring(opened==true),pos.x,pos.y,pos.z,place.x,place.y,place.z)
+ print('[frontier_jobs] '..msg);TriggerEvent('chat:addMessage',{args={'Employment',msg}})
 end,false)
 local prompt,group
 local function removeMarkers()
@@ -123,8 +141,9 @@ CreateThread(function()
    local mode,id=nearest()
    if mode then
     sleep=0;local p=(mode=='board' and C.boards or C.employers)[id]
+    UiPromptSetEnabled(prompt,true);UiPromptSetVisible(prompt,true)
     UiPromptSetActiveGroupThisFrame(group,VarString(10,'LITERAL_STRING',p.name),0,0,0,0)
-    if UiPromptHasStandardModeCompleted(prompt,0) then open(mode,id) end
+    if UiPromptHasStandardModeCompleted(prompt,0) and (not requested or GetGameTimer()-requested>1500) then open(mode,id) end
    end
   end
   Wait(sleep)
@@ -149,19 +168,53 @@ CreateThread(function()
     elseif distance>C.stream^2 and boards[id]~=nil then if boards[id] then DeleteEntity(boards[id]) end;boards[id]=nil end
    end
   end
+  Wait(1500)
+ end
+end)
+-- Keep the scenery NPC worker separate from board props and prompts.
+local function removeEmployer(id)
+ local ped=peds[id]
+ if ped and DoesEntityExist(ped) then DeleteEntity(ped) end
+ peds[id]=nil
+end
+local function spawnEmployer(id,p)
+ if peds[id] and DoesEntityExist(peds[id]) then return end
+ peds[id]=nil
+ if attempts[id] and GetGameTimer()-attempts[id]<C.spawnRetryMs then return end
+ attempts[id]=GetGameTimer()
+ for _,model in ipairs({p.model,C.fallbackPed}) do
+  local hash=joaat(model);RequestModel(hash)
+  local deadline=GetGameTimer()+3500
+  while not HasModelLoaded(hash) and GetGameTimer()<deadline do Wait(25) end
+  if HasModelLoaded(hash) then
+   local pos=GetEntityCoords(PlayerPedId())
+   if (pos.x-p.x)^2+(pos.y-p.y)^2+(pos.z-p.z)^2>C.stream^2 then SetModelAsNoLongerNeeded(hash);return end
+   local ped=CreatePed(hash,p.x+0.0,p.y+0.0,p.z+0.0,p.heading+0.0,false,false,false,false)
+   if ped and ped~=0 and DoesEntityExist(ped) then
+    peds[id]=ped
+    SetEntityAsMissionEntity(ped,true,true)
+    -- RedM ambient peds can be invisible until an outfit is initialized.
+    Citizen.InvokeNative(0x283978A15512B2FE,ped,true)
+    SetEntityVisible(ped,true)
+    FreezeEntityPosition(ped,true);SetEntityInvincible(ped,true);SetBlockingOfNonTemporaryEvents(ped,true)
+    SetModelAsNoLongerNeeded(hash)
+    print('[frontier_jobs] Employer spawned: '..id..' ('..model..')')
+    return
+   end
+  end
+  SetModelAsNoLongerNeeded(hash)
+ end
+ print('[frontier_jobs] Employer model unavailable: '..id..'; location interaction still active')
+end
+CreateThread(function()
+ while true do
+  local pos=GetEntityCoords(PlayerPedId())
   for id,p in pairs(C.employers) do
    local distance=(pos.x-p.x)^2+(pos.y-p.y)^2+(pos.z-p.z)^2
-   if distance<=C.stream^2 and not peds[id] then
-    local h=joaat(p.model);RequestModel(h);local deadline=GetGameTimer()+2000
-    while not HasModelLoaded(h) and GetGameTimer()<deadline do Wait(25) end
-    if HasModelLoaded(h) then
-     local ped=CreatePed(h,p.x,p.y,p.z,p.heading,false,false,false,false)
-     if ped and ped~=0 and DoesEntityExist(ped) then
-      peds[id]=ped;SetEntityAsMissionEntity(ped,true,true);FreezeEntityPosition(ped,true);SetEntityInvincible(ped,true);SetBlockingOfNonTemporaryEvents(ped,true)
-     end
-    end
-    SetModelAsNoLongerNeeded(h)
-   elseif distance>C.stream^2 and peds[id] then DeleteEntity(peds[id]);peds[id]=nil end
+   if distance<=C.stream^2 then
+    local ok,err=pcall(spawnEmployer,id,p)
+    if not ok then removeEmployer(id);print('[frontier_jobs] Employer spawn '..id..': '..tostring(err)) end
+   else removeEmployer(id);attempts[id]=nil end
   end
   Wait(1500)
  end

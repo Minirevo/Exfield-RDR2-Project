@@ -17,15 +17,31 @@ function confirmDo(text,op,payload){
  const a=el('article',undefined,$('content'));confirmation=a;el('h3','Confirm action',a);el('p',text,a);
  const b=actions(a);btn(b,'Confirm',()=>{confirmation=null;send(op,payload)});btn(b,'Cancel',()=>{a.remove();confirmation=null});a.scrollIntoView({block:'nearest'});
 }
-function board(p){for(const j of data.jobs){const emp=data.employers[j.employer],a=article(p,j.title,j.description,emp.name+' · '+j.quantity+' × '+j.item+' · '+cash(j.reward)+' · '+j.available+' openings for you today'),b=actions(a);waypoint(b,j.employer);
+function delivery(p,j){
+ const complete=Number(j.collected)>=Number(j.quantity)&&j.collected!==false;
+ const a=article(p,j.title,j.description,(j.employerName||j.employer)+' · '+cash(j.reward)),b=actions(a);
+ if(j.state==='active'){
+  el('p',j.collected===false||j.collected===undefined?'Inventory count unavailable — refresh to check.':Math.min(Number(j.collected),Number(j.quantity))+' / '+j.quantity+' '+j.item+' collected',a);
+  el('p',complete?'Ready for delivery. Return to '+(j.employerName||j.employer)+'.':'Collect the required items, then return to '+(j.employerName||j.employer)+'.',a);
+  btn(b,'Deliver '+j.quantity+' × '+j.item,()=>send('deliver',{id:j.id}));
+  if(!j.nearEmployer)el('p','You must be near the employer to deliver. Use the GPS route.',a);
+ }else if(j.state==='loaning'){el('p','Equipment pickup pending. Visit the employer.',a);btn(b,'Collect equipment',()=>send('retry',{id:j.id}))}
+ waypoint(b,j.employer);return a;
+}
+function board(p){
+ if(data.mode==='employer'){
+  const active=data.mine.filter(j=>j.kind==='npc'&&j.employer===data.place&&['active','loaning'].includes(j.state));
+  if(active.length){el('h2','Your current contracts',p);for(const j of active)delivery(p,j);el('h2','Available work',p)}
+ }
+ for(const j of data.jobs){const emp=data.employers[j.employer],a=article(p,j.title,j.description,emp.name+' · '+j.quantity+' × '+j.item+' · '+cash(j.reward)+' · '+j.available+' openings for you today'),b=actions(a);waypoint(b,j.employer);
  if(data.mode==='board'&&j.onsite)el('p','Visit the foreman to accept work and borrow tools.',a);
  else {btn(b,'Accept with own tools',()=>send('acceptNpc',{id:j.id,loan:false}),!j.available);if(j.loan)btn(b,'Accept & borrow tool',()=>send('acceptNpc',{id:j.id,loan:true}),!j.available)}
  }
  if(data.mode==='board')for(const j of data.postings){const a=article(p,j.title,j.description,j.employer+' · '+data.boards[j.town]?.name+' · '+(j.kind==='task'?cash(j.reward)+' reserved':'Recruitment')),b=actions(a);waypoint(b,j.town);
  if(j.kind==='task')btn(b,'Accept task',()=>confirmDo('Accept this one-time task?', 'acceptTask',{id:j.id}));else{const msg=field(a,'Application message','textarea');btn(a,'Apply',()=>send('apply',{id:j.id,message:msg.value}))}}
 }
-function mine(p){for(const j of data.mine){const a=article(p,j.title,j.description,j.state+' · '+cash(j.reward)+(j.receipt?' · Receipt '+j.receipt:'')),b=actions(a);
- if(j.kind==='npc'){waypoint(b,j.employer);if(j.state==='active'&&data.mode==='employer'&&data.place===j.employer)btn(b,'Deliver '+j.quantity+' × '+j.item,()=>send('deliver',{id:j.id}));if(j.state==='loaning'&&data.mode==='employer'&&data.place===j.employer)btn(b,'Retry equipment pickup',()=>send('retry',{id:j.id}));}
+function mine(p){for(const j of data.mine){const isDelivery=j.kind==='npc'&&['active','loaning'].includes(j.state);const a=isDelivery?delivery(p,j):article(p,j.title,j.description,j.state+' · '+cash(j.reward)+(j.receipt?' · Receipt '+j.receipt:'')),b=actions(a);
+ if(j.kind==='npc'){if(!isDelivery)waypoint(b,j.employer);}
  else if(j.town)waypoint(b,j.town);
  if(j.kind==='task'&&j.state==='active')btn(b,'Submit completed task',()=>confirmDo('Submit for employer review?','submitTask',{id:j.id}));
  if(['active','loaning'].includes(j.state))btn(b,'Abandon',()=>confirmDo('End this contract? Loaned tools are returned.','abandon',{id:j.id}));
