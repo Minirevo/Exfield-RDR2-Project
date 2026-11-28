@@ -49,6 +49,7 @@ function renderBasket(){if(!data)return;const b=$('basket');b.replaceChildren();
 }
 function render(){if(!data)return;$('title').textContent=data.shop;$('kind').textContent=data.kind;$('cash').textContent=money(data.cash);$('weight').textContent=(data.weight/1000).toFixed(1)+' / '+(data.weightLimit/1000).toFixed(1)+' kg satchel';
  $('farmTab').hidden=!data.farm;if(mode==='farm'&&!data.farm)mode='buy';
+ $('kind').textContent=data.kind+(data.farmUnavailable?' · Farm deliveries temporarily unavailable':'');
  for(const b of $('tabs').querySelectorAll('button')){b.classList.toggle('active',b.dataset.mode===mode);b.disabled=pending||(b.dataset.mode==='sell'&&!data.catalog.some(d=>d.sell))}
  $('search').parentElement.style.display=['receipts','farm'].includes(mode)?'none':'';categories();renderProducts();renderBasket();
 }

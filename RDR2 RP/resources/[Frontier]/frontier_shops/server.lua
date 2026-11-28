@@ -4,6 +4,19 @@ local inv,eco,core=exports.frontier_inventory,exports.frontier_economy,exports.f
 local Q,S,U,V=MySQL.query.await,MySQL.single.await,MySQL.update.await,MySQL.scalar.await
 local ready,busy=false,false
 local sessions,last={},{}
+local integrationWarnings={}
+local function optional(resource,method,call)
+ if GetResourceState(resource)~='started' then return false,resource..' is not started' end
+ local ok,success,result=pcall(call)
+ if ok and success then return true,result end
+ local why=tostring(ok and result or success)
+ local key=resource..':'..method
+ if not integrationWarnings[key] or GetGameTimer()-integrationWarnings[key]>30000 then
+  integrationWarnings[key]=GetGameTimer()
+  print(('[frontier_shops] Optional integration %s unavailable: %s. Update/restart %s.'):format(key,why,resource))
+ end
+ return false,why
+end
 local function cid(src) return core:GetPlayerCharacterId(src) end
 local function need(ok,msg) if not ok then error(msg,0) end return ok end
 local function msg(src,m) TriggerClientEvent(E..'notice',src,tostring(m)) end
@@ -26,11 +39,11 @@ local function available(site)
  for id,d in pairs(C.catalogs[kind]) do sourceCatalog[id]=d end
  if kind=='general' then
   if GetResourceState('frontier_property')=='started' then
-   local ok,items=exports.frontier_property:ShopCatalog()
+   local ok,items=optional('frontier_property','ShopCatalog',function() return exports.frontier_property:ShopCatalog() end)
    if ok then for id,d in pairs(items) do if not sourceCatalog[id] then sourceCatalog[id]=d end end end
   end
   if GetResourceState('frontier_farming')=='started' then
-   local ok,items=exports.frontier_farming:ShopSupplies()
+   local ok,items=optional('frontier_farming','ShopSupplies',function() return exports.frontier_farming:ShopSupplies() end)
    if ok then for id,d in pairs(items) do sourceCatalog[id]=d end end
   end
  end
@@ -54,10 +67,14 @@ local function view(src,v)
  table.sort(list,function(a,b)return a.category==b.category and a.name<b.name or a.category<b.category end)
  local orders=Q("SELECT `id`,`mode`,`state`,`total`,`lines` AS basket_json,`issue`,`receipt`,`created` FROM `frontier_shops_orders` WHERE `character_id`=? ORDER BY `created` DESC,`id` DESC LIMIT 40",{v.character})
  for _,o in ipairs(orders) do o.lines=json.decode(o.basket_json);o.basket_json=nil end
- local farm=false
- if C.sites[v.site].kind=='general' and GetResourceState('frontier_farming')=='started' then local ok,d=exports.frontier_farming:ShopFarmData(src);if ok then farm=d end end
+ local farm,farmUnavailable=false,false
+ if C.sites[v.site].kind=='general' then
+  local ok,d=optional('frontier_farming','ShopFarmData',function() return exports.frontier_farming:ShopFarmData(src) end)
+  if ok then farm=d else farmUnavailable=true end
+ end
+ v.farmAvailable=farm~=false
  v.ticket=uuid()
- if sessions[src]==v and valid(src,v) then TriggerClientEvent(E..'view',src,{ticket=v.ticket,shop=C.sites[v.site].name,kind=C.types[C.sites[v.site].kind],cash=accounts.cash.balance_minor,weight=bag.weight,weightLimit=bag.weightLimit,catalog=list,orders=orders,farm=farm,maxQuantity=C.maxQuantity}) end
+ if sessions[src]==v and valid(src,v) then TriggerClientEvent(E..'view',src,{ticket=v.ticket,shop=C.sites[v.site].name,kind=C.types[C.sites[v.site].kind],cash=accounts.cash.balance_minor,weight=bag.weight,weightLimit=bag.weightLimit,catalog=list,orders=orders,farm=farm,farmUnavailable=farmUnavailable,maxQuantity=C.maxQuantity}) end
 end
 local function state(id,old,new,issue)
  return U('UPDATE frontier_shops_orders SET state=?,issue=? WHERE id=? AND state=?',{new,issue or '',id,old})==1
@@ -124,7 +141,8 @@ end)
 RegisterNetEvent(E..'checkout',function(ticket,mode,lines)
  local src=source;run(src,function()
   local v=sessions[src];need(v and v.ticket==ticket and valid(src,v),'Shop session expired.')
-  if GetResourceState('frontier_farming')=='started' and C.sites[v.site].kind=='general' then need(not S('SELECT id FROM ff_orders WHERE id=?',{ticket:gsub('-','')}),'This ticket already has a farm delivery. Refresh.') end
+  -- Farm orders can only use tickets issued with a working integration.
+  if v.farmAvailable then need(not S('SELECT id FROM ff_orders WHERE id=?',{ticket:gsub('-','')}),'This ticket already has a farm delivery. Refresh.') end
   local previous=S('SELECT id FROM frontier_shops_orders WHERE id=? AND character_id=?',{ticket,v.character})
   if previous then advance(ticket);msg(src,'Existing transaction recovered. See receipts.');view(src,v);return end
   local normalized,total=R.basket(available(v.site),mode,lines,C);need(normalized,total)
@@ -145,10 +163,11 @@ end)
 RegisterNetEvent(E..'farmOrder',function(ticket,d)
  local src=source;run(src,function()
   local v=sessions[src];need(v and v.ticket==ticket and valid(src,v) and C.sites[v.site].kind=='general','Shop session expired.')
-  need(GetResourceState('frontier_farming')=='started','Agricultural deliveries unavailable.')
+  need(v.farmAvailable and GetResourceState('frontier_farming')=='started','Agricultural deliveries unavailable. Refresh the shop after farming has started.')
   need(type(d)=='table' and type(d.item)=='string' and type(d.facility)=='string','Select goods and destination.')
   need(not S('SELECT id FROM frontier_shops_orders WHERE id=?',{ticket}),'This ticket already has a retail order. Refresh.')
-  local ok,message=exports.frontier_farming:ShopFarmOrder(src,d,ticket:gsub('-',''))
+  local called,ok,message=pcall(function() return exports.frontier_farming:ShopFarmOrder(src,d,ticket:gsub('-','')) end)
+  if not called then print('[frontier_shops] Farm delivery unavailable: '..tostring(ok));msg(src,'Farm delivery unavailable. Refresh and check pending orders before retrying.');return end
   msg(src,message or (ok and 'Farm order accepted.' or 'Farm order failed.'))
   view(src,v)
  end)
@@ -157,7 +176,7 @@ AddEventHandler('playerDropped',function()sessions[source]=nil;last[source]=nil 
 MySQL.ready(function()
  local ok,err=pcall(function() S('SELECT `id`,`character_id`,`mode`,`state`,`total`,`lines`,`issue`,`receipt`,`created` FROM `frontier_shops_orders` LIMIT 1') end)
  if not ok then print('[frontier_shops] Apply sql/001_shops.sql: '..tostring(err));return end
- ready=true;print('[frontier_shops] Ready — unified general stores / quoted SQL v1.1')
+ ready=true;print('[frontier_shops] Ready — unified general stores / safe integration v1.2')
  CreateThread(function()
   while true do
    Wait(5000)
