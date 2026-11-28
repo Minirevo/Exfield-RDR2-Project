@@ -2,7 +2,7 @@ local C=JobsConfig
 local E='frontier_jobs:'
 local ticket,opened,requested
 local peds,blips,boards={},{},{}
-local attempts={}
+local attempts,spawnStatus={},{}
 local function radius(mode) return mode=='employer' and C.employerReach or C.reach end
 local routeTarget
 local function close()
@@ -86,6 +86,10 @@ RegisterCommand('jobdebug',function()
  if not best then return end
  local ped=peds[best]
  local msg=('Nearest %s %s: %.1fm (reach %.1fm); NPC exists=%s; menu=%s; player %.2f %.2f %.2f; point %.2f %.2f %.2f'):format(kind,best,math.sqrt(dist),radius(kind),tostring(ped~=nil and DoesEntityExist(ped)),tostring(opened==true),pos.x,pos.y,pos.z,place.x,place.y,place.z)
+ if kind=='employer' then
+  msg=msg..'; spawn='..tostring(spawnStatus[best] or 'not attempted')
+  if ped and DoesEntityExist(ped) then local at=GetEntityCoords(ped);msg=msg..(' | ped %.2f %.2f %.2f'):format(at.x,at.y,at.z) end
+ end
  print('[frontier_jobs] '..msg);TriggerEvent('chat:addMessage',{args={'Employment',msg}})
 end,false)
 local prompt,group
@@ -177,35 +181,73 @@ local function removeEmployer(id)
  if ped and DoesEntityExist(ped) then DeleteEntity(ped) end
  peds[id]=nil
 end
+local function noteSpawn(id,msg)
+ spawnStatus[id]=msg;print('[frontier_jobs] Employer '..id..': '..msg)
+end
 local function spawnEmployer(id,p)
  if peds[id] and DoesEntityExist(peds[id]) then return end
  peds[id]=nil
  if attempts[id] and GetGameTimer()-attempts[id]<C.spawnRetryMs then return end
  attempts[id]=GetGameTimer()
  for _,model in ipairs({p.model,C.fallbackPed}) do
-  local hash=joaat(model);RequestModel(hash)
-  local deadline=GetGameTimer()+3500
-  while not HasModelLoaded(hash) and GetGameTimer()<deadline do Wait(25) end
+  local hash=joaat(model)
+  RequestModel(hash,false)
+  local deadline=GetGameTimer()+5000
+  while not HasModelLoaded(hash) and GetGameTimer()<deadline do Wait(50) end
   if HasModelLoaded(hash) then
    local pos=GetEntityCoords(PlayerPedId())
    if (pos.x-p.x)^2+(pos.y-p.y)^2+(pos.z-p.z)^2>C.stream^2 then SetModelAsNoLongerNeeded(hash);return end
-   local ped=CreatePed(hash,p.x+0.0,p.y+0.0,p.z+0.0,p.heading+0.0,false,false,false,false)
+   RequestCollisionAtCoord(p.x+0.0,p.y+0.0,p.z+0.0)
+   local z=p.z+0.0
+   -- Use streamed terrain when available. The configured interaction point remains authoritative.
+   local groundDeadline=GetGameTimer()+1500
+   repeat
+    local ok,ground=GetGroundZFor_3dCoord(p.x+0.0,p.y+0.0,p.z+30.0,false)
+    if ok and type(ground)=='number' and math.abs(ground-p.z)<30 then z=ground;break end
+    Wait(100)
+   until GetGameTimer()>=groundDeadline
+   local ped=CreatePed(hash,p.x+0.0,p.y+0.0,z,p.heading+0.0,false,false,false,false)
+   local entityDeadline=GetGameTimer()+3000
+   -- RedM may return a handle before the entity is ready (same as VORP stores).
+   while ped and ped~=0 and not DoesEntityExist(ped) and GetGameTimer()<entityDeadline do Wait(50) end
    if ped and ped~=0 and DoesEntityExist(ped) then
     peds[id]=ped
-    SetEntityAsMissionEntity(ped,true,true)
-    -- RedM ambient peds can be invisible until an outfit is initialized.
-    Citizen.InvokeNative(0x283978A15512B2FE,ped,true)
-    SetEntityVisible(ped,true)
-    FreezeEntityPosition(ped,true);SetEntityInvincible(ped,true);SetBlockingOfNonTemporaryEvents(ped,true)
-    SetModelAsNoLongerNeeded(hash)
-    print('[frontier_jobs] Employer spawned: '..id..' ('..model..')')
-    return
+    -- Do not delete an otherwise valid ped because one optional setup native failed.
+    local function setup(label,fn,...)
+     local ok,err=pcall(fn,...)
+     if not ok then print('[frontier_jobs] '..id..' '..label..': '..tostring(err)) end
+    end
+    setup('mission',SetEntityAsMissionEntity,ped,true,true)
+    setup('outfit',Citizen.InvokeNative,0x283978A15512B2FE,ped,true)
+    setup('ground',PlaceEntityOnGroundProperly,ped,true)
+    setup('damage',SetEntityCanBeDamaged,ped,false)
+    setup('invincible',SetEntityInvincible,ped,true)
+    setup('blocking',SetBlockingOfNonTemporaryEvents,ped,true)
+    Wait(250)
+    if DoesEntityExist(ped) then
+     setup('stand',TaskStandStill,ped,-1)
+     setup('freeze',FreezeEntityPosition,ped,true)
+     local at=GetEntityCoords(ped)
+     noteSpawn(id,('spawned %s handle=%s at %.2f %.2f %.2f (configured z %.2f)'):format(model,tostring(ped),at.x,at.y,at.z,p.z))
+     SetModelAsNoLongerNeeded(hash)
+     return
+    end
+    peds[id]=nil
    end
-  end
+   noteSpawn(id,'CreatePed did not produce a live entity for '..model)
+  else noteSpawn(id,'model not loaded: '..model) end
   SetModelAsNoLongerNeeded(hash)
  end
- print('[frontier_jobs] Employer model unavailable: '..id..'; location interaction still active')
 end
+RegisterCommand('jobnpc',function()
+ local pos=GetEntityCoords(PlayerPedId())
+ for id,p in pairs(C.employers) do
+  if (pos.x-p.x)^2+(pos.y-p.y)^2+(pos.z-p.z)^2<=C.stream^2 then
+   removeEmployer(id);attempts[id]=nil
+  end
+ end
+ TriggerEvent('chat:addMessage',{args={'Employment','Nearby NPCs will be recreated. Check F8 or /jobdebug for the spawn result.'}})
+end,false)
 CreateThread(function()
  while true do
   local pos=GetEntityCoords(PlayerPedId())
@@ -213,7 +255,7 @@ CreateThread(function()
    local distance=(pos.x-p.x)^2+(pos.y-p.y)^2+(pos.z-p.z)^2
    if distance<=C.stream^2 then
     local ok,err=pcall(spawnEmployer,id,p)
-    if not ok then removeEmployer(id);print('[frontier_jobs] Employer spawn '..id..': '..tostring(err)) end
+    if not ok then noteSpawn(id,'spawn error: '..tostring(err)) end
    else removeEmployer(id);attempts[id]=nil end
   end
   Wait(1500)

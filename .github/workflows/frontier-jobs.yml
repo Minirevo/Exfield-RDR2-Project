@@ -27,3 +27,6 @@ jobs:
       - name: Employment rules
         working-directory: RDR2 RP/resources/[Frontier]/frontier_jobs
         run: lua5.4 tests/rules.lua
+      - name: Three-container job delivery regression
+        working-directory: RDR2 RP/resources/[Frontier]/frontier_inventory
+        run: lua5.4 tests/jobs_delivery.lua

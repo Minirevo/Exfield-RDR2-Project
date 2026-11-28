@@ -1725,6 +1725,6 @@ trusted('JobsInventory',function(resource,contract,character,op,item,count,loan)
  end
  if remaining~=0 then return false,'insufficient_stock' end
  if loan then reclaim(loan) end
- if changedBelt then return Inventory.Commit(key,actor,fingerprint,bag,belt,stock) end
+ if changedBelt then return Inventory.CommitJobDelivery(key,actor,fingerprint,bag,belt,stock) end
  return Inventory.Commit(key,actor,fingerprint,bag,stock)
 end)

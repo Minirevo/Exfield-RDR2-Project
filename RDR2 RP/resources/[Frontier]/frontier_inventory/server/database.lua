@@ -69,7 +69,7 @@ function Inventory.Replay(key, actor, fingerprint)
     return true, true
 end
 
-function Inventory.Commit(key, actor, fingerprint, ...)
+local function commitContainers(key, actor, fingerprint, routine, ...)
     local changes = {}
 
     for _, container in ipairs({ ... }) do
@@ -100,12 +100,14 @@ function Inventory.Commit(key, actor, fingerprint, ...)
 
     Inventory.Log('WARN', 'Inventory commit diagnostic: sending SQL payload', {
         key = key,
-        payload = payload
+        payload = payload,
+        routine = routine,
+        containers = #changes
     })
 
     local ok, result = Inventory.Db(
         'query',
-        'CALL frontier_inventory_commit_v1(?, ?, ?, ?)',
+        routine,
         { key, actor, fingerprint, payload }
     )
 
@@ -131,4 +133,17 @@ function Inventory.Commit(key, actor, fingerprint, ...)
     end
 
     return true, key, tonumber(row.replayed) == 1
+end
+
+-- Existing callers retain the original two-container routine.
+function Inventory.Commit(key,actor,fingerprint,...)
+    return commitContainers(key,actor,fingerprint,'CALL frontier_inventory_commit_v1(?, ?, ?, ?)',...)
+end
+
+-- The wider atomic routine is installed by frontier_logistics migration 002.
+-- Keep the caller, key and fingerprint unchanged so existing receipts replay.
+-- Only server-internal adapters can call this helper.
+function Inventory.CommitJobDelivery(key,actor,fingerprint,...)
+    if actor~='resource:frontier_jobs' or select('#',...)~=3 then return false,'invalid_request' end
+    return commitContainers(key,actor,fingerprint,'CALL frontier_inventory_logistics_commit_v1(?, ?, ?, ?)',...)
 end
