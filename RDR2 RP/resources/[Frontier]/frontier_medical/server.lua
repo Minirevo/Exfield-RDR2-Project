@@ -6,6 +6,7 @@ local cache,views,working,reports,lastOpen,lastAction={},{},{},{},{},{}
 local reportCounter=0
 local D=FrontierMedicalDispatch
 local board=D.new()
+local H=FrontierHospital
 local dispatchPublish,dispatchClear,dispatchTick
 local testMedics,operations,patientLocks,testAt={},{},{},{}
 local finishOperation,beginOperation,sendStage
@@ -182,7 +183,8 @@ local function applyTreatments()
    -- Update patient and mark receipt applied in one statement; a new life cannot receive old treatment.
    local n=db('update',[[UPDATE frontier_medical_state m JOIN frontier_medical_treatments t ON t.patient=m.character_id
    JOIN frontier_inventory_receipts r ON r.request_key=t.request_key AND r.completed=TRUE AND BINARY r.actor=BINARY t.actor AND BINARY r.fingerprint=BINARY t.fingerprint
-   SET m.state=?,m.revision=m.revision+1,t.applied=TRUE WHERE t.request_key=? AND t.applied=FALSE AND m.revision=?]],{json.encode(s),t.request_key,rev})
+   LEFT JOIN frontier_medical_charges c ON c.request_key=t.request_key
+   SET m.state=?,m.revision=m.revision+1,t.applied=TRUE,c.eligible=IF(?=1,TRUE,FALSE) WHERE t.request_key=? AND t.applied=FALSE AND m.revision=?]],{json.encode(s),changed and 1 or 0,t.request_key,rev})
    if n and n>0 and changed then
     for _,p in pairs(core:GetPlayers()) do if p.frontierCharacterId==t.patient then publish(p.source,t.patient,s,rev+1);notify(p.source,C.items[t.item]..' applied') end end
    end
@@ -209,6 +211,7 @@ local function snapshot(src,v)
  local now=os.time()
  local visible,wounds,actions,findings,procedures={},{},{},{},{}
  local licensed=medic(src)
+ local billing=licensed and H.canBill(src,v) or false
  for _,r in ipairs(C.regions) do
   visible[r]=M.visible(s,r)
   local examined=v.examined[r]==true
@@ -227,7 +230,7 @@ local function snapshot(src,v)
   if v.vitals then vitals.pulse=all.pulse;vitals.respiration=all.respiration;vitals.circulation=all.circulation end
   if v.temperature then vitals.temperature=all.temperature end
  end
- TriggerClientEvent(E..'view',src,{ticket=v.ticket,target=v.target,self=src==v.target,status=status,visible=visible,wounds=wounds,actions=actions,pulse=v.pulse and M.pulse(s,now) or 'Not checked',breathing=v.breathing and M.breathing(s) or 'Not checked',busy=working[src]~=nil,medic=licensed==true,findings=licensed and findings or nil,procedures=licensed and procedures or nil,vitals=vitals,selfTest=selfTest(src,v)==true})
+ TriggerClientEvent(E..'view',src,{ticket=v.ticket,target=v.target,self=src==v.target,status=status,visible=visible,wounds=wounds,actions=actions,pulse=v.pulse and M.pulse(s,now) or 'Not checked',breathing=v.breathing and M.breathing(s) or 'Not checked',busy=working[src]~=nil,medic=licensed==true,billing=billing==true,findings=licensed and findings or nil,procedures=licensed and procedures or nil,vitals=vitals,selfTest=selfTest(src,v)==true})
 end
 RegisterNetEvent(E..'open',function(target)
  local src=source
@@ -265,6 +268,8 @@ RegisterNetEvent(E..'action',function(ticket,action,region,item)
   if not ok or not has then return notify(src,'Missing '..C.equipment[item]) end
   if not validView(src,v) or not medic(src) then return end
   v[action]=true;return snapshot(src,v)
+ elseif action=='billing' or action=='issueBill' or action=='waiveCharges' then
+  return H.chart(src,v,action)
  elseif action=='procedure' then return beginOperation(src,v,region,item)
  elseif action~='treat' or type(region)~='string' or not validRegion(region) or not C.items[item] then return end
  local s=read(v.patient)
@@ -282,6 +287,8 @@ RegisterNetEvent(E..'action',function(ticket,action,region,item)
   local fp=json.encode({'change',false,v.actor,false,item,1,false})
   local queued=queue(v.patient,current,item,region,key,'resource:frontier_medical',fp)
   if queued and validView(src,v) then
+   H.capture(src,v,key,item,region,current.life)
+   if not validView(src,v) or working[src]~=w then return end
    local paid,why=inv:RemoveItem(src,item,1,nil,key)
    if not paid then notify(src,'Treatment not completed: '..tostring(why)) else notify(src,'Treatment submitted') end
   else notify(src,'Treatment interrupted') end
@@ -367,6 +374,8 @@ beginOperation=function(src,v,r,id)
   if inserted==1 then finishOperation(src,o,'failed') else refuse('Operation could not be recorded.') end
   return
  end
+ H.capture(src,v,o.key,id,r,o.life)
+ if not operationValid(src,o) then return finishOperation(src,o,'failed') end
  local paid,why=inv:RemoveItem(src,def.supply,1,nil,o.key)
  if not paid then
   finishOperation(src,o,'failed')
@@ -400,9 +409,10 @@ local function applyOperations()
    local xp=changed and Q.isSuccessful(result) and not (o.testing==true or tonumber(o.testing)==1)
    local n=db('update',[[UPDATE frontier_medical_state m JOIN frontier_medical_operations o ON o.patient=m.character_id
     JOIN frontier_inventory_receipts r ON r.request_key=o.request_key AND r.completed=TRUE AND BINARY r.actor=BINARY 'resource:frontier_medical' AND BINARY r.fingerprint=BINARY o.fingerprint
-    SET m.state=?,m.revision=m.revision+1,o.applied=TRUE,o.outcome=?,o.xp_due=?
+    LEFT JOIN frontier_medical_charges c ON c.request_key=o.request_key
+   SET m.state=?,m.revision=m.revision+1,o.applied=TRUE,o.outcome=?,o.xp_due=?,c.eligible=IF(?=1,TRUE,FALSE)
     WHERE o.request_key=? AND o.applied=FALSE AND m.revision=? AND o.outcome=?]],
-    {json.encode(state),result,xp and 1 or 0,o.request_key,rev,o.outcome})
+    {json.encode(state),result,xp and 1 or 0,xp and 1 or 0,o.request_key,rev,o.outcome})
    if n and n>0 then
     for _,p in pairs(core:GetPlayers()) do
      if p.frontierCharacterId==o.patient then publish(p.source,o.patient,state,rev+1);if changed then notify(p.source,Q.isSuccessful(result) and 'Professional treatment applied.' or 'Treatment complication.') end end
@@ -623,24 +633,30 @@ RegisterCommand('mediccall',function(src,args)
  if not call then return notify(src,'Patient location unavailable.') end
  if target~=src or not created then notify(src,('Emergency #%d %s.'):format(call.number,created and 'sent' or 'already active')) end
 end,false)
-RegisterCommand('medicduty',function(src,args)
+local function setDuty(src,mode,station)
  if src<=0 then return end
  if not medic(src) then return notify(src,'Medic licence or temporary medic access required.') end
- local mode=args[1] or (board.duty[src] and 'off' or 'on')
+ mode=mode or (board.duty[src] and 'off' or 'on')
  if mode=='off' then
-  board.duty[src]=nil
+  board.duty[src]=nil;H.dutyStation[src]=nil
   for _,call in pairs(board.calls) do if call.responder==src then releaseCall(call,'medic off duty') end end
-  return notify(src,'You are off duty.')
+  notify(src,'You are off duty.');return true
  end
  if mode~='on' then return notify(src,'Usage: /medicduty on|off') end
  if not capable(src) then return notify(src,'You must be conscious to go on duty.') end
- if board.duty[src]==cid(src) then return notify(src,'You are already on duty. Use /mediccalls.') end
- board.duty[src]=cid(src);notify(src,'You are on duty. Use /mediccalls to see open emergencies.')
+ if board.duty[src]==cid(src) then return true end
+ board.duty[src]=cid(src);H.dutyStation[src]=station or 'field';notify(src,'You are on duty. Use /mediccalls to see open emergencies.')
  for _,call in pairs(board.calls) do
   if not call.responder and call.bucket==GetPlayerRoutingBucket(src) and downPatient(call.source) then
    notify(src,('Emergency #%d: unconscious patient (ID %d). /medicaccept %d'):format(call.number,call.source,call.number))
   end
  end
+ return true
+end
+RegisterCommand('medicduty',function(src,args)
+ if src<=0 then return end
+ if not testing(src) and not admin(src) then return notify(src,'Register for service at a hospital counter.') end
+ setDuty(src,args[1])
 end,false)
 RegisterCommand('mediccalls',function(src)
  if src<=0 then return end
@@ -674,7 +690,7 @@ RegisterCommand('medicrelease',function(src)
  notify(src,'You have no assigned emergency.')
 end,false)
 local function clear(src)
- dispatchClear(src)
+ dispatchClear(src);H.clear(src)
  local o=operations[src]
  if o then
   -- On disconnect the durable operation expires as a failure. No client
@@ -686,10 +702,13 @@ local function clear(src)
 end
 AddEventHandler('playerDropped',function() clear(tonumber(source) or source) end)
 AddEventHandler('frontier:playerUnloaded',function(p) clear(p.source) end)
+H.init({db=db,cid=cid,medic=medic,testing=testing,ace=ace,capable=capable,nearby=nearby,validView=validView,notify=notify,
+ duty=function(src) return board.duty[src]~=nil and board.duty[src]==cid(src) and medic(src) end,setDuty=setDuty,
+ snapshot=snapshot,legacy=legacy,position=position,views=views,working=working,board=board})
 MySQL.ready(function()
  while not ready do
-  ready=db('query','SELECT character_id FROM frontier_medical_state LIMIT 0')~=nil and db('query','SELECT request_key FROM frontier_medical_treatments LIMIT 0')~=nil and db('query','SELECT request_key FROM frontier_medical_operations LIMIT 0')~=nil
-  if not ready then print('[frontier_medical] Apply sql/migrations/001_medical.sql and 002_professional.sql');Wait(5000) end
+  ready=db('query','SELECT character_id FROM frontier_medical_state LIMIT 0')~=nil and db('query','SELECT request_key FROM frontier_medical_treatments LIMIT 0')~=nil and db('query','SELECT request_key FROM frontier_medical_operations LIMIT 0')~=nil and H.schema()
+  if not ready then print('[frontier_medical] Apply sql/migrations/001_medical.sql, 002_professional.sql, 003_hospital.sql and economy 007');Wait(5000) end
  end
  CreateThread(function() while true do if not legacy() then applyTreatments();applyOperations() end;Wait(1000) end end)
  while true do
