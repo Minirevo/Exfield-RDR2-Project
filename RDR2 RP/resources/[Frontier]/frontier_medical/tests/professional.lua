@@ -1,4 +1,4 @@
-dofile('config.lua');dofile('model.lua');dofile('professional.lua')
+dofile('config.lua');dofile('model.lua');dofile('professional.lua');dofile('qte.lua')
 local M,C=FrontierMedicalModel,FrontierMedicalConfig
 local s=M.new()
 for i=1,4 do assert(M.injure(s,'left_leg','penetrating',7,0)) end
@@ -21,10 +21,10 @@ local bleed=w.bleed
 assert(not M.applyProcedure(s,'right_arm','extract','failed',0) and w.fragment==1)
 assert(M.applyProcedure(s,'right_arm','extract','complication',0) and w.fragment==1 and w.bleed>bleed)
 assert(M.applyProcedure(s,'right_arm','extract','success',0) and w.fragment==0)
-assert(M.scoreStage(1500,1500,400)=='success')
-assert(M.scoreStage(2200,1500,400)=='failed')
-assert(M.scoreStage(3000,1500,400)=='complication')
-assert(M.scoreStage(5000,1500,400)=='failed')
+s=M.new();M.testInjury(s,'right_arm','splinter',30,0)
+local before=s.pain;local trauma=s.trauma;local ext=s.wounds.right_arm.bleed
+assert(M.applyProcedure(s,'right_arm','extract','acceptable',0))
+assert(s.wounds.right_arm.fragment==0 and s.pain==before and s.trauma==trauma and s.wounds.right_arm.bleed==ext)
 assert(not M.testInjury(s,'head','fracture',30,0))
 assert(not M.testInjury(s,'left_leg','organ',30,0))
 s=M.new();s.shock=500

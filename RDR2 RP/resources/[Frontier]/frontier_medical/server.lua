@@ -1,4 +1,4 @@
-local C,M=FrontierMedicalConfig,FrontierMedicalModel
+local C,M,Q=FrontierMedicalConfig,FrontierMedicalModel,FrontierMedicalQTE
 local core,inv=exports.frontier_core,exports.frontier_inventory
 local E='frontier_medical:'
 local ready=false
@@ -297,23 +297,29 @@ finishOperation=function(src,o,outcome)
  if operations[src]~=o or o.finishing then return end
  o.finishing=true
  if not o.key then releaseOperation(src,o);return end
- if outcome=='success' and not operationValid(src,o) then outcome='failed' end
+ if Q.isSuccessful(outcome) and not operationValid(src,o) then outcome='failed' end
  -- On DB uncertainty the row remains pending and expires as a paid failure.
  local n=db('update',[[UPDATE frontier_medical_operations SET outcome=? WHERE request_key=? AND outcome='pending' AND applied=FALSE]],{outcome,o.key})
  releaseOperation(src,o)
  if cid(src)==o.doctor then
   TriggerClientEvent(E..'operationEnd',src,o.key)
-  notify(src,n==1 and (outcome=='success' and 'Procedure completed; awaiting medical record.' or outcome=='complication' and 'Procedure complication. Reassess the patient.' or 'Procedure failed or interrupted.') or 'Procedure outcome pending.')
+  notify(src,n==1 and (outcome=='success' and 'Perfect procedure; awaiting medical record.' or outcome=='acceptable' and 'Acceptable procedure; treatment completed safely.' or outcome=='complication' and 'Procedure complication. Reassess the patient.' or 'Procedure failed or interrupted.') or 'Procedure outcome pending.')
   if validView(src,o.view) then snapshot(src,o.view) end
  end
 end
 sendStage=function(src,o)
  if not operationValid(src,o) then return finishOperation(src,o,'failed') end
- o.stage=o.stage+1;o.center=math.random(950,2250);o.started=GetGameTimer()
+ o.stage=o.stage+1
+ -- Vary the sweep slightly each stage. Keep both orange edges within the track.
+ o.duration=math.max(1250,o.def.duration+math.random(-100,100)-(o.stage-1)*60)
+ local margin=math.max(o.acceptable+90,math.floor(o.duration*.24))
+ o.center=math.random(margin,o.duration-margin)
+ o.ping=math.max(0,math.min(C.stagePingCapMs,tonumber(GetPlayerPing(src)) or 0))
+ o.started=GetGameTimer()
  TriggerClientEvent(E..'operationStage',src,o.view.ticket,{key=o.key,stage=o.stage,total=o.def.stages,label=o.def.label,
-  center=o.center,window=o.window,duration=C.stageTimeoutMs})
+  center=o.center,perfect=o.perfect,acceptable=o.acceptable,duration=o.duration,lead=C.stageLeadMs,previous=o.previous})
  local stage=o.stage
- SetTimeout(C.stageTimeoutMs+250,function()
+ SetTimeout(C.stageLeadMs+o.duration+o.ping+250,function()
   if operations[src]==o and o.stage==stage then finishOperation(src,o,'failed') end
  end)
 end
@@ -340,7 +346,8 @@ beginOperation=function(src,v,r,id)
  end
  local skillOk,skill=exports.frontier_skills:GetSkill(src,'doctoring')
  local level=skillOk and skill.level or 1
- o.window=def.window+math.floor((level-1)*2)
+ o.perfect,o.acceptable=Q.windows(def,level)
+ o.quality='success'
  local uuid=db('scalar','SELECT UUID()')
  if not uuid or not operationValid(src,o) then return refuse('Procedure interrupted.') end
  o.key='op:'..uuid:gsub('-','')
@@ -365,10 +372,11 @@ RegisterNetEvent(E..'operationPress',function(key,stage)
  local src=source;local o=operations[src]
  if not o or o.key~=key or o.stage~=stage or not o.started or o.finishing then return end
  if not operationValid(src,o) then return finishOperation(src,o,'failed') end
- local elapsed=GetGameTimer()-o.started;o.started=nil
- local result=M.scoreStage(elapsed,o.center,o.window)
- if result~='success' then return finishOperation(src,o,result) end
- if o.stage>=o.def.stages then return finishOperation(src,o,'success') end
+ local elapsed=GetGameTimer()-o.started-C.stageLeadMs-o.ping;o.started=nil
+ local result=Q.score(elapsed,o.center,o.perfect,o.acceptable,o.duration)
+ if result=='failed' or result=='complication' then return finishOperation(src,o,result) end
+ o.quality=Q.complete(o.quality,result);o.previous=result
+ if o.stage>=o.def.stages then return finishOperation(src,o,o.quality) end
  sendStage(src,o)
 end)
 local function applyOperations()
@@ -381,7 +389,7 @@ local function applyOperations()
   if state then
    local result=o.outcome=='pending' and 'failed' or o.outcome
    local changed=tonumber(o.life)==state.life and M.applyProcedure(state,o.region,o.procedure_id,result,now)
-   local xp=changed and result=='success' and not (o.testing==true or tonumber(o.testing)==1)
+   local xp=changed and Q.isSuccessful(result) and not (o.testing==true or tonumber(o.testing)==1)
    local n=db('update',[[UPDATE frontier_medical_state m JOIN frontier_medical_operations o ON o.patient=m.character_id
     JOIN frontier_inventory_receipts r ON r.request_key=o.request_key AND r.completed=TRUE AND BINARY r.actor=BINARY 'resource:frontier_medical' AND BINARY r.fingerprint=BINARY o.fingerprint
     SET m.state=?,m.revision=m.revision+1,o.applied=TRUE,o.outcome=?,o.xp_due=?
@@ -389,16 +397,17 @@ local function applyOperations()
     {json.encode(state),result,xp and 1 or 0,o.request_key,rev,o.outcome})
    if n and n>0 then
     for _,p in pairs(core:GetPlayers()) do
-     if p.frontierCharacterId==o.patient then publish(p.source,o.patient,state,rev+1);if changed then notify(p.source,result=='success' and 'Professional treatment applied.' or 'Treatment complication.') end end
-     if p.frontierCharacterId==o.doctor and result=='success' and not changed then notify(p.source,'Treatment no longer applicable; supplies spent.') end
+     if p.frontierCharacterId==o.patient then publish(p.source,o.patient,state,rev+1);if changed then notify(p.source,Q.isSuccessful(result) and 'Professional treatment applied.' or 'Treatment complication.') end end
+     if p.frontierCharacterId==o.doctor and Q.isSuccessful(result) and not changed then notify(p.source,'Treatment no longer applicable; supplies spent.') end
     end
    end
   end
  end
- local awards=db('query',[[SELECT request_key,doctor,procedure_id FROM frontier_medical_operations WHERE xp_due=TRUE AND xp_awarded=FALSE LIMIT 100]]) or {}
+ local awards=db('query',[[SELECT request_key,doctor,procedure_id,outcome FROM frontier_medical_operations WHERE xp_due=TRUE AND xp_awarded=FALSE LIMIT 100]]) or {}
  for _,o in ipairs(awards) do
   local def=C.procedures[o.procedure_id]
-  if def and exports.frontier_skills:GrantXP(o.doctor,'doctoring',def.xp,o.request_key) then
+  local xp=def and Q.xp(def.xp,o.outcome) or 0
+  if xp>0 and exports.frontier_skills:GrantXP(o.doctor,'doctoring',xp,o.request_key) then
    db('update','UPDATE frontier_medical_operations SET xp_awarded=TRUE WHERE request_key=?',{o.request_key})
   end
  end

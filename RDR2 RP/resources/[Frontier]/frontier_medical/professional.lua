@@ -85,7 +85,7 @@ function M.applyProcedure(s,r,id,outcome,now)
  if outcome=='complication' then
   s.pain=bounded(s.pain+60,1000);s.trauma=bounded(s.trauma+30,1000)
   if w then w.bleed=bounded(w.bleed+8,100);w.severity=bounded(w.severity+40,1000) end
- elseif outcome=='success' then
+ elseif outcome=='success' or outcome=='acceptable' then
   if id=='suture' then w.deep=false;w.bleed=0;w.severity=math.max(1,w.severity-100)
   elseif id=='extract' then
    if (w.projectile or 0)>0 then w.projectile=w.projectile-1 else w.fragment=w.fragment-1 end
@@ -101,13 +101,6 @@ function M.applyProcedure(s,r,id,outcome,now)
   end
  else return false end
  M.updateDown(s,now);return true
-end
-function M.scoreStage(elapsed,center,window)
- if type(elapsed)~='number' or elapsed<0 or elapsed>C.stageTimeoutMs then return 'failed' end
- local distance=math.abs(elapsed-center)
- if distance<=window then return 'success' end
- if distance<=window+450 then return 'failed' end
- return 'complication'
 end
 -- Admin presets are explicit, bounded, and operate on a living test character.
 function M.testInjury(s,r,kind,amount,now)
