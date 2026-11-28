@@ -11,7 +11,7 @@ end
 
 local function tradeExport(name, handler)
     Economy.Export(name, function(resource, ...)
-        if resource ~= 'frontier_trade' and not (resource=='frontier_logistics' and (name=='FundTradeHold' or name=='ReleaseTradeHold' or name=='PayTradeDelivery')) then return false, 'forbidden' end
+        if resource ~= 'frontier_trade' and not ((resource=='frontier_logistics' or resource=='frontier_jobs') and (name=='FundTradeHold' or name=='ReleaseTradeHold' or name=='PayTradeDelivery')) then return false, 'forbidden' end
         return handler(...)
     end)
 end

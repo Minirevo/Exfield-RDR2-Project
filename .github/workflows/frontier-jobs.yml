@@ -1,0 +1,29 @@
+name: Frontier employment checks
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'RDR2 RP/resources/**/frontier_jobs/**'
+      - 'RDR2 RP/resources/**/frontier_inventory/**'
+      - 'RDR2 RP/resources/**/frontier_gathering/**'
+      - 'RDR2 RP/resources/**/frontier_business/**'
+      - 'RDR2 RP/resources/**/frontier_economy/**'
+      - '.github/workflows/frontier-jobs.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  jobs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y lua5.4
+      - name: Lua and browser syntax
+        working-directory: RDR2 RP/resources/[Frontier]
+        run: |
+          find frontier_jobs frontier_inventory frontier_economy frontier_business frontier_gathering -name '*.lua' -print0 | xargs -0 -n1 luac5.4 -p
+          node --check frontier_jobs/html/app.js
+          node --check frontier_business/html/app.js
+      - name: Employment rules
+        working-directory: RDR2 RP/resources/[Frontier]/frontier_jobs
+        run: lua5.4 tests/rules.lua

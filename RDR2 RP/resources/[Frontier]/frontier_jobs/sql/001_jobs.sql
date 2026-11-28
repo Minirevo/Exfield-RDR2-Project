@@ -1,0 +1,37 @@
+CREATE TABLE IF NOT EXISTS frontier_jobs_contracts (
+ id CHAR(36) PRIMARY KEY,
+ kind VARCHAR(16) NOT NULL,
+ state VARCHAR(24) NOT NULL,
+ company VARCHAR(64) NULL,
+ poster VARCHAR(64) NOT NULL,
+ employer VARCHAR(80) NOT NULL,
+ title VARCHAR(80) NOT NULL,
+ description VARCHAR(500) NOT NULL,
+ town VARCHAR(32) NULL,
+ template VARCHAR(32) NULL,
+ item VARCHAR(48) NULL,
+ quantity INT UNSIGNED NOT NULL DEFAULT 0,
+ loan VARCHAR(48) NULL,
+ wants_loan TINYINT NOT NULL DEFAULT 0,
+ reward INT UNSIGNED NOT NULL DEFAULT 0,
+ company_bank BIGINT UNSIGNED NULL,
+ worker VARCHAR(64) NULL,
+ worker_bank BIGINT UNSIGNED NULL,
+ worker_name VARCHAR(120) NULL,
+ created BIGINT UNSIGNED NOT NULL,
+ expires BIGINT UNSIGNED NOT NULL,
+ receipt VARCHAR(64) NULL,
+ KEY jobs_public(kind,state,expires),
+ KEY jobs_worker(worker,state),
+ KEY jobs_company(company,state),
+ KEY jobs_quota(template,created)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS frontier_jobs_applications (
+ posting CHAR(36) NOT NULL,
+ character_id VARCHAR(64) NOT NULL,
+ name VARCHAR(120) NOT NULL,
+ message VARCHAR(500) NOT NULL,
+ state VARCHAR(16) NOT NULL DEFAULT 'pending',
+ created BIGINT UNSIGNED NOT NULL,
+ PRIMARY KEY(posting,character_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

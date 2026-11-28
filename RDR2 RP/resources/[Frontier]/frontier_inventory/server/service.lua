@@ -298,7 +298,9 @@ function Inventory.Act(ctx, action, data)
         local moved,issue
         if action=='beltStore' then
             if not Inventory.BeltEligible(stack.item) then return false,'forbidden' end
-            moved,issue=moveBetween(player,belt,data.slot,data.quantity,data.target,'store')
+            if stack.item=='gather_axe_job' or stack.item=='gather_pickaxe_job' then
+                moved,issue=moveBetween(player,belt,data.slot,data.quantity,data.target,nil)
+            else moved,issue=moveBetween(player,belt,data.slot,data.quantity,data.target,'store') end
         elseif action=='beltRetrieve' then moved,issue=moveBetween(belt,player,data.slot,data.quantity,data.target)
         else moved,issue=Inventory.Move(belt,data.slot,data.target,data.quantity,false) end
         if not moved then return false,issue end

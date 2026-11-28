@@ -10,3 +10,8 @@ RegisterNUICallback('action',function(d,cb) if not opened then cb({ok=false});re
 RegisterNUICallback('refresh',function(_,cb) if opened then TriggerServerEvent('frontier_business:refresh') end;cb({ok=opened}) end)
 RegisterNUICallback('management',function(_,cb) if opened then TriggerServerEvent('frontier_business:open') end;cb({ok=opened}) end)
 AddEventHandler('onClientResourceStop',function(r) if r==GetCurrentResourceName() then close() end end)
+
+RegisterNUICallback('jobs',function(d,cb)
+ if not opened or type(d.company)~='string' or GetResourceState('frontier_jobs')~='started' then cb({ok=false});return end
+ close();TriggerEvent('frontier_jobs:manage',d.company);cb({ok=true})
+end)

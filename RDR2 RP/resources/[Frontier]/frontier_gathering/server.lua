@@ -384,3 +384,12 @@ RegisterNetEvent(E..'debug',function()
   print('[frontier_gathering] '..msg);notice(src,msg)
  end)
 end)
+
+-- Loan return waits for a gathering operation or a pending inventory claim.
+exports('JobsGatheringBusy',function(character)
+ if GetInvokingResource()~='frontier_jobs' then return true end
+ for src,w in pairs(sessions) do if w.actor==character or cid(src)==character then return true end end
+ for src in pairs(fishSessions) do if cid(src)==character then return true end end
+ for src in pairs(busy) do if busy[src] and cid(src)==character then return true end end
+ return false
+end)

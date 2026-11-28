@@ -53,7 +53,7 @@ function render(){
 function overview(p,b){
  intro(p,b?b.name:'Personal ledger',b?b.description:'Manage your personal licenses, invitations and purchases.');
  const m=el('div',undefined,p,'metrics');
- if(b){metric(m,'Company status',b.status);metric(m,'Bank balance',b.balance===undefined?'Private':money(b.balance));metric(m,'Employees',vals(b.employees).length);metric(m,'Registered locations',vals(b.locations).length);
+ if(b){if(rights(b,'hire'))button(p,'Employment & recruitment',()=>post('jobs',{company:b.id}));metric(m,'Company status',b.status);metric(m,'Bank balance',b.balance===undefined?'Private':money(b.balance));metric(m,'Employees',vals(b.employees).length);metric(m,'Registered locations',vals(b.locations).length);
  let s=panel(p,'Company shortcuts');for(const [k,t] of [['finance','Finances'],['property','Property rights'],['stock','Storage'],['employees','Employees'],['trade','Trade']])button(actions(s),t,()=>setTab(k));
  hint(s,'Registration and licenses are available at a government registry. Property rights and stock ownership are separate.');
  if(b.status==='liquidating')hint(s,'Recovery ends '+new Date(Number(b.liquidate_until)*1000).toLocaleString()+'.');}

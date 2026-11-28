@@ -3,6 +3,7 @@ EconomyConfig = {
     TrustedResources = {
         frontier_hud = true,
         frontier_medical = true,
+        frontier_jobs = true,
         frontier_production = true,
         frontier_logistics = true,
         frontier_farming = true,

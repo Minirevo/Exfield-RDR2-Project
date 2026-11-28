@@ -1439,6 +1439,10 @@ trusted('GetGatheringTool',function(owner,source,kind,repair,requireEquipped)
  if requireEquipped and (not active or active.kind~=kind) then return false,'tool_not_equipped' end
  local e=findGatherTool(source,id,bag,belt,kind,requireEquipped and active.instance or nil,repair==true)
  if not e then return false,'tool_missing' end
+ if e.item=='gather_axe_job' or e.item=='gather_pickaxe_job' then
+  local m=json.decode(e.metadata)
+  if repair or GetResourceState('frontier_jobs')~='started' or not m or not exports.frontier_jobs:IsLoanActive(id,m.job_contract,e.item) then return false,'inactive_loan' end
+ end
  return true,{item=e.item,instance=e.instance,metadata=json.decode(e.metadata)}
 end)
 trusted('GatheringCommit',function(owner,source,character,kind,instance,item,count,wear,key,preview,extra,metadata)
@@ -1655,4 +1659,72 @@ trusted('LogisticsConsume',function(resource,key,route,needs,preview,expectedRev
  end
  if preview then return true,{quality=math.floor(quality/total+.5),revision=box.revision} end
  return logisticsCommit(key,fingerprint,{box})
+end)
+
+-- Job-owned tools and NPC deliveries: exact character, immutable contract receipt, private stock.
+trusted('GetJobsPosition',function(owner,source)
+ if owner~='frontier_jobs' then return false,'forbidden' end
+ local id,pos=Inventory.Session(source);if not id then return false,pos end
+ return true,{character=id,x=pos.x,y=pos.y,z=pos.z,bucket=pos.bucket}
+end)
+local jobLoans={gather_axe_job=true,gather_pickaxe_job=true}
+local jobGoods={wood=true,gather_stone=true,gather_pelt=true,gather_fish=true}
+trusted('JobsInventory',function(resource,contract,character,op,item,count,loan)
+ if resource~='frontier_jobs' or not tradeUuid(contract) or not Inventory.Id(character,64) or not Inventory.Int(count,100) then return false,'invalid_request' end
+ if (op=='loan' or op=='return') and (not jobLoans[item] or count~=1) then return false,'invalid_item' end
+ if op=='deliver' and (not jobGoods[item] or loan and not jobLoans[loan]) then return false,'invalid_item' end
+ if op~='loan' and op~='return' and op~='deliver' then return false,'invalid_request' end
+ local key='jobs:'..contract..':'..op;local actor='resource:'..resource
+ local fingerprint=json.encode({character,contract,op,item,count,loan or false})
+ local ok,replay=Inventory.Replay(key,actor,fingerprint);if not ok then return false,replay end;if replay then return true,key end
+ local loaded,bag=Inventory.Load('p_'..character)
+ if not loaded and bag=='not_found' then
+  local ensured,why=Inventory.Ensure('p_'..character,'player',Config.Slots,Config.WeightGrams)
+  if not ensured then return false,why end
+  loaded,bag=Inventory.Load('p_'..character)
+ end
+ if not loaded then return false,bag end
+ if op=='loan' then
+  local def=Inventory.items[item];if not def or def.owner~=resource then return false,'invalid_item' end
+  local meta=json.decode(def.metadata);meta.job_contract=contract
+  local instance=Inventory.Uuid();if not instance then return false,'database_error' end
+  local placed,why=Inventory.Place(bag,{item=item,quantity=1,metadata=json.encode(meta),instance=instance})
+  if not placed then return false,why end
+  return Inventory.Commit(key,actor,fingerprint,bag)
+ end
+ local has,belt=Inventory.Load('b_'..character)
+ if not has and belt~='not_found' then return false,belt end
+ if not has then belt=nil end
+ local changedBag,changedBelt=false,false
+ local function reclaim(tool)
+  for _,box in ipairs(belt and {bag,belt} or {bag}) do
+   for slot,entry in pairs(box.slots) do if entry.item==tool then
+    local m=json.decode(entry.metadata)
+    if m and m.job_contract==contract then
+     Inventory.Take(box,slot,1);if box==bag then changedBag=true else changedBelt=true end
+    end
+   end end
+  end
+ end
+ if op=='return' then
+  reclaim(item)
+  if changedBelt then return Inventory.Commit(key,actor,fingerprint,bag,belt) end
+  return Inventory.Commit(key,actor,fingerprint,bag)
+ end
+ local boxId='jobs_'..contract:gsub('%-','')
+ local created,why=Inventory.Ensure(boxId,'storage',100,10000000);if not created then return false,why end
+ local stockOk,stock=Inventory.Load(boxId);if not stockOk then return false,stock end
+ local remaining=count
+ for slot=1,bag.slot_limit do
+  local e=bag.slots[slot]
+  if e and e.item==item and not Inventory.IsDepartmentSupply(e) then
+   local n=math.min(remaining,e.quantity);local removed,v=Inventory.Take(bag,slot,n);if not removed then return false,v end
+   local placed,err=Inventory.Place(stock,v);if not placed then return false,err end
+   remaining=remaining-n;if remaining==0 then break end
+  end
+ end
+ if remaining~=0 then return false,'insufficient_stock' end
+ if loan then reclaim(loan) end
+ if changedBelt then return Inventory.Commit(key,actor,fingerprint,bag,belt,stock) end
+ return Inventory.Commit(key,actor,fingerprint,bag,stock)
 end)
