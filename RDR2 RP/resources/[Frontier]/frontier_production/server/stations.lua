@@ -230,14 +230,15 @@ RegisterNetEvent(E..'request',function(ticket,seq,name,d)
  end)
 end)
 RegisterNetEvent(E..'close',function(ticket)local src=source;if views[src] and views[src].ticket==ticket then views[src]=nil end end)
-RegisterNetEvent(E..'strike',function(k,round)
+RegisterNetEvent(E..'strike',function(k,round,pressedAt)
  local src=source;local w=work[src]
  if not w or w.id~=k or w.actor~=cid(src) or type(round)~='number' or round%1~=0 or round<1 or round>#w.targets or w.scores[round]~=nil then return end
- local elapsed=GetGameTimer()-w.started
- -- Server clock only. No client-provided score, hit location or timestamp.
- local score=R.roundScore(elapsed,round,w.roundMs,w.sweepMs,w.targets[round],w.width)
- if score==nil then return end
- w.scores[round]=score
+ local received=GetGameTimer()-w.started
+ -- Recompute the strike from its bounded capture time, not packet arrival time.
+ local elapsed=R.strikeElapsed(received,pressedAt,GetPlayerPing(src))
+ local score=elapsed and R.roundScore(elapsed,round,w.roundMs,w.sweepMs,w.targets[round],w.width) or 0
+ w.scores[round]=score or 0
+ score=w.scores[round]
  TriggerClientEvent(E..'strikeResult',src,k,round,score)
 end)
 RegisterNetEvent(E..'finish',function(k)
@@ -289,8 +290,8 @@ local function step(j)
    local targets={};for i=1,rounds*d.batches do targets[i]=math.random(25,75)/100 end
    local w={id=j.id,actor=j.actor,ms=roundMs*#targets,rounds=rounds,roundMs=roundMs,sweepMs=sweepMs,width=d.width or .18,targets=targets,scores={},station=j.station_id}
    state(j,'manual','',now()+math.ceil(w.ms/1000)+12)
-   w.started=GetGameTimer();work[src]=w;views[src]=nil
-   TriggerClientEvent(E..'work',src,{id=j.id,label=d.name,ms=w.ms,targets=targets,rounds=rounds,batches=d.batches,roundMs=roundMs,sweepMs=sweepMs,width=d.width or C.targetWidth,stages=d.stages,kind=(C.recipes[d.recipe] or {}).station})
+   w.started=GetGameTimer()+500;work[src]=w;views[src]=nil
+   TriggerClientEvent(E..'work',src,{id=j.id,label=d.name,leadMs=500,ms=w.ms,targets=targets,rounds=rounds,batches=d.batches,roundMs=roundMs,sweepMs=sweepMs,width=w.width,stages=d.stages,kind=(C.recipes[d.recipe] or {}).station})
   end
  elseif j.state=='wage' then
   -- Ledger receipt makes a crash between debit and state transition safe.

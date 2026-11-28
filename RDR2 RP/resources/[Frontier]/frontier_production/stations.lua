@@ -123,7 +123,20 @@ end
 function R.roundScore(elapsed,round,roundMs,sweepMs,target,width)
  local relative=elapsed-(round-1)*roundMs
  if relative<0 or relative>sweepMs then return nil end
- return math.max(0,1-math.abs(relative/sweepMs-target)/(width or .18))
+ local distance=math.abs(relative/sweepMs-target)
+ local limit=width or .18
+ -- The displayed green area is inclusive, including both edges.
+ if distance>limit+1e-9 then return 0 end
+ return .25+.75*math.max(0,1-distance/limit)
+end
+-- Client strike time is accepted only within a bounded server-observed transit window.
+-- The server still chooses the target and calculates the result, never accepts a score.
+function R.strikeElapsed(received,claimed,ping)
+ if type(claimed)~='number' or claimed%1~=0 or claimed<0 or type(received)~='number' then return nil end
+ local budget=math.max(100,math.min(350,(tonumber(ping) or 0)+100))
+ local offset=received-claimed
+ if offset< -25 or offset>budget then return nil end
+ return claimed
 end
 function R.batchScore(scores,batch,rounds)
  local total=0

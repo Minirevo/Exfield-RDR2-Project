@@ -120,20 +120,21 @@ RegisterNetEvent(E..'work',function(d)
  if source~=65535 or work then return end
  close()
  if IsNuiFocused() or IsPedDeadOrDying(PlayerPedId(),true) or IsPedOnMount(PlayerPedId()) or IsPedInAnyVehicle(PlayerPedId(),false) then TriggerServerEvent(E..'cancel',d.id);return end
- work=d;d.started=GetGameTimer();d.hits={}
- ui({type='stationWork',label=d.label,ms=d.ms,targets=d.targets,rounds=d.rounds,batches=d.batches,roundMs=d.roundMs,sweepMs=d.sweepMs,width=d.width,stages=d.stages})
+ work=d;d.started=GetGameTimer()+(d.leadMs or 500);d.hits={}
+ ui({type='stationWork',label=d.label,ms=d.ms,targets=d.targets,rounds=d.rounds,batches=d.batches,roundMs=d.roundMs,sweepMs=d.sweepMs,width=d.width,stages=d.stages,elapsed=GetGameTimer()-d.started})
  pcall(TaskStartScenarioInPlace,PlayerPedId(),GetHashKey(scenarios[d.kind] or 'WORLD_HUMAN_HAMMER'),d.ms,true,false,false,false)
  CreateThread(function()
-  local lastSend=0
+  local lastSend,lastSync=0,-1000
   while work==d do
    local elapsed=GetGameTimer()-d.started
+   if elapsed-lastSync>=100 then lastSync=elapsed;ui({type='stationClock',elapsed=elapsed}) end
    if IsPedDeadOrDying(PlayerPedId(),true) or IsControlJustPressed(0,0x156F7119) then TriggerServerEvent(E..'cancel',d.id);clear();return end
    DisableControlAction(0,0xD9D0E1C0,true)
    local round=math.floor(elapsed/d.roundMs)+1
    local relative=elapsed-(round-1)*d.roundMs
-   if round<=#d.targets and relative<=d.sweepMs and not d.hits[round] and IsDisabledControlJustPressed(0,0xD9D0E1C0) then
+   if elapsed>=0 and round>=1 and round<=#d.targets and relative<=d.sweepMs and not d.hits[round] and IsDisabledControlJustPressed(0,0xD9D0E1C0) then
     d.hits[round]=true
-    TriggerServerEvent(E..'strike',d.id,round)
+    TriggerServerEvent(E..'strike',d.id,round,elapsed)
     ui({type='stationStrike',round=round,position=relative/d.sweepMs})
    end
    if elapsed>=d.ms+200 and elapsed-lastSend>=1000 then

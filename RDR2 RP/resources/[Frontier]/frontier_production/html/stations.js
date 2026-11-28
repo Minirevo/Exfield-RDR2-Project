@@ -154,12 +154,12 @@ window.addEventListener('message',({data:d})=>{
  else if(d.type==='stationWork'){
   stopGunPreview();active=false;working=true;root.hidden=true;old.hidden=true;hud.hidden=false;document.body.hidden=false;
   $('st-work-label').textContent=d.label;
-  const start=performance.now();cancelAnimationFrame(frame);
-  qte={round:0,hits:{},results:{}};
+  cancelAnimationFrame(frame);
+  qte={round:0,hits:{},results:{},elapsed:Number(d.elapsed)||0,anchor:performance.now()};
   $('st-round-dots').replaceChildren(...Array.from({length:d.rounds},()=>{const dot=document.createElement('span');dot.className='st-dot';return dot}));
   const tick=t=>{
    if(!working||!qte)return;
-   const elapsed=Math.max(0,t-start),round=Math.min(d.targets.length,Math.floor(elapsed/d.roundMs)+1);
+   const clock=qte.elapsed+Math.max(0,t-qte.anchor),elapsed=Math.max(0,clock),round=Math.min(d.targets.length,Math.floor(elapsed/d.roundMs)+1);
    const relative=elapsed-(round-1)*d.roundMs, batch=Math.floor((round-1)/d.rounds)+1, localRound=(round-1)%d.rounds+1;
    if(qte.round!==round){
     qte.round=round;$('st-target').style.left=(d.targets[round-1]-d.width)*100+'%';$('st-target').style.width=d.width*200+'%';
@@ -167,7 +167,7 @@ window.addEventListener('message',({data:d})=>{
    }
    const hit=qte.hits[round],score=qte.results[round],expired=relative>d.sweepMs;
    $('st-marker').style.left=(hit===undefined?Math.min(1,relative/d.sweepMs):hit)*100+'%';
-   $('st-instruction').textContent=score!==undefined?(score>=.75?'Excellent strike':score>0?'Strike recorded':'Missed'):(hit!==undefined?'Checking strike…':expired?'Missed · next round shortly':'Press SPACE in the green zone');
+   $('st-instruction').textContent=score!==undefined?(score>=.75?'Excellent strike':score>0?'Strike recorded':'Missed'):(hit!==undefined?'Checking strike…':clock<0?'Get ready…':expired?'Missed · next round shortly':'Press SPACE in the green zone');
    $('st-instruction').dataset.result=score!==undefined?(score>=.75?'good':score>0?'partial':'miss'):(expired&&hit===undefined?'miss':'');
    [...$('st-round-dots').children].forEach((dot,i)=>{
     const k=(batch-1)*d.rounds+i+1,s=qte.results[k];
@@ -176,7 +176,8 @@ window.addEventListener('message',({data:d})=>{
    $('st-progress').value=Math.min(1,elapsed/d.ms);
    if(elapsed<d.ms)frame=requestAnimationFrame(tick);else $('st-instruction').textContent='Finishing production…';
   };frame=requestAnimationFrame(tick);
- }else if(d.type==='stationStrike'&&qte){qte.hits[d.round]=d.position}
+ }else if(d.type==='stationClock'&&qte){qte.elapsed=Number(d.elapsed)||0;qte.anchor=performance.now()}
+ else if(d.type==='stationStrike'&&qte){qte.hits[d.round]=d.position}
  else if(d.type==='stationStrikeResult'&&qte){qte.results[d.round]=d.score}
  else if(d.type==='stationEnd'){hide()}
 });

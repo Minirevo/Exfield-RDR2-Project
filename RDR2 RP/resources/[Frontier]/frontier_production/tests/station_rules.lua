@@ -48,3 +48,15 @@ local d={name='Test',materials={body='iron',balance='steel',finish='copper'},cos
 local design=assert(GunCraft.design(gun,d));assert(design.inputs.iron_ingot==1 and design.inputs.gather_steel==1 and design.inputs.prod_copper==1)
 d.cosmetics={frame=999999999};assert(not GunCraft.design(gun,d))
 print('Difficulty and gunsmith design validation passed')
+
+-- Both green-zone boundaries are successful, adjacent positions are not.
+assert(R.roundScore(1410,1,10000,3000,.5,.03)>.24)
+assert(R.roundScore(1590,1,10000,3000,.5,.03)>.24)
+assert(R.roundScore(1409,1,10000,3000,.5,.03)==0)
+assert(R.roundScore(1591,1,10000,3000,.5,.03)==0)
+assert(R.strikeElapsed(1660,1590,70)==1590)
+assert(R.strikeElapsed(1660,1000,70)==nil)
+assert(R.strikeElapsed(1500,1590,70)==nil)
+assert(R.strikeElapsed(1500,1000,1000)==nil)
+assert(R.strikeElapsed(1500,-1,10)==nil)
+print('Green zone edges and bounded timing compensation passed')
