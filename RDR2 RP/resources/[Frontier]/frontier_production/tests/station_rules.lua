@@ -34,3 +34,17 @@ local results=R.outputs(StationConfig.recipes.tool_pickaxe_iron,2,100,'manual',{
 assert(#results==2 and results[1].metadata==R.encodeTool('iron',55,'Test') and results[2].metadata==R.encodeTool('iron',95,'Test'))
 assert(R.materials(StationConfig.recipes.nails,10)[1].count==10)
 print('Manual batch and round rules passed')
+
+local easy=StationConfig.recipes.nails
+local hard=StationConfig.recipes.tool_pickaxe_hardened
+local _,es,ew=R.timing(easy,1);local _,hs,hw=R.timing(hard,1);local _,_,expert=R.timing(hard,100)
+assert(es>hs and ew>hw and expert>hw)
+assert(R.roundScore(hs*.5,1,hs+600,hs,.5,hw)==1)
+assert(R.roundScore(hs*.7,1,hs+600,hs,.5,hw)==0)
+dofile('gunsmith_catalog.lua');dofile('gunsmith.lua')
+local gun=StationConfig.recipes.craft_weapon_cattleman
+assert(gun.manualOnly and gun.rounds==7)
+local d={name='Test',materials={body='iron',balance='steel',finish='copper'},cosmetics={}}
+local design=assert(GunCraft.design(gun,d));assert(design.inputs.iron_ingot==1 and design.inputs.gather_steel==1 and design.inputs.prod_copper==1)
+d.cosmetics={frame=999999999};assert(not GunCraft.design(gun,d))
+print('Difficulty and gunsmith design validation passed')

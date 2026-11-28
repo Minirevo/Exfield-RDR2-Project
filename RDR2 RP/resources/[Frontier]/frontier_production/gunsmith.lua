@@ -32,8 +32,9 @@ function G.design(r,d)
  end
  return {name=d.name~='' and d.name or c.name,materials=material,cosmetics=cosmetic,components=hashes,inputs=inputs}
 end
-function G.output(r,level,score,equipment,maker,actor)
+function G.output(r,level,score,equipment,maker,actor,stageScores)
  local d=r.design;local q=R.manualQuality(level,score,equipment)
+ local stages={};for i,name in ipairs(G.stages) do stages[name]=R.manualQuality(level,(stageScores or {})[i] or 0,equipment) end
  local ratings={};local avg={durability=0,handling=0,service=0,reload=0,weight=0}
  for _,slot in ipairs(G.slots) do local m=G.materials[d.materials[slot]]
   for k in pairs(avg) do avg[k]=avg[k]+m[k]/#G.slots end
@@ -41,7 +42,7 @@ function G.output(r,level,score,equipment,maker,actor)
  for k,v in pairs(avg) do ratings[k]=math.floor(v+.5) end
  ratings.durability=math.max(65,math.min(180,math.floor(avg.durability+(q-50)*.7+.5)))
  ratings.reload=math.max(85,math.min(120,math.floor(avg.reload+(q-50)*.15+.5)))
- return {{id=r.output,count=1,metadata=json.encode({condition=100,loaded=0,crafted=true,customName=d.name,quality=q,manufacturer=maker,craftsman=actor,createdAt=os.time(),materials=d.materials,cosmetics=d.cosmetics,components=d.components,craftStats=ratings,shotsFired=0})}}
+ return {{id=r.output,count=1,metadata=json.encode({condition=100,loaded=0,crafted=true,customName=d.name,quality=q,stageQuality=stages,manufacturer=maker,craftsman=actor,createdAt=os.time(),materials=d.materials,cosmetics=d.cosmetics,components=d.components,craftStats=ratings,shotsFired=0})}}
 end
 for id,w in pairs(GunCraftCatalog) do
  local key='craft_'..id

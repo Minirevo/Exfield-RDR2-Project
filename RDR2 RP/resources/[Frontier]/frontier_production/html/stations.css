@@ -38,3 +38,9 @@
 #st-design{background:#302820;border:1px solid #6c593d;padding:12px;border-radius:6px;margin:12px 0}#st-design h3,#st-preview h3{font-family:Georgia;font-weight:normal;color:#e5c997}
 #st-design details{margin:12px 0}#st-start{width:100%;margin-top:14px;background:#a88855!important;color:#201a12!important;font-weight:700!important;padding:13px!important}
 #station-hud{width:min(480px,90vw);bottom:9vh}
+
+#station-ui.gunShowroom{inset:3vh 3vw 3vh auto;width:min(455px,34vw);padding:16px;background:#211e19eb}
+#station-ui.gunShowroom .st-cols{display:block}
+#station-ui.gunShowroom .st-cols>aside{display:none}
+#station-ui.gunShowroom #st-tabs{display:none}
+.gunPreviewActions{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}

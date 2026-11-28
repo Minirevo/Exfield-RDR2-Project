@@ -1,9 +1,20 @@
 local E='frontier_production:station:'
 local ticket,shown,opening,pending,work
 local seq=0
+local previewRecipes,previewObject,previewCam,previewVersion={},nil,nil,0
+local previewRotation=0
 local function tell(s)TriggerEvent('chat:addMessage',{args={'Production',tostring(s)}})end
 local function ui(d)SendNUIMessage(d)end
+local function stopPreview()
+ previewVersion=previewVersion+1
+ if previewObject and DoesEntityExist(previewObject) then DeleteEntity(previewObject) end;previewObject=nil
+ if previewCam then RenderScriptCams(false,false,0,true,true,0);DestroyCam(previewCam,false);previewCam=nil end
+end
+local function cachePreview(data)
+ previewRecipes={};for _,r in pairs(data.recipes or {}) do if r.manualOnly and r.model then previewRecipes[r.id]=r end end
+end
 local function close()
+ stopPreview();previewRecipes={}
  if ticket then TriggerServerEvent(E..'close',ticket) end
  if shown then SetNuiFocus(false,false) end
  ticket,shown,opening,pending=nil,nil,nil,nil
@@ -24,15 +35,57 @@ RegisterNetEvent(E..'view',function(token,data)
  if source~=65535 or not opening then return end
  opening=nil
  if IsNuiFocused() then TriggerServerEvent(E..'close',token);return end
- ticket,shown,seq=token,true,0
+ ticket,shown,seq=token,true,0;cachePreview(data)
  SetNuiFocus(true,true);SetNuiFocusKeepInput(false);ui({type='stationOpen',snapshot=data})
 end)
 RegisterNetEvent(E..'response',function(token,n,d)
  if source~=65535 or token~=ticket or not pending or pending.seq~=n then return end
- pending=nil;d.type='stationResult';d.seq=n;ui(d)
+ pending=nil;if d.snapshot then cachePreview(d.snapshot) end;d.type='stationResult';d.seq=n;ui(d)
 end)
 RegisterNetEvent(E..'close',function()if source==65535 then close() end end)
 RegisterNUICallback('stationClose',function(_,cb)close();cb({ok=true})end)
+RegisterNUICallback('gunPreviewStop',function(_,cb)stopPreview();cb({ok=true})end)
+RegisterNUICallback('gunPreviewRotate',function(d,cb)
+ if previewObject and DoesEntityExist(previewObject) then previewRotation=(previewRotation+(d.direction=='left' and -25 or 25))%360;SetEntityHeading(previewObject,previewRotation) end
+ cb({ok=true})
+end)
+RegisterNUICallback('gunPreview',function(d,cb)
+ local r=shown and type(d)=='table' and previewRecipes[d.id]
+ if not r or type(d.cosmetics)~='table' then cb({ok=false});return end
+ local hashes={};local n=0
+ for k,v in pairs(d.cosmetics) do
+  n=n+1;if n>24 then cb({ok=false});return end
+  local found=false;for _,o in ipairs(r.cosmetics[k] or {}) do if o.hash==v then found=true;break end end
+  if not found then cb({ok=false});return end
+  hashes[#hashes+1]=v
+ end
+ stopPreview();local version=previewVersion;cb({ok=true})
+ CreateThread(function()
+  local ok,err=pcall(function()
+   local ped=PlayerPedId();local p=GetOffsetFromEntityInWorldCoords(ped,0.0,1.5,0.9)
+   local c=GetOffsetFromEntityInWorldCoords(ped,1.65,1.5,1.2)
+   local hash=joaat(r.model)
+   local obj=Citizen.InvokeNative(0x9888652B8BA77F73,hash,0,p.x,p.y,p.z,false,1.0,Citizen.ResultAsInteger())
+   if not obj or obj==0 then error('Weapon preview unavailable') end
+   local deadline=GetGameTimer()+3000
+   while shown and version==previewVersion and not DoesEntityExist(obj) and GetGameTimer()<deadline do Wait(50) end
+   if not shown or version~=previewVersion then if DoesEntityExist(obj) then DeleteEntity(obj) end;return end
+   if not DoesEntityExist(obj) then error('Weapon preview could not initialize') end
+   if NetworkGetEntityIsNetworked(obj) then DeleteEntity(obj);error('Unexpected networked preview') end
+   previewObject=obj;previewRotation=GetEntityHeading(ped)+90
+   SetEntityAsMissionEntity(obj,true,true);FreezeEntityPosition(obj,true);SetEntityCollision(obj,false,false);SetEntityInvincible(obj,true);SetEntityHeading(obj,previewRotation)
+   for _,h in ipairs(hashes) do pcall(Citizen.InvokeNative,0x74C9090FDD1BB48E,obj,h,-1,true) end
+   previewCam=CreateCam('DEFAULT_SCRIPTED_CAMERA',true)
+   if not previewCam or previewCam==0 then previewCam=nil;error('Preview camera unavailable') end
+   SetCamCoord(previewCam,c.x,c.y,c.z);PointCamAtCoord(previewCam,p.x,p.y,p.z);SetCamFov(previewCam,48.0)
+   SetCamActive(previewCam,true);RenderScriptCams(true,false,0,true,true,0)
+  end)
+  if version==previewVersion and shown then
+   if not ok then print('[frontier_production] Preview: '..tostring(err));stopPreview() end
+   ui({type='gunPreviewStatus',ok=ok,message=ok and '' or 'Live preview could not load; crafting remains available.'})
+  end
+ end)
+end)
 RegisterNUICallback('stationRequest',function(d,cb)
  if not shown or pending or type(d)~='table' or type(d.action)~='string' or type(d.data)~='table' then cb({ok=false});return end
  if d.retry and type(d.seq)=='number' and d.seq==seq then else seq=seq+1 end

@@ -253,7 +253,7 @@ RegisterNetEvent(E..'finish',function(k)
   local paid,why=labour(src,d.skill,d.batches,j.id)
   if not paid then state(j,'return',why);clearWork(src,why..'; ingredients will be returned');return end
   local scores={};for batch=1,d.batches do scores[batch]=R.batchScore(w.scores,batch,w.rounds) end
-  if r.quality=='weapon' then d.outputs=GunCraft.output(r,d.level,scores[1],d.equipment,d.maker,j.actor)
+  if r.quality=='weapon' then d.outputs=GunCraft.output(r,d.level,scores[1],d.equipment,d.maker,j.actor,w.scores)
   else d.outputs=R.outputs(r,d.batches,d.level,'manual',scores,d.equipment,d.maker) end
   U("UPDATE frontier_production_station_jobs SET payload=?,state='output',due_at=0,retry_at=0 WHERE id=? AND state='manual'",{json.encode(d),k})
   clearWork(src,'Work finished; delivering product')

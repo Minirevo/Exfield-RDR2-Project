@@ -1,0 +1,21 @@
+name: Frontier production checks
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'RDR2 RP/resources/**/frontier_production/**'
+      - 'RDR2 RP/resources/**/frontier_inventory/**'
+      - 'RDR2 RP/resources/**/frontier_wheel/**'
+  workflow_dispatch:
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y lua5.4
+      - working-directory: RDR2 RP/resources/[Frontier]
+        run: |
+          find frontier_production frontier_inventory frontier_wheel -name '*.lua' -print0 | xargs -0 -n1 luac5.4 -p
+          node --check frontier_production/html/stations.js
+          node --check frontier_inventory/html/app.js
+          cd frontier_production && lua5.4 tests/station_rules.lua

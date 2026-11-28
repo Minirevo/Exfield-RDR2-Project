@@ -82,7 +82,7 @@ function Inventory.Present(container, forBrowser)
     for slot, stack in pairs(container.slots) do
         local item = Inventory.items[stack.item]
         used = used + 1
-        slots[#slots + 1] = { slot = slot, item = stack.item, name = item.name, description = item.description,
+        slots[#slots + 1] = { slot = slot, item = stack.item, name = (function() if type(stack.metadata)=='string' then local ok,m=pcall(json.decode,stack.metadata);if ok and type(m)=='table' and m.crafted and type(m.customName)=='string' and #m.customName<=48 and #m.customName>0 then return m.customName end end;return item.name end)(), description = item.description,
             quantity = stack.quantity, grams = item.grams, usable = item.usable, drop = item.drop,
             transfer = item.transfer, store = item.store, metadata = stack.metadata, instance = stack.instance,
             category=item.category, icon=item.icon, maxStack=item.maxStack, classification=item.classification, beltEligible=Inventory.BeltEligible(stack.item) }

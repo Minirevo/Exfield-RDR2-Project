@@ -1117,9 +1117,9 @@ local function resetWeapon(src,reason)
  TriggerClientEvent(events..'weaponReset',src,reason or 'Weapon session ended; recovering ammunition.')
 end
 local function recordShots(m,n)
- if n<=0 or not m.crafted then return end
+ if n<=0 then return end
  m.shotsFired=(tonumber(m.shotsFired) or 0)+n
- local durability=math.max(65,math.min(180,tonumber(m.craftStats and m.craftStats.durability) or 100))
+ local durability=math.max(65,math.min(180,tonumber(m.crafted and m.craftStats and m.craftStats.durability) or 100))
  local wear=(tonumber(m.craftWear) or 0)+n*100/durability
  local whole=math.floor(wear/20);m.craftWear=wear-whole*20
  m.condition=math.max(0,(tonumber(m.condition) or 100)-whole)
@@ -1132,7 +1132,7 @@ local function activeRow(src,id,e,b,slot)
  if rounds==nil or (m.condition and m.condition<=0) then return {kind='disabled',name=Inventory.items[row.item].name} end
  local s=Inventory.WeaponSessions[src]
  local active=s and s.id==id and s.instance==row.instance
- return {kind='weapon',name=Inventory.items[row.item].name,target=slot,item=row.item,serial=row.instance,
+ return {kind='weapon',name=m.crafted and m.customName or Inventory.items[row.item].name,target=slot,item=row.item,serial=row.instance,
   loaded=active and s.rounds or rounds,quick=WR.count(e,def.ammo,3,4),bag=WR.count(b,def.ammo,1,b.slot_limit),
   equipped=active==true,condition=m.condition or 100}
 end
@@ -1197,7 +1197,7 @@ RegisterNetEvent(events..'weaponReport',function(token,version,remaining)
   recordShots(m,c.rounds-n);c.rounds=n;row.metadata=json.encode(m)
   local key=Inventory.Uuid();if not key then return false,'database_error' end
   local saved,why=weaponCommit(src,id,s.generation,key,'weaponShot:'..s.instance..':'..n,e)
-  if saved and lease(src,token)==s then s.rounds=n end
+  if saved and lease(src,token)==s then s.rounds=n;if m.condition<=0 then resetWeapon(src,'Weapon worn out; ammunition recovered.') end end
   return saved,why
  end,150)
 end)
@@ -1226,6 +1226,7 @@ RegisterNetEvent(events..'weaponReload',function(token,request,version,remaining
    if lease(src,token)~=s then return false,'character' end
   end
   s.rounds=n
+  if m.condition and m.condition<=0 then resetWeapon(src,'Weapon worn out; ammunition recovered.');return false,'unusable' end
   local def=WR.models[s.item]
   local from,quantity=WR.plan(e,b,def.ammo,s.rounds,def.capacity)
   if not from then return false,'no_ammo' end

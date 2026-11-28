@@ -1,6 +1,6 @@
 (()=>{'use strict';
 const $=s=>document.getElementById(s), root=$('station-ui'), hud=$('station-hud'), old=document.querySelector('body > main');
-let state,waiting=false,retry=null,frame=0,active=false,working=false,page='craft',category='All',design={},designRecipe=null;
+let state,waiting=false,retry=null,frame=0,active=false,working=false,page='craft',category='All',design={},designRecipe=null,showroom=false,previewTimer;
 const rows=x=>Object.values(x||{}), sec=n=>Math.floor(n/60)+'m '+n%60+'s';
 const money=n=>'$'+(Number(n)/100).toFixed(2);
 function select(id,items,defaultValue){
@@ -30,15 +30,17 @@ function catalog(){
   const b=button('',()=>{$('st-recipe').value=r.id;designRecipe=null;catalog();preview()});b.className='recipeCard'+(recipe()?.id===r.id?' chosen':'');node('strong',r.name,b);node('small',(r.difficulty||'Basic')+' · '+r.rounds+' stages',b);list.append(b)
  }
 }
+function stopGunPreview(){if(!showroom)return;showroom=false;clearTimeout(previewTimer);root.classList.remove('gunShowroom');post('gunPreviewStop').catch(()=>{})}
+function refreshGunPreview(){if(!showroom)return;clearTimeout(previewTimer);previewTimer=setTimeout(()=>{const r=recipe();if(r?.manualOnly)post('gunPreview',{id:r.id,cosmetics:design.cosmetics}).then(x=>{if(!x.ok){stopGunPreview();status('Preview unavailable')}}).catch(()=>stopGunPreview())},120)}
 function buildDesign(r){
  const box=$('st-design');box.hidden=!r.manualOnly;
- if(!r.manualOnly){designRecipe=null;return}
+ if(!r.manualOnly){stopGunPreview();designRecipe=null;return}
  if(designRecipe===r.id)return;
- designRecipe=r.id;design={name:'',materials:{},cosmetics:{}};box.replaceChildren();node('h3','Custom design',box);
+ stopGunPreview();designRecipe=r.id;design={name:'',materials:{},cosmetics:{}};box.replaceChildren();node('h3','Custom design',box);const actions=node('div',null,box);actions.className='gunPreviewActions';actions.append(button('Live 3D preview',()=>{showroom=!showroom;root.classList.toggle('gunShowroom',showroom);if(showroom)refreshGunPreview();else post('gunPreviewStop').catch(()=>{})}),button('Rotate left',()=>{if(showroom)post('gunPreviewRotate',{direction:'left'}).catch(()=>{})}),button('Rotate right',()=>{if(showroom)post('gunPreviewRotate',{direction:'right'}).catch(()=>{})}));
  const name=node('input',null,box);name.maxLength=48;name.placeholder='Optional weapon name';name.oninput=()=>design.name=name.value;
  for(const slot of r.designSlots){const l=node('label',r.designSlotLabels[slot],box),s=node('select',null,l);for(const [id,m] of Object.entries(r.designMaterials))s.add(new Option(m.name,id));design.materials[slot]=s.value;s.onchange=()=>{design.materials[slot]=s.value;preview()}}
  const details=node('details',null,box);node('summary','Appearance & finishes',details);
- for(const [key,opts] of Object.entries(r.cosmetics||{})){const l=node('label',label(key.replace(':',' ')),details),s=node('select',null,l);s.add(new Option('Default',''));for(const o of opts)s.add(new Option(o.label,String(o.hash)));s.onchange=()=>{if(s.value)design.cosmetics[key]=Number(s.value);else delete design.cosmetics[key];preview()}}
+ for(const [key,opts] of Object.entries(r.cosmetics||{})){const l=node('label',label(key.replace(':',' ')),details),s=node('select',null,l);s.add(new Option('Default',''));for(const o of opts)s.add(new Option(o.label,String(o.hash)));s.onchange=()=>{if(s.value)design.cosmetics[key]=Number(s.value);else delete design.cosmetics[key];preview();refreshGunPreview()}}
  node('p','Each choice is saved with the individual weapon. Cosmetic visibility and additional performance modifiers require in-game verification.',box);
 }
 function preview(){
@@ -88,7 +90,7 @@ function render(){
  if(!jobs.children.length)jobs.textContent='No orders yet.';
  preview();
 }
-$('st-tabs').onclick=e=>{if(e.target.dataset.page&&!waiting){page=e.target.dataset.page;render()}};$('st-search').oninput=catalog;
+$('st-tabs').onclick=e=>{if(e.target.dataset.page&&!waiting){stopGunPreview();page=e.target.dataset.page;render()}};$('st-search').oninput=catalog;
 $('st-close').onclick=()=>post('stationClose');$('st-refresh').onclick=()=>request('refresh');
 $('st-retry').onclick=()=>{if(retry)request(retry.action,retry.data,true)};
 $('st-start').onclick=()=>{if(recipe())request('start',{recipe:recipe().id,mode:$('st-mode').value,batches:Number($('st-batches').value),input:$('st-input').value,output:$('st-output').value,design:recipe().manualOnly?design:undefined})};
@@ -100,16 +102,16 @@ for(const id of ['st-recipe','st-batches','st-mode','st-input','st-output'])$(id
 $('st-batches').addEventListener('input',preview);
 document.addEventListener('keydown',e=>{if((active||working)&&e.key==='Escape'){e.stopImmediatePropagation();e.preventDefault();if(active)post('stationClose')}},true);
 let qte=null;
-function hide(){qte=null;active=false;working=false;root.hidden=true;hud.hidden=true;old.hidden=false;document.body.hidden=true;cancelAnimationFrame(frame)}
+function hide(){stopGunPreview();qte=null;active=false;working=false;root.hidden=true;hud.hidden=true;old.hidden=false;document.body.hidden=true;cancelAnimationFrame(frame)}
 window.addEventListener('message',({data:d})=>{
  if(d.type==='stationOpen'){
   active=true;working=false;page='craft';category='All';designRecipe=null;$('st-search').value='';state=d.snapshot;waiting=false;retry=null;old.hidden=true;hud.hidden=true;root.hidden=false;document.body.hidden=false;status('');render();
  }else if(d.type==='stationResult'&&active){
   waiting=false;retry=d.retry&&lastOrder?{...lastOrder,retry:true,seq:d.seq}:null;if(d.snapshot)state=d.snapshot;status(d.message);render();
- }else if(d.type==='stationNotice'&&active){status(d.message)}
+ }else if(d.type==='gunPreviewStatus'&&active&&showroom){if(!d.ok){stopGunPreview();status(d.message)}}else if(d.type==='stationNotice'&&active){status(d.message)}
  else if(d.type==='stationClose'){hide()}
  else if(d.type==='stationWork'){
-  active=false;working=true;root.hidden=true;old.hidden=true;hud.hidden=false;document.body.hidden=false;
+  stopGunPreview();active=false;working=true;root.hidden=true;old.hidden=true;hud.hidden=false;document.body.hidden=false;
   $('st-work-label').textContent=d.label;
   const start=performance.now();cancelAnimationFrame(frame);
   qte={round:0,hits:{},results:{}};
