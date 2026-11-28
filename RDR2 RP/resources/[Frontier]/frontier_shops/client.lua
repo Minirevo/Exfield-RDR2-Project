@@ -65,7 +65,8 @@ local function spawn(id,s)
     peds[id]=p
     pcall(SetEntityAsMissionEntity,p,true,true)
     pcall(Citizen.InvokeNative,0x283978A15512B2FE,p,true)
-    -- Use VORP counter height; do not ground-snap through multi-floor interiors.
+    -- VORP stores place the ped on the counter's streamed ground before freezing.
+    pcall(PlaceEntityOnGroundProperly,p,true)
     pcall(SetEntityCanBeDamaged,p,false);pcall(SetEntityInvincible,p,true);pcall(SetBlockingOfNonTemporaryEvents,p,true)
     pcall(TaskStandStill,p,-1);pcall(FreezeEntityPosition,p,true)
     SetModelAsNoLongerNeeded(hash);return

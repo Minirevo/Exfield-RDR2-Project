@@ -17,7 +17,9 @@ local function available(site)
  for id,d in pairs(C.catalogs[C.sites[site].kind]) do
   local ok,def=inv:ShopDefinition(id)
   if ok then
-   out[id]={id=id,name=d.name,description=def.description,grams=def.grams,maxStack=def.maxStack,category=d.category,buy=d.buy,sell=d.sell,icon=d.icon}
+   local w=FrontierWeaponRules.models[id]
+   local spec=w and {capacity=w.capacity,slot=w.slot==2 and 'Sidearm' or 'Primary',ammo=FrontierWeaponRules.ammunition[w.ammo].name} or nil
+   out[id]={id=id,name=d.name,description=def.description,grams=def.grams,maxStack=def.maxStack,category=d.category,buy=d.buy,sell=d.sell,icon=d.icon,spec=spec}
   end
  end
  return out
@@ -44,7 +46,7 @@ local function progress(o)
  local amount,account=tonumber(o.total),tonumber(o.account)
  if o.state=='debit' then
   local ok,r=eco:DebitAccount(account,amount,options(o,'purchase'))
-  if ok then state(o.id,'debit','grant')
+  if ok then U("UPDATE frontier_shops_orders SET state='grant',receipt=?,issue='' WHERE id=? AND state='debit'",{r.operationId,o.id})
   elseif r=='insufficient_funds' or definite(r) or r=='invalid_account' or r=='invalid_amount' then state(o.id,'debit','failed',r)
   else return false,r end
  elseif o.state=='grant' then
@@ -100,6 +102,8 @@ end)
 RegisterNetEvent(E..'checkout',function(ticket,mode,lines)
  local src=source;run(src,function()
   local v=sessions[src];need(v and v.ticket==ticket and valid(src,v),'Shop session expired.')
+  local previous=S('SELECT id FROM frontier_shops_orders WHERE id=? AND character_id=?',{ticket,v.character})
+  if previous then advance(ticket);msg(src,'Existing transaction recovered. See receipts.');view(src,v);return end
   local normalized,total=R.basket(available(v.site),mode,lines,C);need(normalized,total)
   local ok,a=eco:GetCharacterAccounts(src);need(ok and a.characterId==v.character,'Cash unavailable.')
   if mode=='buy' then need(a.cash.balance_minor>=total,'Not enough cash.') end
