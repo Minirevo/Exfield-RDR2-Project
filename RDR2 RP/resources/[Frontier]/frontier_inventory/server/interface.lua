@@ -966,6 +966,39 @@ trusted('FarmSupplyDelivery',function(resource,character,item,count,key)
  return Inventory.Commit(key,actor,fingerprint,box)
 end)
 
+-- Medical supplies are delivered to the durable character ID, never the reused source.
+-- An entire prepaid kit is committed atomically. A capacity/conflict failure leaves
+-- the paid order pending; retrying the same key cannot duplicate any item.
+local medicalItems={bandage=true,splint=true,tonic=true,stethoscope=true,thermometer=true,surgical_kit=true,surgical_supplies=true,suture_kit=true,antiseptic=true,medical_splint=true,morphine=true,saline_solution=true}
+trusted('DeliverMedicalSupplies',function(resource,character,key,changes)
+ if resource~='frontier_medical' or not Inventory.Id(character,64) or type(key)~='string' or not requestKey(key)
+   or type(changes)~='table' or #changes<1 or #changes>12 then return false,'invalid_request' end
+ local seen,list={},{}
+ for _,v in ipairs(changes) do
+  if type(v)~='table' or not medicalItems[v.item] or not Inventory.items[v.item] or seen[v.item] or not Inventory.Int(v.count,30) then return false,'invalid_item' end
+  seen[v.item]=true;list[#list+1]={item=v.item,count=v.count}
+ end
+ table.sort(list,function(a,b)return a.item<b.item end)
+ local parts={'medical_supply',character}
+ for _,v in ipairs(list) do parts[#parts+1]=v.item;parts[#parts+1]=tostring(v.count) end
+ local fingerprint=table.concat(parts,':')
+ local actor='resource:'..resource
+ local ok,replay=Inventory.Replay(key,actor,fingerprint);if not ok then return false,replay end;if replay then return true,key end
+ local loaded,box=Inventory.Load('p_'..character);if not loaded then return false,box end
+ for _,v in ipairs(list) do
+  local def=Inventory.items[v.item]
+  if def.stackable then
+   local put,err=Inventory.Place(box,{item=v.item,quantity=v.count,metadata=def.metadata});if not put then return false,err end
+  else
+   for i=1,v.count do
+    local instance=Inventory.Uuid();if not instance then return false,'database_error' end
+    local put,err=Inventory.Place(box,{item=v.item,quantity=1,metadata=def.metadata,instance=instance});if not put then return false,err end
+   end
+  end
+ end
+ return Inventory.Commit(key,actor,fingerprint,box)
+end)
+
 -- Read-only simulation against a fresh stock snapshot. No receipt, no mutation.
 trusted('CheckFarmBatch',function(resource,storage,changes)
  if resource~='frontier_farming' or type(storage)~='string' or not storage:match('^business_[a-f0-9]+$') or type(changes)~='table' or #changes>16 then return false,'invalid_request' end

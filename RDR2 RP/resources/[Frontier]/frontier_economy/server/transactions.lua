@@ -43,6 +43,27 @@ function Economy.Apply(actor, kind, debitId, creditId, amount, options)
         return false, 'invalid_metadata'
     end
 
+    -- The medical treasury is not a business or a personal bank account.
+    -- No generic transfer OUT is allowed even from the Medical resource.
+    local medOk, medRows = Economy.Db('query', [[
+        SELECT id, owner_type, owner_id, account_type FROM frontier_economy_accounts
+        WHERE id IN (?, ?)
+    ]], { debitId, creditId })
+    if not medOk then return false, medRows end
+    local medDebit, medCredit, payer
+    for _, row in ipairs(medRows or {}) do
+        if tonumber(row.id) == debitId then payer = row end
+        if row.owner_type == 'medical_service' then
+            if tonumber(row.id) == debitId then medDebit = row else medCredit = row end
+        end
+    end
+    if medDebit or medCredit then
+        if actor ~= 'resource:frontier_medical' then return false, 'forbidden' end
+        if medDebit and not (kind == 'debit' and creditId == 0 and key:match('^med%-supply:')) then return false, 'forbidden' end
+        if medCredit and not ((kind == 'credit' and debitId == 0 and key:match('^med%-state:')) or
+            (kind == 'transfer' and payer and payer.owner_type == 'character' and payer.account_type == 'bank' and key:match('^med%-bill:'))) then return false, 'forbidden' end
+    end
+
     if actor ~= 'trade:escrow' then
         -- Company accounts are not generic resource wallets. Business and the verified Trade escrow adapter are the only writers.
         if actor ~= 'resource:frontier_business' then
