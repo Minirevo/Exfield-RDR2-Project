@@ -45,19 +45,25 @@ function M.updateDown(s,now)
  if s.blood<=C.downBlood or p>=C.downPain or s.trauma>=C.downTrauma or s.oxygen<=C.downOxygen or s.deprivation>=C.downDeprivation then s.down=true
  elseif s.down and s.blood>=C.wakeBlood and p<C.wakePain and s.trauma<=C.wakeTrauma and s.oxygen>=C.wakeOxygen and s.deprivation<=C.wakeDeprivation then s.down=false end
 end
+local kinds={penetrating=true,gunshot=true,cut=true,fall=true,blunt=true,burn=true,bite=true}
+local labels={penetrating='Penetrating wound',gunshot='Gunshot wound',cut='Cut / laceration',fall='Impact injury',blunt='Blunt injury',burn='Burn',bite='Bite wound'}
+local regionNames={head='head',chest='chest',abdomen='abdomen',left_arm='left arm',right_arm='right arm',left_leg='left leg',right_leg='right leg'}
 function M.injure(s,region,kind,damage,now)
  if s.dead or s.blood<=0 then return false end
  region=M.region(region)
  damage=math.max(1,math.min(C.maxDamageReport,math.floor(damage)))
- if kind~='penetrating' and kind~='fall' and kind~='cut' and kind~='burn' and kind~='bite' then kind='blunt' end
+ if not kinds[kind] then kind='blunt' end
  local w=s.wounds[region] or {severity=0,bleed=0,fracture=false,splinted=false,kind=kind}
+ -- Keep visible wound types when another hit affects the same region.
+ w.kinds=w.kinds or {}
+ if kinds[w.kind] then w.kinds[w.kind]=true end
+ w.kinds[kind]=true
  w.kind=kind;w.severity=clamp(w.severity+damage*12)
- local bleed=kind=='penetrating' and math.ceil(damage*.8) or (kind=='cut' or kind=='bite') and math.ceil(damage*.5) or kind=='burn' and 0 or math.ceil(damage*.12)
+ local bleed=(kind=='penetrating' or kind=='gunshot') and math.ceil(damage*.8) or (kind=='cut' or kind=='bite') and math.ceil(damage*.5) or kind=='burn' and 0 or math.ceil(damage*.12)
  w.bleed=math.min(100,w.bleed+bleed)
  if (region:find('_arm',1,true) or region:find('_leg',1,true)) and (kind=='fall' and damage>=20 or damage>=45) then w.fracture=true;w.splinted=false end
  s.wounds[region]=w;s.pain=clamp(s.pain+damage*9);M.updateDown(s,now);return true
 end
-local kinds={penetrating=true,cut=true,fall=true,blunt=true,burn=true,bite=true}
 local function integer(n,min,max) return type(n)=='number' and n%1==0 and n>=min and n<=max end
 function M.validReport(hits,drowning)
  if type(hits)~='table' or type(drowning)~='boolean' or #hits>C.maxGroups then return false end
@@ -150,6 +156,54 @@ function M.restrictions(s)
   end
  end
  return {down=s.down or s.dead or s.blood<=0,legs=legs,arms=arms}
+end
+-- External observations contain no numeric reserves, severity or hidden fracture flags.
+function M.visible(s,r)
+ local w=s.wounds[r]
+ if not w then return {injured=false,bleeding=false,types={}} end
+ local types={}
+ for _,k in ipairs({'gunshot','penetrating','cut','bite','burn','fall','blunt'}) do
+  if w.kind==k or (w.kinds and w.kinds[k]) then types[#types+1]=labels[k] end
+ end
+ if #types==0 then types[1]='Visible injury' end
+ return {injured=true,bleeding=(w.bleed or 0)>0,types=types}
+end
+function M.observations(s)
+ local result={}
+ for _,r in ipairs(C.regions) do result[r]=M.visible(s,r) end
+ return result
+end
+function M.canTreatObserved(s,item,r,examined,now)
+ if not valid[r] or not M.eligible(s,item,r,now) then return false end
+ if item=='bandage' then return M.visible(s,r).bleeding end
+ if item=='tonic' then return true end
+ return examined==true
+end
+-- Subjective symptoms for the owner only. No hidden numeric values.
+function M.symptoms(s,now)
+ if s.dead or s.down then return {level='none',messages={}} end
+ local messages,level={},'none'
+ local function add(text,critical)
+  messages[#messages+1]=text
+  if critical then level='critical' elseif level=='none' then level='warning' end
+ end
+ if s.blood<=450 then add('You feel faint. Blood loss is becoming dangerous.',true)
+ elseif s.blood<=650 then add('You feel weak and light-headed.',true)
+ elseif s.blood<=850 then add('You are feeling light-headed.',false) end
+ if M.bleed(s)>0 then add('You are bleeding. Tend to your wounds.',false) end
+ if (s.oxygen or C.max)<=350 then add('You can barely breathe.',true)
+ elseif (s.oxygen or C.max)<650 then add('You are struggling to breathe.',true) end
+ if M.pain(s,now)>=650 or (s.trauma or 0)>=450 then add('You feel severely injured.',true)
+ elseif M.pain(s,now)>=150 then add('You are in pain.',false) end
+ if (s.deprivation or 0)>=500 then add('You feel weak from hunger or thirst.',s.deprivation>=850) end
+ return {level=level,messages=messages}
+end
+function M.hitFeedback(hits)
+ if #hits==0 then return nil end
+ local first=hits[1]
+ if #hits>1 then return 'You have sustained multiple injuries.' end
+ local label=labels[first.kind] or 'Injury'
+ return label..' — '..(regionNames[first.region] or 'body')
 end
 function M.exam(s,r,now)
  local w=s.wounds[r]

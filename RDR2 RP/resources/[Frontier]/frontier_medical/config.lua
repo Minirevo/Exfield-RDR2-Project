@@ -5,7 +5,7 @@ FrontierMedicalConfig={
  maxDamageReport=60,
  -- Guarded mode parameters established in the development lab.
  nativeBuffer=5000,nativeFlags={263,340,388},stateTimeoutMs=15000,guardRetryMs=5000,guardStartupMs=1500,
- reportInterval=500,reportRetryMs=1200,reportMinMs=350,maxRawGroup=2000,maxRawBatch=8000,maxGroups=48,
+ reportInterval=500,reportRetryMs=1200,reportMinMs=350,maxRawGroup=2000,maxRawBatch=8000,maxGroups=56,
  rawPerWound=3,traumaPerRaw=4,downTrauma=650,wakeTrauma=450,traumaRecovery=8,
  downOxygen=350,wakeOxygen=650,drowningPerReport=75,oxygenRecovery=100,drowningQuietSeconds=5,
  drowningRawThreshold=250,deprivationPerPct=10,downDeprivation=850,wakeDeprivation=650,deprivationRecovery=10,

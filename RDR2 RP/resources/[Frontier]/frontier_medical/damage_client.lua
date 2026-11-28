@@ -124,8 +124,9 @@ for _,name in ipairs({
  'WEAPON_PISTOL_VOLCANIC','WEAPON_PISTOL_MAUSER','WEAPON_PISTOL_SEMIAUTO','WEAPON_PISTOL_M1899',
  'WEAPON_RIFLE_BOLTACTION','WEAPON_RIFLE_SPRINGFIELD','WEAPON_RIFLE_VARMINT','WEAPON_SNIPERRIFLE_ROLLINGBLOCK','WEAPON_SNIPERRIFLE_CARCANO',
  'WEAPON_REPEATER_WINCHESTER','WEAPON_REPEATER_CARBINE','WEAPON_REPEATER_HENRY','WEAPON_REPEATER_EVANS',
- 'WEAPON_SHOTGUN_DOUBLEBARREL','WEAPON_SHOTGUN_PUMP','WEAPON_SHOTGUN_REPEATING','WEAPON_SHOTGUN_SEMIAUTO','WEAPON_SHOTGUN_SAWEDOFF','WEAPON_BOW'
+ 'WEAPON_SHOTGUN_DOUBLEBARREL','WEAPON_SHOTGUN_PUMP','WEAPON_SHOTGUN_REPEATING','WEAPON_SHOTGUN_SEMIAUTO','WEAPON_SHOTGUN_SAWEDOFF'
 }) do firearm[joaat(name)]=true end
+local bow=joaat('WEAPON_BOW')
 local blades={}
 for _,name in ipairs({'WEAPON_MELEE_KNIFE','WEAPON_MELEE_KNIFE_JAWBONE','WEAPON_MELEE_KNIFE_MINER','WEAPON_MELEE_KNIFE_CIVIL_WAR','WEAPON_MELEE_HATCHET','WEAPON_THROWN_THROWING_KNIVES','WEAPON_THROWN_TOMAHAWK','WEAPON_MELEE_MACHETE'}) do blades[joaat(name)]=true end
 local drownHashes={[joaat('WEAPON_DROWNING')]=true,[joaat('WEAPON_DROWNING_IN_VEHICLE')]=true}
@@ -142,14 +143,16 @@ local function damageKind(p,raw)
  -- network events. Do not interpret thousands of those frames as wounds.
  if inWater and (raw>=C.drowningRawThreshold or drownHashes[cause]) then return 'drowning' end
  if truth(get('IsEntityOnFire',p)) then return 'burn' end
- for hash in pairs(firearm) do if truth(get('HasEntityBeenDamagedByWeapon',p,hash,0)) then return 'penetrating' end end
+ for hash in pairs(firearm) do if truth(get('HasEntityBeenDamagedByWeapon',p,hash,0)) then return 'gunshot' end end
+ if truth(get('HasEntityBeenDamagedByWeapon',p,bow,0)) then return 'penetrating' end
  for hash in pairs(blades) do if truth(get('HasEntityBeenDamagedByWeapon',p,hash,0)) then return 'cut' end end
  local src=get('GetPedSourceOfDamage',p)
  if type(src)=='number' and src~=0 and src~=p and DoesEntityExist(src) and truth(get('IsEntityAPed',src)) then
   local human=get('IsPedHuman',src)
   if human==false or human==0 then return 'bite' end
  end
- if firearm[cause] then return 'penetrating' end
+ if firearm[cause] then return 'gunshot' end
+ if cause==bow then return 'penetrating' end
  if blades[cause] then return 'cut' end
  return GetGameTimer()-fallAt<1500 and 'fall' or 'blunt'
 end

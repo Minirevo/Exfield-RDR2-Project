@@ -55,6 +55,7 @@ local function publish(src,id,s,rev)
  local r=M.restrictions(s)
  r.life=s.life;r.token=q.token;r.seq=s.reportToken==q.token and (s.reportSeq or 0) or 0
  r.dead=s.dead==true;r.fatal=r.dead and not s.nativeSeen
+ r.symptoms=M.symptoms(s,os.time())
  cache[src]={id=id,state=s,revision=rev}
  TriggerClientEvent(E..'state',src,r)
 end
@@ -98,12 +99,15 @@ RegisterNetEvent(E..'damageBatch',function(token,seq,hits,drowning)
    if seq<=last then TriggerClientEvent(E..'damageAck',src,token,seq);return end
    if seq~=last+1 or s.dead or death(src) then return end
    local timestamp=os.time()
-   for _,hit in ipairs(hits) do if not s.dead then M.applyRaw(s,hit.region,hit.kind,hit.raw,timestamp) end end
+   local applied={}
+   for _,hit in ipairs(hits) do if not s.dead and M.applyRaw(s,hit.region,hit.kind,hit.raw,timestamp) then applied[#applied+1]=hit end end
    if drowning and not s.dead then M.drown(s,timestamp) end
    s.reportToken=q.token;s.reportSeq=seq
    if write(q.id,s,rev) then
     if reports[src]==q and cid(src)==q.id then
      publish(src,q.id,s,rev+1);TriggerClientEvent(E..'damageAck',src,token,seq)
+     local feedback=M.hitFeedback(applied)
+     if feedback and not s.dead and not s.down then TriggerClientEvent(E..'injuryFeedback',src,q.token,seq,feedback) end
     end
     return
    end
@@ -168,9 +172,13 @@ local function validView(src,v)
 end
 local function snapshot(src,v)
  if not validView(src,v) then return end
- local s=read(v.patient);if not s then return end
- local wounds={};for r in pairs(v.examined) do wounds[r]=M.exam(s,r,os.time()) end
- TriggerClientEvent(E..'view',src,{ticket=v.ticket,target=v.target,self=src==v.target,status=M.status(s,os.time()),wounds=wounds,pulse=v.pulse and M.pulse(s,os.time()) or 'Not checked',breathing=v.breathing and M.breathing(s) or 'Not checked',busy=working[src]~=nil})
+ local s,rev=read(v.patient);if not s or not validView(src,v) then return end
+ if v.lastRevision and rev<v.lastRevision then return end
+ v.lastRevision=rev
+ if v.life~=s.life then v.life=s.life;v.examined={};v.pulse=false;v.breathing=false end
+ local now=os.time()
+ local wounds={};for r in pairs(v.examined) do wounds[r]=M.exam(s,r,now) end
+ TriggerClientEvent(E..'view',src,{ticket=v.ticket,target=v.target,self=src==v.target,status=M.status(s,now),visible=M.observations(s),wounds=wounds,pulse=v.pulse and M.pulse(s,now) or 'Not checked',breathing=v.breathing and M.breathing(s) or 'Not checked',busy=working[src]~=nil})
 end
 RegisterNetEvent(E..'open',function(target)
  local src=source
@@ -195,17 +203,18 @@ RegisterNetEvent(E..'action',function(ticket,action,region,item)
   v.examined[region]=true;return snapshot(src,v)
  elseif action=='pulse' then v.pulse=true;return snapshot(src,v)
  elseif action=='breathing' then v.breathing=true;return snapshot(src,v)
- elseif action~='treat' or type(region)~='string' or not C.items[item] or not v.examined[region] then return end
- local s=read(v.patient);if not s or not M.eligible(s,item,region,os.time()) then return notify(src,'No eligible injury for that treatment') end
+ elseif action~='treat' or type(region)~='string' or not validRegion(region) or not C.items[item] then return end
+ local s=read(v.patient)
+ if not s or v.life~=s.life or not M.canTreatObserved(s,item,region,v.examined[region],os.time()) then return notify(src,'No eligible injury for that treatment; examine if needed') end
  local ok,has=inv:HasItem(src,item,1);if not ok or not has then return notify(src,'Missing '..C.items[item]) end
  local key=db('scalar','SELECT UUID()');if not key or not validView(src,v) or working[src] then return end
  key='med:'..key:gsub('-','')
- local w={view=v,key=key};working[src]=w;snapshot(src,v)
+ local w={view=v,key=key,life=s.life};working[src]=w;snapshot(src,v)
  SetTimeout(C.treatmentMs,function()
   if working[src]~=w then return end
   if not validView(src,v) then working[src]=nil;return notify(src,'Treatment interrupted') end
   local current=read(v.patient)
-  if not current or not M.eligible(current,item,region,os.time()) or not validView(src,v) then working[src]=nil;snapshot(src,v);return end
+  if not current or current.life~=w.life or not M.canTreatObserved(current,item,region,v.examined[region],os.time()) or not validView(src,v) then working[src]=nil;snapshot(src,v);return end
   -- Matches the inventory RemoveItem resource receipt exactly.
   local fp=json.encode({'change',false,v.actor,false,item,1,false})
   local queued=queue(v.patient,current,item,region,key,'resource:frontier_medical',fp)
@@ -248,7 +257,11 @@ MySQL.ready(function()
    for _,p in pairs(core:GetPlayers()) do local ok,err=pcall(tick,p);if not ok then print('[frontier_medical] '..tostring(err)) end end
   else cache={};reports={} end
   for src,v in pairs(views) do
-   if not validView(src,v) then views[src]=nil;working[src]=nil;TriggerClientEvent(E..'closeView',src,v.ticket) end
+   if not validView(src,v) then views[src]=nil;working[src]=nil;TriggerClientEvent(E..'closeView',src,v.ticket)
+   else
+    local ok,err=pcall(snapshot,src,v)
+    if not ok then print('[frontier_medical] View refresh: '..tostring(err)) end
+   end
   end
   Wait(C.tickMs)
  end
