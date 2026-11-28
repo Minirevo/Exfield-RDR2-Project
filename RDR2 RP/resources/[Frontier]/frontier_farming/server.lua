@@ -634,7 +634,7 @@ end
   else s[d.sex]=s[d.sex]+1 end
   batch(f,s,{{item='farm_'..d.species..'_'..d.sex,count=-1}})
  elseif a=='mountHorse' then
-  if GetResourceState('frontier_horses')~='started' then return checkout(src,f,b,s,d.horse) end
+  check(GetResourceState('frontier_horses')=='started','Start Frontier Horses before releasing a horse')
   local h,i=horseById(s,d.horse)
   check(h and not h.listed and h.health>=30 and h.age>=C.species.horse.mature*3600,'Horse unavailable')
   check(f.owner_type=='character' or biz:HasCompanyPermission(f.owner_id,who,'trade'),'Company horse management permission required')

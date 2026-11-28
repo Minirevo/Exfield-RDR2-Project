@@ -12,6 +12,7 @@ end
 RegisterCommand('stable',function()TriggerServerEvent(E..'open')end,false)
 RegisterCommand('horsecall',function()TriggerServerEvent(E..'call')end,false)
 RegisterCommand('horsebags',function()TriggerServerEvent(E..'bags')end,false)
+RegisterCommand('horsecare',function()TriggerServerEvent(E..'care')end,false)
 RegisterNetEvent(E..'notice',function(m)if source~=65535 then return end;if opened then SendNUIMessage({type='notice',message=m})else notice(m)end end)
 RegisterNetEvent(E..'view',function(d)if source~=65535 then return end;opened=true;ticket=d.ticket;SetNuiFocus(true,true);SendNUIMessage({type='view',data=d})end)
 RegisterNetEvent(E..'close',function()if source==65535 then close()end end)

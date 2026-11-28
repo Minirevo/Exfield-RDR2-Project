@@ -19,7 +19,12 @@ local function nearest(p,r)
  return best
 end
 local function horse(id) return R.id(id) and S('SELECT * FROM frontier_horses WHERE id=?',{id}) end
-local function rec(h) local d=json.decode(h.record);d.gear=d.gear or {};d.name=h.name;return d end
+local function rec(h)
+ local d=json.decode(h.record);d.gear=d.gear or {};d.name=h.name
+ -- Foals continue to mature in public boarding, even if their owner is offline.
+ d.age=(tonumber(d.age) or C.adultAge)+math.max(0,os.time()-(tonumber(h.updated) or os.time()))
+ return d
+end
 local function allowed(src,h)
  local who=cid(src);return who and h and ((h.owner_type=='character' and h.owner_id==who) or (h.owner_type=='company' and biz:HasCompanyPermission(h.owner_id,who,'trade')))
 end
@@ -125,7 +130,7 @@ local function spawn(src,h)
  check(h and h.status=='stored' and allowed(src,h) and not assigned(h.id) and not pending(h.id),'Horse unavailable')
  local d=rec(h);check(R.ride(d),'An adult, healthy horse with a saddle is required')
  local p=check(pos(src),'Cannot retrieve here')
- check(U("UPDATE frontier_horses SET status='out' WHERE id=? AND status='stored'",{h.id})==1,'Horse already in use')
+ check(U("UPDATE frontier_horses SET status='out',record=?,updated=? WHERE id=? AND status='stored'",{json.encode(d),os.time(),h.id})==1,'Horse already in use')
  local token=uuid();local old={};for _,ped in ipairs(GetAllPeds()) do old[ped]=true end
  leases[src]={id=h.id,token=token,point={x=p.x+2,y=p.y,z=p.z+.2},model=h.model,untilTime=os.time()+C.spawnSeconds,old=old}
  active[src]={id=h.id,ped=0,actor=cid(src),last=os.time()}
@@ -193,6 +198,18 @@ RegisterNetEvent(E..'call',function()
   TriggerClientEvent(E..'follow',src,NetworkGetNetworkIdFromEntity(m.ped))
  end)
 end)
+RegisterNetEvent(E..'care',function()
+ local src=source;run(src,function()
+  local m=check(active[src],'No active horse');local h=check(horse(m.id),'Horse unavailable')
+  check(allowed(src,h) and not pending(h.id) and m.ped~=0 and DoesEntityExist(m.ped) and R.distance(pos(src),GetEntityCoords(m.ped))<=4,'Approach your horse')
+  local r=rec(h);check(r.care<100,'Horse is already fully cared for')
+  local id=uuid();local basket=json.encode({{id='farm_hay',quantity=1}})
+  local ok,e=inv:ShopBasket(cid(src),id,'previewTake',basket);check(ok,'One hay is required')
+  r.care=math.min(100,r.care+(r.gear.brush and 25 or 15))
+  local done,why=order(src,id,'equip',0,{horse=h.id,stable=h.stable,record=r,basket=basket})
+  tell(src,done and 'Horse fed and cared for.' or why)
+ end)
+end)
 RegisterNetEvent(E..'bags',function()
  local src=source;run(src,function()
   local m=check(active[src],'No active horse');local h=check(horse(m.id),'Horse unavailable');check(allowed(src,h) and rec(h).gear.bags,'Fit saddlebags first')
@@ -222,7 +239,7 @@ exports('ReturnRanch',function(src,facility,snapshot,capacity)
  if GetInvokingResource()~='frontier_farming' or not ready or busy then return false,'Horse system busy' end
  busy=true;local ok,e=pcall(function()
   local m=check(active[src],'Bring your active horse to the enclosure.')
-  check(not leases[src] and m.ped~=0 and DoesEntityExist(m.ped) and R.distance(pos(src),GetEntityCoords(m.ped))<=12,'Approach your horse')
+  check(not leases[src] and m.ped~=0 and DoesEntityExist(m.ped) and GetEntityHealth(m.ped)>0 and R.distance(pos(src),GetEntityCoords(m.ped))<=12,'Approach your horse')
   local h=check(horse(m.id),'Horse unavailable');check(allowed(src,h) and h.status=='out' and not assigned(h.id) and not pending(h.id),'Horse unavailable')
   local f=check(S('SELECT * FROM ff_facilities WHERE id=?',{facility}),'Invalid enclosure')
   check(f.owner_type==h.owner_type and f.owner_id==h.owner_id and f.kind=='livestock','Horse and enclosure must have the same owner')
@@ -289,7 +306,7 @@ MySQL.ready(function()
     elseif m.ped~=0 and GetEntityHealth(m.ped)<=0 then store(src,nil,true)
     elseif m.ped~=0 and os.time()-m.last>=60 then
      local h=horse(m.id);if h then local d=rec(h)
-      if R.distance(pos(src),GetEntityCoords(m.ped))<4 and GetEntitySpeed(m.ped)>2 then d.training=math.min(100,(d.training or 0)+1);d.care=math.max(0,d.care-.2);save(h,d) end
+      if R.distance(pos(src),GetEntityCoords(m.ped))<4 and GetEntitySpeed(m.ped)>2 then d.training=math.min(100,(d.training or 0)+(d.gear.stirrups and 1.2 or 1));d.care=math.max(0,d.care-.2);save(h,d) end
      end;m.last=os.time()
     end
    end
