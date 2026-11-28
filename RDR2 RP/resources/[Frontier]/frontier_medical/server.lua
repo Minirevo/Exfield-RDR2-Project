@@ -77,9 +77,12 @@ local function publish(src,id,s,rev)
  r.life=s.life;r.token=q.token;r.seq=s.reportToken==q.token and (s.reportSeq or 0) or 0
  r.dead=s.dead==true;r.fatal=r.dead and not s.nativeSeen
  r.symptoms=M.symptoms(s,os.time())
- cache[src]={id=id,state=s,revision=rev}
+ cache[src]={id=id,state=s,revision=rev,publishedAt=GetGameTimer()}
  TriggerClientEvent(E..'state',src,r)
- if dispatchPublish then dispatchPublish(src,id,s) end
+ if dispatchPublish then
+  local ok,err=pcall(dispatchPublish,src,id,s)
+  if not ok then print('[frontier_medical] Dispatch publication failed: '..tostring(err)) end
+ end
 end
 local function nearby(a,b)
  if not cid(a) or not cid(b) or GetPlayerRoutingBucket(a)~=GetPlayerRoutingBucket(b) then return false end
@@ -517,11 +520,12 @@ local function position(src)
 end
 local function downPatient(src)
  local v=cache[src]
- if not ready or legacy() or not v or cid(src)~=v.id or not v.state.down or v.state.dead or death(src) then return end
+ if not ready or legacy() or not v or cid(src)~=v.id or GetGameTimer()-(v.publishedAt or 0)>=C.stateTimeoutMs or not v.state.down or v.state.dead or death(src) then return end
  return v
 end
 local function responderReady(src)
- return board.duty[src]~=nil and board.duty[src]==cid(src) and medic(src) and capable(src)
+ local v=cache[src]
+ return board.duty[src]~=nil and board.duty[src]==cid(src) and v and GetGameTimer()-(v.publishedAt or 0)<C.stateTimeoutMs and medic(src) and capable(src)
 end
 local function marker(src,call)
  TriggerClientEvent(E..'dispatchMarker',src,call.number,call.pos)
@@ -610,7 +614,7 @@ dispatchTick=function()
 end
 RegisterCommand('mediccall',function(src,args)
  if src<=0 then return end
- local target=args[1] and tonumber(args[1]) or src
+ local target=args[1] and tonumber(args[1]) or (not args[1] and src)
  if not target or target%1~=0 or target<1 then return notify(src,'Usage: /mediccall [patient ID]') end
  if target~=src and (not capable(src) or not nearby(src,target)) then return notify(src,'Stand beside the unconscious patient.') end
  local v=downPatient(target)
@@ -692,7 +696,8 @@ MySQL.ready(function()
   if not legacy() then
    for _,p in pairs(core:GetPlayers()) do local ok,err=pcall(tick,p);if not ok then print('[frontier_medical] '..tostring(err)) end end
   else cache={};reports={} end
-  dispatchTick()
+  local dispatchOk,dispatchErr=pcall(dispatchTick)
+  if not dispatchOk then print('[frontier_medical] Dispatch refresh failed: '..tostring(dispatchErr)) end
   for src,v in pairs(views) do
    if not validView(src,v) then
     if operations[src] then finishOperation(src,operations[src],'failed') end

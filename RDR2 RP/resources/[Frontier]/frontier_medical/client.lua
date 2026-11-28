@@ -6,6 +6,7 @@ local symptomVisible=false
 local feedbackAt=-10000
 local feedbackActive=false
 local dispatchBlip,dispatchNumber=nil,nil
+local patientDispatchVisible=false
 local function truth(v) return v==true or v==1 end
 local function native(name,...)
  local fn=_G[name];if type(fn)~='function' then return nil end
@@ -32,9 +33,15 @@ end)
 RegisterNetEvent(E..'dispatchClear',function(number)
  if source==65535 then clearDispatchMarker(number) end
 end)
+local function patientDispatch(active,message)
+ if not active and not patientDispatchVisible then return end
+ patientDispatchVisible=active==true
+ SendNUIMessage({type='dispatchPatient',active=patientDispatchVisible,message=type(message)=='string' and message or ''})
+end
 RegisterNetEvent(E..'dispatchPatient',function(active,message)
  if source~=65535 or not playing() then return end
- SendNUIMessage({type='dispatchPatient',active=active==true,message=type(message)=='string' and message or ''})
+ if active==true and (not state or not state.down or state.dead) then return end
+ patientDispatch(active==true,message)
 end)
 local function clearFeedback()
  if symptomVisible then SendNUIMessage({type='symptoms',symptoms={}});symptomVisible=false end
@@ -65,7 +72,8 @@ RegisterNetEvent(E..'state',function(v)
   TriggerEvent('chat:addMessage',{args={'Medical',msg}})
  end
  if v.down and opened then close() end
- if not v.down or v.dead then SendNUIMessage({type='dispatchPatient',active=false}) end
+ if not v.down or v.dead then patientDispatch(false)
+ elseif not patientDispatchVisible then patientDispatch(true,'You are unconscious. Use /mediccall to request help.') end
 end)
 RegisterNetEvent(E..'injuryFeedback',function(token,message)
  if source~=65535 or not playing() or not state or state.token~=token or state.down or state.dead or type(message)~='string' then return end
@@ -78,7 +86,7 @@ CreateThread(function()
   Wait(1000)
   if not playing() or not state or GetGameTimer()-received>=C.stateTimeoutMs or truth(native('IsPlayerDead',PlayerId())) then
    if feedbackActive then clearFeedback() end
-   clearDispatchMarker();SendNUIMessage({type='dispatchPatient',active=false})
+   clearDispatchMarker();patientDispatch(false)
   end
  end
 end)
@@ -144,5 +152,5 @@ RegisterNUICallback('action',function(d,cb)
  if opened and ticket and type(d)=='table' then TriggerServerEvent(E..'action',ticket,d.action,d.region,d.item) end
  cb({ok=true})
 end)
-RegisterNetEvent('vorp:SelectedCharacter',function() state=nil;received=0;requestAt=0;feedbackAt=-10000;clearFeedback();clearDispatchMarker();SendNUIMessage({type='dispatchPatient',active=false});FrontierMedicalAdapter.reset();if opened then close() end end)
+RegisterNetEvent('vorp:SelectedCharacter',function() state=nil;received=0;requestAt=0;feedbackAt=-10000;clearFeedback();clearDispatchMarker();patientDispatch(false);FrontierMedicalAdapter.reset();if opened then close() end end)
 AddEventHandler('onClientResourceStop',function(r) if r==GetCurrentResourceName() then clearDispatchMarker();if opened then close() end end end)

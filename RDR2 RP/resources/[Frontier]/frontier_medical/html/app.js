@@ -135,4 +135,8 @@ window.addEventListener('message',({data:m})=>{
  if(m?.type==='symptoms')showSymptoms(m.symptoms);
  if(m?.type==='injuryFeedback'&&typeof m.message==='string')showHit(m.message);
  if(m?.type==='clearFeedback'){clearHit();showSymptoms([]);}
+ if(m?.type==='dispatchPatient'){
+  const n=document.querySelector('#dispatch-patient');n.hidden=m.active!==true;
+  n.textContent=m.active===true?m.message:'';
+ }
 });
