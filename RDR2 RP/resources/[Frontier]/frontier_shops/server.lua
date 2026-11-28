@@ -32,7 +32,7 @@ local function view(src,v)
  local catalog=available(v.site)
  local list={};for id,d in pairs(catalog) do d.owned=counts[id] or 0;list[#list+1]=d end
  table.sort(list,function(a,b)return a.category==b.category and a.name<b.name or a.category<b.category end)
- local orders=Q("SELECT id,mode,state,total,lines,issue,receipt,created FROM frontier_shops_orders WHERE character_id=? ORDER BY created DESC,id DESC LIMIT 40",{v.character})
+ local orders=Q("SELECT id,mode,state,total,`lines`,issue,receipt,created FROM frontier_shops_orders WHERE character_id=? ORDER BY created DESC,id DESC LIMIT 40",{v.character})
  for _,o in ipairs(orders) do o.lines=json.decode(o.lines) end
  v.ticket=uuid()
  if sessions[src]==v and valid(src,v) then TriggerClientEvent(E..'view',src,{ticket=v.ticket,shop=C.sites[v.site].name,kind=C.types[C.sites[v.site].kind],cash=accounts.cash.balance_minor,weight=bag.weight,weightLimit=bag.weightLimit,catalog=list,orders=orders,maxQuantity=C.maxQuantity}) end
@@ -110,7 +110,7 @@ RegisterNetEvent(E..'checkout',function(ticket,mode,lines)
   local payload=json.encode(normalized)
   local checked,why=inv:ShopBasket(v.character,ticket,mode=='buy' and 'previewGrant' or 'previewTake',payload);need(checked,why=='weight' and 'Satchel too heavy.' or why=='slots' and 'Not enough satchel slots.' or why=='insufficient_stock' and 'Not enough goods in your satchel.' or tostring(why))
   need(valid(src,v),'Move closer to the shop.')
-  U([[INSERT INTO frontier_shops_orders(id,character_id,shop,mode,state,account,total,lines,created)
+  U([[INSERT INTO frontier_shops_orders(id,character_id,shop,mode,state,account,total,`lines`,created)
    VALUES(?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE id=id]],{ticket,v.character,v.site,mode,mode=='buy' and 'debit' or 'take',a.cash.id,total,payload,os.time()})
   local o=advance(ticket)
   if o and o.state=='done' then msg(src,mode=='buy' and 'Purchase complete. Goods are in your satchel.' or 'Sale complete. You received cash.')
