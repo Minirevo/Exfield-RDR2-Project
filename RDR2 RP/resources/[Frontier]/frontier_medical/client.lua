@@ -2,12 +2,18 @@ local C,E=FrontierMedicalConfig,'frontier_medical:'
 local state,received,ticket=nil,0,nil
 local opened=false
 local requestAt=0
+local symptomVisible=false
+local feedbackAt=-10000
 local function truth(v) return v==true or v==1 end
 local function native(name,...)
  local fn=_G[name];if type(fn)~='function' then return nil end
  local ok,a,b=pcall(fn,...);if ok then return a,b end
 end
 local function playing() return LocalPlayer.state.IsInSession==true end
+local function clearFeedback()
+ if symptomVisible then SendNUIMessage({type='symptoms',symptoms={}});symptomVisible=false end
+ SendNUIMessage({type='clearFeedback'})
+end
 local function close()
  if ticket then TriggerServerEvent(E..'close',ticket) end
  ticket=nil;opened=false;SetNuiFocus(false,false);SendNUIMessage({type='close'})
@@ -21,11 +27,31 @@ RegisterNetEvent(E..'state',function(v)
  if source~=65535 or not playing() or type(v)~='table' then return end
  local previous=state
  state=v;received=GetGameTimer();FrontierMedicalAdapter.update(v)
+ if v.down or v.dead then clearFeedback()
+ else
+  local symptoms=type(v.symptoms)=='table' and v.symptoms or {}
+  if #symptoms>0 or symptomVisible then SendNUIMessage({type='symptoms',symptoms=symptoms}) end
+  symptomVisible=#symptoms>0
+ end
  if previous and previous.life==v.life and previous.down~=v.down and not v.dead then
   local msg=v.down and 'You have lost consciousness.' or 'You have regained consciousness.'
   TriggerEvent('chat:addMessage',{args={'Medical',msg}})
  end
  if v.down and opened then close() end
+end)
+RegisterNetEvent(E..'injuryFeedback',function(token,message)
+ if source~=65535 or not playing() or not state or state.token~=token or state.down or state.dead or type(message)~='string' then return end
+ local now=GetGameTimer()
+ if now-feedbackAt<1500 then return end
+ feedbackAt=now;SendNUIMessage({type='injuryFeedback',message=message})
+end)
+CreateThread(function()
+ while true do
+  Wait(1000)
+  if not playing() or not state or GetGameTimer()-received>=C.stateTimeoutMs or truth(native('IsPlayerDead',PlayerId())) then
+   if symptomVisible then clearFeedback() end
+  end
+ end
 end)
 local sprint=joaat('INPUT_SPRINT')
 local blocked={sprint,joaat('INPUT_MOVE_LR'),joaat('INPUT_MOVE_UD'),joaat('INPUT_ATTACK'),joaat('INPUT_AIM'),joaat('INPUT_JUMP'),joaat('INPUT_MELEE_ATTACK'),joaat('INPUT_ENTER'),joaat('INPUT_RELOAD')}
@@ -68,7 +94,8 @@ RegisterNetEvent(E..'view',function(data)
  if opened and ticket~=data.ticket then return end
  if not opened and (requestAt==0 or GetGameTimer()-requestAt>10000) then return end
  requestAt=0
- ticket=data.ticket;opened=true;SetNuiFocus(true,true);SendNUIMessage({type='view',data=data})
+ local first=not opened
+ ticket=data.ticket;opened=true;if first then SetNuiFocus(true,true) end;SendNUIMessage({type='view',data=data})
 end)
 RegisterNetEvent(E..'closeView',function(t)
  if source==65535 and ticket==t and opened then close() end
@@ -78,5 +105,5 @@ RegisterNUICallback('action',function(d,cb)
  if opened and ticket and type(d)=='table' then TriggerServerEvent(E..'action',ticket,d.action,d.region,d.item) end
  cb({ok=true})
 end)
-RegisterNetEvent('vorp:SelectedCharacter',function() state=nil;received=0;requestAt=0;FrontierMedicalAdapter.reset();if opened then close() end end)
+RegisterNetEvent('vorp:SelectedCharacter',function() state=nil;received=0;requestAt=0;feedbackAt=-10000;clearFeedback();FrontierMedicalAdapter.reset();if opened then close() end end)
 AddEventHandler('onClientResourceStop',function(r) if r==GetCurrentResourceName() and opened then close() end end)

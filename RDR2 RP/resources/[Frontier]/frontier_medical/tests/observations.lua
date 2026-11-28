@@ -1,0 +1,32 @@
+dofile('config.lua');dofile('model.lua')
+local M=FrontierMedicalModel
+local s=M.new()
+assert(not M.visible(s,'chest').wounded and #M.symptoms(s,0)==0)
+assert(M.injure(s,'chest','penetrating',20,0))
+local v=M.visible(s,'chest')
+assert(v.wounded and v.bleeding and v.description:find('Gunshot'))
+assert(v.severity==nil and v.fracture==nil)
+assert(M.observedTreatment(s,'bandage','chest',0,false,true))
+assert(not M.observedTreatment(s,'bandage','head',0,false,true))
+assert(M.observedTreatment(s,'tonic','chest',0,false,true))
+assert(not M.observedTreatment(s,'tonic','chest',0,false,false))
+assert(M.injure(s,'chest','blunt',3,0))
+assert(M.visible(s,'chest').description:find('Gunshot') and M.visible(s,'chest').description:find('Bruising'))
+assert(M.exam(s,'chest',0).severity~=nil)
+assert(M.symptoms(s,0)[1].kind=='bleeding')
+assert(M.treat(s,'bandage','chest',0))
+assert(not M.visible(s,'chest').bleeding and M.visible(s,'chest').wounded)
+assert(not M.observedTreatment(s,'bandage','chest',0,true,true))
+s=M.new();assert(M.injure(s,'left_leg','fall',30,0))
+assert(not M.observedTreatment(s,'splint','left_leg',0,false,true))
+assert(M.observedTreatment(s,'splint','left_leg',0,true,true))
+s.blood=400
+local faint=false
+for _,v in ipairs(M.symptoms(s,0)) do if v.kind=='weakness' and v.level=='severe' then faint=true end end
+assert(faint)
+s.down=true;assert(#M.symptoms(s,0)==0)
+s=M.new();s.wounds.chest={kind='cut',bleed=1,severity=50}
+assert(M.visible(s,'chest').description=='Cut')
+assert(M.hitDescription({{kind='penetrating',region='left_arm'}},false):find('left arm'))
+assert(M.hitDescription({},true):find('breathe'))
+print('Visible wounds, observation gates and symptoms passed')
