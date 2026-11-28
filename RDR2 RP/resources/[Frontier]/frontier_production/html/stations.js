@@ -32,15 +32,56 @@ function catalog(){
 }
 function stopGunPreview(){if(!showroom)return;showroom=false;clearTimeout(previewTimer);root.classList.remove('gunShowroom');post('gunPreviewStop').catch(()=>{})}
 function refreshGunPreview(){if(!showroom)return;clearTimeout(previewTimer);previewTimer=setTimeout(()=>{const r=recipe();if(r?.manualOnly)post('gunPreview',{id:r.id,cosmetics:design.cosmetics}).then(x=>{if(!x.ok){stopGunPreview();status('Preview unavailable')}}).catch(()=>stopGunPreview())},120)}
+const gunStats=[
+ {key:'durability',name:'Durability',tip:'Condition retention during use. Higher is better.',live:true},
+ {key:'reload',name:'Ammo retrieval',tip:'Speed of retrieving ammunition from the satchel, not the native reload animation.',live:true},
+ {key:'handling',name:'Handling',tip:'Planned gameplay attribute; not active yet.'},
+ {key:'service',name:'Serviceability',tip:'Planned maintenance attribute; not active yet.'},
+ {key:'weight',name:'Weight index',tip:'Estimated weight relative to standard; actual inventory weight is unchanged.',lower:true}
+];
+const slotHelp={body:'A fictional material choice affecting the overall design ratings.',balance:'A fictional material choice affecting the same combined ratings.',finish:'A fictional material choice affecting the combined ratings. Visible finishes are chosen separately below.'};
+const cosmeticNames={barrel:'Barrel finish',frame:'Frame finish',trigger:'Trigger finish',cylinder:'Cylinder finish',frontsight:'Front sight finish',scope:'Scope finish',gripbody:'Grip / stock material',grip:'Grip / stock carving',wrapcolor:'Wrap colour'};
+function cosmeticLabel(key){
+ const [type,part]=key.split(':');
+ if(type==='decal')return 'Engraving · '+label(part||'body');
+ if(type==='decalcolor')return 'Engraving colour · '+label(part||'body');
+ return cosmeticNames[type]||label(key.replace(':',' '));
+}
+function cosmeticHelp(key){
+ if(key.startsWith('decal:'))return 'Changes the decorative engraving pattern on this region.';
+ if(key.startsWith('decalcolor:'))return 'Changes the engraving colour; select a pattern on this region to see it.';
+ if(key==='gripbody')return 'Changes the visible grip or stock finish.';
+ if(key==='grip')return 'Adds a decorative carving where supported.';
+ if(key==='wrapcolor')return 'Changes the colour of a compatible wrap, if present.';
+ return 'Changes the visible finish only; no gameplay bonus.';
+}
+function relative(v,base=100){const d=v-base;return d===0?'Standard':(d>0?'+':'')+d+'%'}
+function updateGunStats(r){
+ const materials=Object.values(design.materials).map(id=>r.designMaterials[id]).filter(Boolean);
+ const grid=$('st-gun-stats-grid');if(!grid||!materials.length)return;grid.replaceChildren();
+ for(const stat of gunStats){
+  const v=Math.round(materials.reduce((a,m)=>a+Number(m[stat.key]),0)/materials.length);
+  const item=node('div',null,grid);item.className='gunStat';item.title=stat.tip;
+  const line=node('div',null,item);line.className='gunStatLine';node('span',stat.name,line);
+  const delta=node('strong',relative(v),line);delta.className=v===100?'neutral':(stat.lower?v<100:v>100)?'available':'missing';
+  const track=node('div',null,item);track.className='gunStatTrack';const bar=node('span',null,track);bar.style.width=Math.min(100,v/1.5)+'%';bar.className=delta.className;
+  node('small',stat.live?'Active · '+v+'%':'Planned · '+v+'%',item);
+ }
+ for(const [slot,id] of Object.entries(design.materials)){
+  const m=r.designMaterials[id],detail=$('st-material-'+slot);if(!m||!detail)continue;detail.replaceChildren();
+  for(const stat of gunStats){const val=m[stat.key];const chip=node('span',stat.name+': '+relative(val),detail);chip.className=val===100?'neutral':(stat.lower?val<100:val>100)?'available':'missing';chip.title=stat.tip}
+ }
+}
 function buildDesign(r){
  const box=$('st-design');box.hidden=!r.manualOnly;
  if(!r.manualOnly){stopGunPreview();designRecipe=null;return}
  if(designRecipe===r.id)return;
  stopGunPreview();designRecipe=r.id;design={name:'',materials:{},cosmetics:{}};box.replaceChildren();node('h3','Custom design',box);const actions=node('div',null,box);actions.className='gunPreviewActions';actions.append(button('Live 3D preview',()=>{showroom=!showroom;root.classList.toggle('gunShowroom',showroom);if(showroom)refreshGunPreview();else post('gunPreviewStop').catch(()=>{})}),button('Rotate left',()=>{if(showroom)post('gunPreviewRotate',{direction:'left'}).catch(()=>{})}),button('Rotate right',()=>{if(showroom)post('gunPreviewRotate',{direction:'right'}).catch(()=>{})}));
- const name=node('input',null,box);name.maxLength=48;name.placeholder='Optional weapon name';name.oninput=()=>design.name=name.value;
- for(const slot of r.designSlots){const l=node('label',r.designSlotLabels[slot],box),s=node('select',null,l);for(const [id,m] of Object.entries(r.designMaterials))s.add(new Option(m.name,id));design.materials[slot]=s.value;s.onchange=()=>{design.materials[slot]=s.value;preview()}}
+ const summary=node('section',null,box);summary.id='st-gun-stats';node('h3','Combined design ratings',summary);const grid=node('div',null,summary);grid.id='st-gun-stats-grid';node('small','Standard = 100%. Before workmanship. Planned ratings are informational only.',summary);
+ const name=node('input',null,box);name.maxLength=48;name.placeholder='Optional weapon name';name.oninput=()=>design.name=name.value;node('h3','Material choices',box);node('p','Each slot contributes equally to the combined fictional ratings. Appearance is separate.',box);
+ for(const slot of r.designSlots){const l=node('label',r.designSlotLabels[slot],box);node('small',slotHelp[slot]||'Contributes to combined design ratings.',l);const s=node('select',null,l);for(const [id,m] of Object.entries(r.designMaterials))s.add(new Option(m.name,id));design.materials[slot]=s.value;s.onchange=()=>{design.materials[slot]=s.value;preview()};const detail=node('div',null,box);detail.id='st-material-'+slot;detail.className='gunMaterialDetail'}
  const details=node('details',null,box);node('summary','Appearance & finishes',details);
- for(const [key,opts] of Object.entries(r.cosmetics||{})){const l=node('label',label(key.replace(':',' ')),details),s=node('select',null,l);s.add(new Option('Default',''));for(const o of opts)s.add(new Option(o.label,String(o.hash)));s.onchange=()=>{if(s.value)design.cosmetics[key]=Number(s.value);else delete design.cosmetics[key];preview();refreshGunPreview()}}
+ for(const [key,opts] of Object.entries(r.cosmetics||{}).sort(([a],[b])=>cosmeticLabel(a).localeCompare(cosmeticLabel(b)))){const l=node('label',cosmeticLabel(key),details);node('small',cosmeticHelp(key),l);const s=node('select',null,l);s.add(new Option('Default',''));for(const o of opts){const cost=o.label==='Gold'?' · + refined gold':o.label==='Copper'||o.label==='Brass'?' · + copper ingot':'';s.add(new Option(o.label+cost,String(o.hash)))}s.onchange=()=>{if(s.value)design.cosmetics[key]=Number(s.value);else delete design.cosmetics[key];preview();refreshGunPreview()}}
  node('p','Each choice is saved with the individual weapon. Cosmetic visibility and additional performance modifiers require in-game verification.',box);
 }
 function preview(){
@@ -55,7 +96,7 @@ function preview(){
  for(const [id,count] of Object.entries(inputs)){const have=Number(counts?.[id]||0),row=node('div',null,p);row.className='materialRow';node('span',label(id),row);const value=node('strong',have+' / '+count*n,row);value.className=have>=count*n?'available':'missing'}
  const timing=[3.6,3.3,3.1,2.6,2.2,2.05,1.9],duration=npc?r.npc:r.manualOnly?70:r.rounds*timing[r.rounds-1];
  node('p',r.quantity*n+' × '+label(r.output)+' · '+sec(Math.ceil(duration*n))+(npc?' · Wage '+money(Math.ceil(r.npc*n*state.wage/state.wageInterval)):' · '+r.rounds*n+' stages · '+r.difficulty),p);
- if(r.manualOnly){const materials=Object.values(design.materials).map(id=>r.designMaterials[id]);node('h3','Estimated material attributes',p);for(const k of ['durability','handling','service','reload','weight']){const v=Math.round(materials.reduce((a,m)=>a+m[k],0)/materials.length);node('p',k+': '+v+'% of standard (before workmanship)',p)}}
+ if(r.manualOnly)updateGunStats(r);
  const valid=Object.entries(inputs).every(([id,count])=>Number(counts?.[id]||0)>=count*n);
  $('st-start').disabled=waiting||!!retry||!valid||!Number.isInteger(n)||n<1||n>state.maxBatches||(npc&&!state.canNpc);
 }

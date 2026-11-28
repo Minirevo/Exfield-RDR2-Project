@@ -91,7 +91,10 @@ RegisterNUICallback('gunPreview',function(d,cb)
    for _,h in ipairs(hashes) do pcall(Citizen.InvokeNative,0x74C9090FDD1BB48E,obj,h,-1,true) end
    previewCam=Citizen.InvokeNative(0x40C23491CE83708E,'DEFAULT_SCRIPTED_CAMERA',c.x,c.y,c.z,0.0,0.0,0.0,48.0,false,0,Citizen.ResultAsInteger())
    if not previewCam or previewCam==0 then previewCam=nil;error('Preview camera unavailable') end
-   PointCamAtCoord(previewCam,p.x,p.y,p.z)
+   -- Aim to the right of the display object so it occupies the open left-hand view.
+   -- The right panel uses the rightmost third of the screen.
+   local aim=GetOffsetFromEntityInWorldCoords(ped,0.0,2.10,0.9)
+   PointCamAtCoord(previewCam,aim.x,aim.y,aim.z)
    SetCamActive(previewCam,true);RenderScriptCams(true,false,0,true,true,0)
   end)
   if version==previewVersion and shown then

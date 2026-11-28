@@ -44,3 +44,18 @@
 #station-ui.gunShowroom .st-cols>aside{display:none}
 #station-ui.gunShowroom #st-tabs{display:none}
 .gunPreviewActions{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+
+/* Live design ratings stay visible while browsing cosmetic options. */
+#st-gun-stats{background:#262119;border:1px solid #9b8052;border-radius:6px;padding:12px;margin:10px 0 16px}
+#st-gun-stats h3{margin:0 0 10px}
+#st-gun-stats-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.gunStat{min-width:0}.gunStatLine{display:flex;justify-content:space-between;gap:5px;font-size:12px}
+.gunStatTrack{height:5px;background:#514335;border-radius:3px;overflow:hidden;margin:5px 0}
+.gunStatTrack span{display:block;height:100%;background:#b69b73;border-radius:3px}.gunStatTrack span.available{background:#9ab779}.gunStatTrack span.missing{background:#c78570}
+#st-gun-stats small,#st-design label small{display:block;font-size:11px;line-height:1.4;color:#b9ad95;margin:4px 0}
+#st-gun-stats>small{margin:10px 0 0}
+.gunMaterialDetail{display:flex;flex-wrap:wrap;gap:5px;margin:4px 0 12px}
+.gunMaterialDetail span{font-size:11px;border:1px solid #65553e;border-radius:4px;padding:3px 6px;background:#29241d}
+#station-ui.gunShowroom #st-gun-stats{position:fixed;left:3vw;bottom:3vh;width:min(56vw,760px);margin:0;z-index:5;background:#211e19f2;box-shadow:0 8px 30px #0008;pointer-events:auto}
+#station-ui.gunShowroom #st-gun-stats-grid{grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+@media(max-width:1150px){#station-ui.gunShowroom #st-gun-stats-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
