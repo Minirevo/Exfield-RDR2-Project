@@ -7,4 +7,4 @@ function R.near(a,b,r) return a and b and a.bucket==0 and (a.x-b.x)^2+(a.y-b.y)^
 function R.canAccept(j,who,t) return j and j.state=='open' and j.poster~=who and tonumber(j.expires)>t end
 function R.canSubmit(j,who,t) return j and j.state=='active' and j.worker==who and tonumber(j.expires)>t end
 function R.canApprove(j,who) return j and j.state=='submitted' and j.worker~=who end
-function R.canAbandon(j,who) return j and j.state=='active' and j.worker==who end
+function R.canAbandon(j,who) return j and (j.state=='active' or j.state=='loaning') and j.worker==who and (j.kind=='npc' or j.kind=='task') end

@@ -93,14 +93,19 @@ tradeExport('ReleaseTradeHold', function(reference, character, bankId, amount)
         { key = reference .. ':release', reason = 'Handelsbudget freigegeben' })
 end)
 
-local function settle(reference, operation, character, bankId, amount, refund)
+local function settle(reference, operation, character, bankId, amount, refund, cash)
     if not validReference(reference) or not validReference(operation) or type(character) ~= 'string'
         or not Economy.PositiveInteger(bankId, Economy.MaxId)
         or not Economy.PositiveInteger(amount, Economy.MaxMinor) then return false, 'invalid_request' end
-    local ok, bank = Economy.Db('scalar', [[
+    local accountQuery = cash and [[
+        SELECT id FROM frontier_economy_accounts WHERE id=? AND owner_type='character'
+          AND owner_id=? AND account_type='cash' AND currency='USD'
+    ]] or [[
         SELECT id FROM frontier_economy_accounts WHERE id = ? AND owner_type IN ('character','trade_npc','business')
           AND owner_id = ? AND account_type = 'bank' AND currency = 'USD'
-    ]], { bankId, character })
+    ]]
+    if cash and refund then return false,'forbidden' end
+    local ok, bank = Economy.Db('scalar',accountQuery,{bankId,character})
     if not ok then return false, bank end
     if tonumber(bank) ~= bankId then return false, 'forbidden' end
     if refund then
@@ -124,6 +129,13 @@ end
 tradeExport('PayTradeDelivery', function(reference, operation, character, bankId, amount)
     return settle(reference, operation, character, bankId, amount, false)
 end)
+-- Jobs alone can settle their reserved task pay to a character's pocket cash.
+-- Same receipt key as the previous bank delivery; Trade and Logistics remain bank-only.
+Economy.Export('PayJobCash',function(resource,reference,character,cashId,amount)
+    if resource~='frontier_jobs' then return false,'forbidden' end
+    return settle(reference,reference,character,cashId,amount,false,true)
+end)
+
 tradeExport('RefundTradeRemainder', function(reference, character, bankId, amount)
     return settle(reference, reference, character, bankId, amount, true)
 end)

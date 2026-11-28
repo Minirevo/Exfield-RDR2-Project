@@ -39,6 +39,30 @@ exports('IsLoanActive',function(character,contract,item)
  local j=row(contract)
  return j and j.kind=='npc' and j.state=='active' and j.worker==character and j.loan==item and tonumber(j.wants_loan)==1 and tonumber(j.expires)>now() or false
 end)
+-- Preserve a committed bank payment after updating from an older version.
+-- A failed SQL operation rolls back its receipt; only completed ledger entries count.
+local function payContract(j)
+ local actor,key
+ if j.kind=='npc' then actor,key='resource:frontier_jobs','jobs:'..j.id..':wage'
+ else actor,key='trade:escrow',j.id..':delivery' end
+ local prior=S([[SELECT CAST(o.id AS CHAR) AS operation_id,a.owner_type,a.owner_id,a.account_type,l.amount_minor
+ FROM frontier_economy_operations o
+ LEFT JOIN frontier_economy_ledger l ON l.operation_id=o.id AND l.entry_type='credit'
+ LEFT JOIN frontier_economy_accounts a ON a.id=l.account_id
+ WHERE o.actor=? AND o.request_key=? AND o.completed=1]],{actor,key})
+ if prior then
+  if prior.owner_type~='character' or prior.owner_id~=j.worker or not ({cash=true,bank=true})[prior.account_type]
+   or tonumber(prior.amount_minor)~=tonumber(j.reward) then return false,'payment_receipt_mismatch' end
+  return true,{operationId=prior.operation_id,replayed=true}
+ end
+ local cash=tonumber(V([[SELECT id FROM frontier_economy_accounts
+ WHERE owner_type='character' AND owner_id=? AND account_type='cash' AND currency='USD']],{j.worker}))
+ if not cash then return false,'cash_account_unavailable' end
+ if j.kind=='npc' then
+  return eco:CreditAccount(cash,tonumber(j.reward),{key=key,reason='NPC work contract completed',reference=j.id})
+ end
+ return eco:PayJobCash(j.id,j.worker,cash,tonumber(j.reward))
+end
 local function progress(j)
  -- Durable states precede external effects. Every inventory/economy key is stable.
  if j.state=='funding' then
@@ -59,12 +83,7 @@ local function progress(j)
   elseif why=='insufficient_stock' then transition(j.id,'delivering','active');return false,why
   else return false,why end
  elseif j.state=='paying' then
-  local ok,receipt
-  if j.kind=='npc' then
-   ok,receipt=eco:CreditAccount(tonumber(j.worker_bank),tonumber(j.reward),{key='jobs:'..j.id..':wage',reason='NPC work contract completed',reference=j.id})
-  else
-   ok,receipt=eco:PayTradeDelivery(j.id,j.id,j.worker,tonumber(j.worker_bank),tonumber(j.reward))
-  end
+  local ok,receipt=payContract(j)
   if not ok then return false,receipt end
   U("UPDATE frontier_jobs_contracts SET state='paid',receipt=? WHERE id=? AND state='paying'",{receipt.operationId,j.id})
  elseif j.state=='returning' then
@@ -114,7 +133,20 @@ local function view(src,v)
   end end
   if v.mode=='board' then data.postings=publicPostings() end
  end
- data.mine=Q("SELECT id,kind,state,title,description,employer,template,item,quantity,loan,wants_loan,reward,town,expires,receipt FROM frontier_jobs_contracts WHERE worker=? ORDER BY created DESC LIMIT 60",{v.who})
+ -- Never let a large history hide a currently running contract.
+ local columns='id,kind,state,title,description,employer,template,item,quantity,loan,wants_loan,reward,town,created,expires,receipt'
+ data.mine=Q("SELECT "..columns.." FROM frontier_jobs_contracts WHERE worker=? AND state NOT IN ('paid','cancelled') ORDER BY created DESC,id DESC",{v.who})
+ local historyCount=tonumber(V("SELECT COUNT(*) FROM frontier_jobs_contracts WHERE worker=? AND state IN ('paid','cancelled')",{v.who})) or 0
+ local size=25
+ data.historyPages=math.max(1,math.ceil(historyCount/size))
+ v.historyPage=math.max(1,math.min(v.historyPage or 1,data.historyPages))
+ data.historyPage=v.historyPage;data.historyCount=historyCount
+ data.history=Q([[SELECT j.id,j.kind,j.state,j.title,j.description,j.employer,j.reward,j.created,j.expires,j.receipt,a.account_type AS paid_to
+ FROM frontier_jobs_contracts j
+ LEFT JOIN frontier_economy_ledger l ON l.operation_id=j.receipt AND l.entry_type='credit'
+ LEFT JOIN frontier_economy_accounts a ON a.id=l.account_id AND a.owner_type='character' AND a.owner_id=j.worker
+ WHERE j.worker=? AND j.state IN ('paid','cancelled') ORDER BY j.created DESC,j.id DESC LIMIT ? OFFSET ?]],{v.who,size,(v.historyPage-1)*size})
+ for _,j in ipairs(data.history) do if j.kind=='npc' and C.employers[j.employer] then j.employerName=C.employers[j.employer].name end end
  local pos=position(src)
  local counts={}
  for _,j in ipairs(data.mine) do
@@ -195,6 +227,7 @@ local function action(src,v,op,d)
  if op=='acceptNpc' then return acceptNpc(src,v,d) end
  if op=='post' then return post(src,v,d) end
  if op=='refresh' then return 'Refreshed.' end
+ if op=='historyPage' then need(R.integer(d.page,1,1000000),'Invalid history page.');v.historyPage=d.page;return 'History updated.' end
  local j=need(row(d.id),'Posting or contract unavailable.')
  if op=='acceptTask' or op=='apply' then
   need(v.mode=='board' and R.canAccept(j,v.who,now()),'Posting unavailable.')
@@ -217,7 +250,7 @@ local function action(src,v,op,d)
   if tonumber(j.wants_loan)==1 then need(not pendingHarvest(v.who),'Finish your gathering action or use /gatherrecover first.') end
   need(cid(src)==v.who and nearEmployer(src,j.employer),'Move closer to your employer.')
   need(transition(j.id,'active','delivering'),'Contract changed.')
-  local ok,why=advance(j.id);return ok and 'Delivery received and paid.' or 'Delivery pending: '..tostring(why)
+  local ok,why=advance(j.id);return ok and 'Delivery received. Payment issued in cash.' or 'Delivery pending: '..tostring(why)
  elseif op=='retry' then
   need(j.worker==v.who and j.state=='loaning' and nearEmployer(src,j.employer),'Visit the employer for equipment.')
   local ok,why=advance(j.id);return ok and 'Equipment received.' or 'Equipment pending: '..tostring(why)
@@ -225,17 +258,18 @@ local function action(src,v,op,d)
   need(j.kind=='task' and R.canSubmit(j,v.who,now()),'Task unavailable.')
   need(transition(j.id,'active','submitted'),'Contract changed.')
   return 'Completion submitted for employer review.'
- elseif op=='abandon' then
-  need(j.worker==v.who and (j.state=='active' or j.state=='loaning'),'Contract unavailable.')
+ elseif op=='abandon' or op=='cancelJob' then
+  need(R.canAbandon(j,v.who),'Only your active or equipment-pending contracts can be cancelled.')
+  if j.kind=='npc' and tonumber(j.wants_loan)==1 then need(not pendingHarvest(v.who),'Finish the current gathering action or use /gatherrecover before cancelling.') end
   local nextState=j.kind=='npc' and 'returning' or 'refunding'
   need(transition(j.id,j.state,nextState),'Contract changed.');local ok,why=advance(j.id)
-  return ok and 'Contract ended.' or 'Cancellation pending: '..tostring(why)
+  return ok and 'Contract cancelled. Gathered goods remain yours; no wages are paid.' or 'Cancellation pending: '..tostring(why)
  end
  need(v.mode=='manage' and j.company==v.place and manage(v.who,v.place),'Company permission required.')
  if op=='approve' then
   need(j.kind=='task' and R.canApprove(j,v.who),'Task is not awaiting review.')
   need(transition(j.id,'submitted','paying'),'Contract changed.')
-  local ok,why=advance(j.id);return ok and 'Worker paid.' or 'Payment pending: '..tostring(why)
+  local ok,why=advance(j.id);return ok and 'Worker payment issued.' or 'Payment pending: '..tostring(why)
  elseif op=='cancel' then
   -- Employer cannot take back an accepted or submitted worker's reserved pay.
   need(j.state=='open','Only unaccepted postings may be cancelled.')
