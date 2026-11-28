@@ -47,6 +47,8 @@ end
 FarmConfig.suppliers={{x=-322.4,y=803.9,z=117.9},{x=1328.7,y=-1293.4,z=77.0},{x=-785.1,y=-1322.4,z=43.9}}
 
 FarmConfig.horseBreeds={
+ morgan={label='Morgan',model='a_c_horse_morgan_bay',speed=50,stamina=55,health=60},
+ kentucky={label='Kentucky Saddler',model='a_c_horse_kentuckysaddle_black',speed=55,stamina=57,health=65},
  turkoman={label='Turkoman',model='a_c_horse_turkoman_darkbay',speed=75,stamina=75,health=80},
  standardbred={label='American Standardbred',model='a_c_horse_americanstandardbred_black',speed=80,stamina=65,health=65},
  shire={label='Shire',model='a_c_horse_shire_darkbay',speed=45,stamina=75,health=90}

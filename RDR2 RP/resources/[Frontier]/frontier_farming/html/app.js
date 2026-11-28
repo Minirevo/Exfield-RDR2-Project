@@ -145,6 +145,7 @@ function render(){
   }else if(v.products>0&&data.species[v.species]?.product){const chicken=v.species==='chicken';actionPanel(work,f,'Collect remaining '+nameOf(data.species[v.species].product),'collect',{tool:chicken?null:v.species==='sheep'?'shear':'milk',output:v.products+' ready'});}
   if(!n&&Math.floor(v.manure)>0)actionPanel(pgs.Production,f,'Collect remaining manure','manure',{tool:'fork',output:Math.floor(v.manure)+' ready'});
   el('p','Buy new animals at the agricultural supplier and choose this enclosure for delivery.',work);
+  if(b.kind==='livestock'&&(!v.species||v.species==='horse'||!n))button(work,'Return active riding horse to this enclosure','returnRanchHorse');
   if(v.species==='horse'){
    for(const h of v.horses||[]){
     const box=el('section',null,work);el('p',h.breed+' · '+h.sex+' · '+Math.floor(h.age/86400)+' days · Care '+Math.round(h.care)+'% · Health '+Math.round(h.health)+'%',box);

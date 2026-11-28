@@ -378,6 +378,7 @@ RegisterNetEvent(E..'waterWork',function(d)
  CreateThread(function() Wait(d.ms+150);ClearPedTasks(p);TriggerServerEvent(E..'action','riverFinish',{token=d.token}) end)
 end)
 RegisterCommand('farmreturn',function() TriggerServerEvent(E..'action','returnMount',{}) end,false)
+RegisterNetEvent(E..'horseReleased',function() if source==65535 then focused=false;SetNuiFocus(false,false);SendNUIMessage({type='close'}) end end)
 RegisterNetEvent(E..'mount',function(d)
  if source~=65535 then return end
  focused=false;SetNuiFocus(false,false);SendNUIMessage({type='close'})

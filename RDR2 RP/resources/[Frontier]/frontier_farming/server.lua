@@ -83,6 +83,7 @@ end
 
 local function horsePending(id)
  return MySQL.single.await("SELECT id FROM ff_horse_sales WHERE phase='payment' AND (source_id=? OR dest_id=?) LIMIT 1",{id,id})~=nil
+  or MySQL.single.await("SELECT id FROM ff_public_horse_sales WHERE phase='payment' AND source_id=? LIMIT 1",{id})~=nil
 end
 local function animalPending(id)
  return MySQL.single.await("SELECT d.order_id FROM ff_animal_orders d JOIN ff_orders o ON o.id=d.order_id WHERE d.facility=? AND o.phase IN ('payment','paid') LIMIT 1",{id})~=nil
@@ -106,6 +107,19 @@ local function horseSaleStep(j)
   {query='UPDATE ff_facilities SET state=? WHERE id=?',values={j.dest_state,j.dest_id}},
   {query="UPDATE ff_horse_sales SET phase='complete' WHERE id=?",values={j.id}}
  }),'Horse sale commit failed; retry required')
+ return true
+end
+local function publicSaleStep(j)
+ local ok,e=biz:PayPublicHorseSale(j.id)
+ if not ok then
+  if e=='insufficient_funds' or e=='insufficient_balance' then MySQL.update.await("UPDATE ff_public_horse_sales SET phase='rejected' WHERE id=?",{j.id}) end
+  return false,e
+ end
+ check(MySQL.transaction.await({
+  {query='INSERT INTO frontier_horses(id,owner_type,owner_id,stable,status,model,name,record,updated) VALUES(?,?,?,?,?,?,?,?,?)',values={j.horse_id,'character',j.buyer,j.stable,'stored',j.model,j.name,j.record,os.time()}},
+  {query='UPDATE ff_facilities SET state=? WHERE id=?',values={j.source_state,j.source_id}},
+  {query="UPDATE ff_public_horse_sales SET phase='complete' WHERE id=?",values={j.id}}
+ }),'Public horse sale pending; retry required')
  return true
 end
 local function horseMarket(src)
@@ -623,6 +637,7 @@ end
   if GetResourceState('frontier_horses')~='started' then return checkout(src,f,b,s,d.horse) end
   local h,i=horseById(s,d.horse)
   check(h and not h.listed and h.health>=30 and h.age>=C.species.horse.mature*3600,'Horse unavailable')
+  check(f.owner_type=='character' or biz:HasCompanyPermission(f.owner_id,who,'trade'),'Company horse management permission required')
   h.gear=h.gear or {}
   if not h.gear.saddle then local ok,n=inv:GetItemCount(src,'horse_saddle');check(ok and n>=1,'Buy a saddle at a public stable first') end
   local ok,site=exports.frontier_horses:RanchDestination(src);check(ok and site,site)
@@ -634,7 +649,15 @@ end
   }),'Horse transfer failed')
   local released,why=exports.frontier_horses:RanchRelease(src,h.id)
   if not released then notice(src,'Horse moved to '..site..' stable. Retrieve there: '..tostring(why));return view(src) end
+  TriggerClientEvent(E..'horseReleased',src)
   return
+ elseif a=='returnRanchHorse' then
+  check(b.kind=='livestock','Use a livestock enclosure')
+  check(GetResourceState('frontier_horses')=='started','Horse system unavailable')
+  check(not s.species or s.species=='horse' or R.count(s)==0 and s.products==0 and math.floor(s.manure)==0,'Enclosure must be empty or horses')
+  check(R.count(s)<C.species.horse.capacity[f.size],'Enclosure full')
+  local ok,e=exports.frontier_horses:ReturnRanch(src,f.id,json.encode(s),C.species.horse.capacity[f.size])
+  check(ok,e);notice(src,'Horse returned to the ranch.')
  elseif a=='listHorse' or a=='unlistHorse' then
   local h=horseById(s,d.horse);check(s.species=='horse' and h,'Horse unavailable')
   if a=='listHorse' then
@@ -736,6 +759,7 @@ MySQL.ready(function()
  MySQL.query.await([[CREATE TABLE IF NOT EXISTS ff_water_sites(id CHAR(32) PRIMARY KEY,x DOUBLE NOT NULL,y DOUBLE NOT NULL,z DOUBLE NOT NULL,name VARCHAR(64) NOT NULL)]])
  MySQL.query.await([[CREATE TABLE IF NOT EXISTS ff_confiscations(id CHAR(32) PRIMARY KEY,facility CHAR(32) NOT NULL,plot CHAR(32) NOT NULL,owner_type VARCHAR(16) NOT NULL,owner_id VARCHAR(64) NOT NULL,snapshot LONGTEXT NOT NULL,reason VARCHAR(32) NOT NULL,created BIGINT NOT NULL)]])
  MySQL.query.await([[CREATE TABLE IF NOT EXISTS ff_horse_sales(id CHAR(32) PRIMARY KEY,source_id CHAR(32) NOT NULL,dest_id CHAR(32) NOT NULL,source_state LONGTEXT NOT NULL,dest_state LONGTEXT NOT NULL,debit BIGINT NOT NULL,credit BIGINT NOT NULL,amount BIGINT NOT NULL,phase VARCHAR(16) NOT NULL,INDEX(source_id,phase),INDEX(dest_id,phase))]])
+ MySQL.query.await([[CREATE TABLE IF NOT EXISTS ff_public_horse_sales(id CHAR(32) PRIMARY KEY,source_id CHAR(32) NOT NULL,horse_id VARCHAR(32) NOT NULL,buyer VARCHAR(64) NOT NULL,stable VARCHAR(32) NOT NULL,model VARCHAR(80) NOT NULL,name VARCHAR(64) NOT NULL,record LONGTEXT NOT NULL,source_state LONGTEXT NOT NULL,amount BIGINT NOT NULL,phase VARCHAR(16) NOT NULL,INDEX(source_id,phase))]])
  MySQL.query.await([[CREATE TABLE IF NOT EXISTS ff_animal_orders(order_id CHAR(32) PRIMARY KEY,facility CHAR(32) NOT NULL,after_state LONGTEXT NOT NULL,INDEX(facility))]])
  MySQL.query.await([[CREATE TABLE IF NOT EXISTS ff_orders(id CHAR(32) PRIMARY KEY,actor VARCHAR(64) NOT NULL,owner_type VARCHAR(16) NOT NULL,owner_id VARCHAR(64) NOT NULL,storage VARCHAR(80) NOT NULL,bank BIGINT NOT NULL,item VARCHAR(48) NOT NULL,quantity INT NOT NULL,amount INT NOT NULL,phase VARCHAR(16) NOT NULL,created BIGINT NOT NULL,INDEX(actor,phase),INDEX(owner_id,phase))]])
  MySQL.query.await([[CREATE TABLE IF NOT EXISTS ff_facilities(id CHAR(32) PRIMARY KEY,plot CHAR(32) NOT NULL,owner_type VARCHAR(16) NOT NULL,owner_id VARCHAR(64) NOT NULL,kind VARCHAR(16) NOT NULL,size VARCHAR(16) NOT NULL,storage VARCHAR(80),state LONGTEXT NOT NULL,INDEX(owner_type,owner_id))]])
@@ -749,6 +773,7 @@ MySQL.ready(function()
  while true do
   run(nil,function()
    for _,j in ipairs(MySQL.query.await("SELECT * FROM ff_horse_sales WHERE phase='payment' LIMIT 50")) do local ok,e=horseSaleStep(j);if not ok then print('[frontier_farming] horse sale '..j.id..': '..tostring(e)) end end
+   for _,j in ipairs(MySQL.query.await("SELECT * FROM ff_public_horse_sales WHERE phase='payment' LIMIT 50")) do local ok,e=publicSaleStep(j);if not ok then print('[frontier_farming] public horse sale '..j.id..': '..tostring(e)) end end
    for _,j in ipairs(MySQL.query.await("SELECT * FROM ff_orders WHERE phase IN ('payment','paid') ORDER BY created LIMIT 50")) do local ok,e=orderStep(j);if not ok then print('[frontier_farming] supply order '..j.id..': '..tostring(e)) end end
    for _,j in ipairs(MySQL.query.await('SELECT * FROM ff_operations')) do
     local ok,err=finish(j)
@@ -830,4 +855,36 @@ exports('DrainPlot',function(plot)
   return true
  end)
  busy=false;return ok and result==true
+end)
+
+-- Ranch sellers can reach players without private property through the public stable market.
+exports('PublicHorseListings',function(src)
+ if GetInvokingResource()~='frontier_horses' or not ready or busy then return {} end
+ local out={}
+ for _,f in ipairs(MySQL.query.await("SELECT * FROM ff_facilities WHERE kind='livestock'")) do
+  if not locked(f.id) and biz:VerifyLicense(f.owner_type,f.owner_id,'agriculture') and prop:FarmBuilding(f.plot,f.id,f.owner_id) then
+   local s=state(f)
+   for _,h in ipairs(s.horses or {}) do if h.listed and h.health>0 and C.horseBreeds[h.breed] then out[#out+1]={facility=f.id,id=h.id,name=h.name or C.horseBreeds[h.breed].label,breed=h.breed,sex=h.sex,age=h.age,genes=h.genes,training=h.training,health=h.health,price=h.listed} end end
+  end
+ end
+ return out
+end)
+exports('BuyPublicHorse',function(src,d,site,ticket)
+ if GetInvokingResource()~='frontier_horses' or not ready or busy then return false,'Farming busy' end
+ busy=true;local ok,done,message=pcall(function()
+  local who=cid(src);check(who and type(ticket)=='string' and #ticket==32 and ticket:match('^[a-f0-9]+$'),'Invalid stable purchase')
+  local prior=MySQL.single.await('SELECT * FROM ff_public_horse_sales WHERE id=? AND buyer=?',{ticket,who})
+  if prior then if prior.phase=='complete' then return true,'Already purchased' end;if prior.phase=='rejected' then return false,'Payment rejected' end;return publicSaleStep(prior) end
+  local f=row(d.facility);check(f and f.owner_id~=who and not locked(f.id),'Horse unavailable')
+  check(prop:FarmBuilding(f.plot,f.id,f.owner_id) and biz:VerifyLicense(f.owner_type,f.owner_id,'agriculture'),'Seller unavailable')
+  local s=state(f);R.advance(s,os.time(),f.size)
+  local h,i=horseById(s,d.id);check(h and h.listed and h.health>0 and tonumber(d.price)==h.listed and C.horseBreeds[h.breed],'Listing changed')
+  local amount=h.listed;h.listed=nil;h.name=h.name or C.horseBreeds[h.breed].label
+  table.remove(s.horses,i);R.horseCounts(s)
+  local j={id=ticket,source_id=f.id,horse_id=h.id,buyer=who,stable=site,model=C.horseBreeds[h.breed].model,name=h.name,record=json.encode(h),source_state=json.encode(s),amount=amount}
+  MySQL.insert.await("INSERT INTO ff_public_horse_sales(id,source_id,horse_id,buyer,stable,model,name,record,source_state,amount,phase) VALUES(?,?,?,?,?,?,?,?,?,?,'payment')",{j.id,j.source_id,j.horse_id,j.buyer,j.stable,j.model,j.name,j.record,j.source_state,j.amount})
+  return publicSaleStep(j)
+ end);busy=false
+ if not ok then return false,tostring(done) end
+ return done,message
 end)

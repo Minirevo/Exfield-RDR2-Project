@@ -40,14 +40,18 @@ local function view(src,site)
   if allowed(src,h) then local d=rec(h);d.id=h.id;d.name=h.name;d.model=h.model;d.ownerType=h.owner_type;d.ownerId=h.owner_id;d.stable=h.stable;d.status=h.status;d.assigned=assigned(h.id);d.pending=not not pending(h.id);list[#list+1]=d end
  end
  local gear={};for id,d in pairs(C.equipment) do local ok,n=inv:GetItemCount(src,id);gear[id]={name=d.name,price=d.price,slot=d.slot,owned=ok and n or 0} end
+ local listings=exports.frontier_farming:PublicHorseListings(src)
+ local companies=biz:HorseCompanies(who)
  local v={site=site,who=who,ticket=uuid()};views[src]=v
- TriggerClientEvent(E..'view',src,{ticket=v.ticket,site=site,sites=C.sites,horses=list,breeds=C.breeds,gear=gear,cash=a.cash.balance_minor,carePrice=C.carePrice,healPrice=C.healPrice,transferPrice=C.transferPrice})
+ TriggerClientEvent(E..'view',src,{ticket=v.ticket,site=site,sites=C.sites,horses=list,breeds=C.breeds,gear=gear,listings=listings,companies=companies,cash=a.cash.balance_minor,carePrice=C.carePrice,healPrice=C.healPrice,transferPrice=C.transferPrice})
 end
 local function finishOrder(o)
  local p=json.decode(o.payload);local amount,account=tonumber(o.amount),tonumber(o.account)
  if o.state=='payment' then
   if amount>0 then
-   local ok,e=eco:DebitAccount(account,amount,{key='horse:'..o.id..':pay',reason='Stable purchase',reference=o.id})
+   local ok,e
+   if o.kind=='buy' and p.ownerType=='company' then ok,e=biz:PayStableCompanyHorse(o.id)
+   else ok,e=eco:DebitAccount(account,amount,{key='horse:'..o.id..':pay',reason='Stable purchase',reference=o.id}) end
    if not ok then if e=='insufficient_funds' or e=='insufficient_balance' then U("UPDATE frontier_horse_orders SET state='failed' WHERE id=?",{o.id}) end;return false,e end
   end
   U("UPDATE frontier_horse_orders SET state='apply' WHERE id=? AND state='payment'",{o.id});o.state='apply'
@@ -70,7 +74,7 @@ local function finishOrder(o)
  end
  local statements={}
  if o.kind=='buy' then
-  statements[#statements+1]={query='INSERT IGNORE INTO frontier_horses(id,owner_type,owner_id,stable,status,model,name,record,updated) VALUES(?,?,?,?,?,?,?,?,?)',values={p.horse,'character',o.actor,p.stable,'stored',p.model,p.name,json.encode(p.record),os.time()}}
+  statements[#statements+1]={query='INSERT IGNORE INTO frontier_horses(id,owner_type,owner_id,stable,status,model,name,record,updated) VALUES(?,?,?,?,?,?,?,?,?)',values={p.horse,p.ownerType or 'character',p.ownerId or o.actor,p.stable,'stored',p.model,p.name,json.encode(p.record),os.time()}}
  elseif o.kind=='equip' or o.kind=='care' or o.kind=='transfer' then
   statements[#statements+1]={query='UPDATE frontier_horses SET record=?,stable=?,updated=? WHERE id=?',values={json.encode(p.record),p.stable,os.time(),p.horse}}
  end
@@ -80,10 +84,14 @@ local function finishOrder(o)
 end
 local function order(src,id,kind,amount,payload)
  local who=cid(src);local ok,a=eco:GetCharacterAccounts(src);check(ok and a.characterId==who,'Cash unavailable')
- if amount>0 then check(a.cash.balance_minor>=amount,'Not enough cash') end
+ local account=a.cash.id
+ if kind=='buy' and payload.ownerType=='company' then
+  account=check(biz:GetCompanyAccount(payload.ownerId,who,'withdraw'),'Company funding unavailable')
+  check(biz:HasCompanyPermission(payload.ownerId,who,'trade'),'Company trade permission required')
+ elseif amount>0 then check(a.cash.balance_minor>=amount,'Not enough cash') end
  local existing=S('SELECT * FROM frontier_horse_orders WHERE id=?',{id})
  if not existing then
-  U("INSERT INTO frontier_horse_orders(id,actor,kind,state,account,amount,payload,created) VALUES(?,?,?,'payment',?,?,?,?)",{id,who,kind,a.cash.id,amount,json.encode(payload),os.time()})
+  U("INSERT INTO frontier_horse_orders(id,actor,kind,state,account,amount,payload,created) VALUES(?,?,?,'payment',?,?,?,?)",{id,who,kind,account,amount,json.encode(payload),os.time()})
   existing=S('SELECT * FROM frontier_horse_orders WHERE id=?',{id})
  end
  check(existing.actor==who,'Invalid order')
@@ -142,11 +150,15 @@ RegisterNetEvent(E..'action',function(ticket,op,d)
   local v=views[src];check(v and v.ticket==ticket and v.who==cid(src) and nearest(pos(src),C.reach)==v.site,'Stable session expired')
   check(type(d)=='table','Invalid request')
   if op=='refresh' then return view(src,v.site) end
+  if op~='buyRanch' then check(not S('SELECT id FROM ff_public_horse_sales WHERE id=?',{ticket:gsub('-','')}),'This ticket already has a ranch purchase. Refresh.') end
   if op=='buy' then
    local b=check(C.breeds[d.breed],'Unknown breed')
    local id=ticket:gsub('-','');local name=b.name;local genes={};for k,n in pairs(b.genes) do genes[k]=n+math.random(-5,5) end
    local record={id=id,breed=d.breed,sex=d.sex=='male' and 'male' or 'female',age=C.adultAge,genes=genes,health=100,care=100,training=0,trainedAt=0,neglectSeconds=0,gear={}}
-   local ok,e=order(src,ticket,'buy',b.price,{horse=id,stable=v.site,model=b.model,name=name,record=record});tell(src,ok and 'Horse purchased and boarded.' or e)
+   local ok,e=order(src,ticket,'buy',b.price,{horse=id,stable=v.site,model=b.model,name=name,record=record,ownerType=type(d.company)=='string' and d.company~='' and 'company' or 'character',ownerId=type(d.company)=='string' and d.company~='' and d.company or cid(src)});tell(src,ok and 'Horse purchased and boarded.' or e)
+  elseif op=='buyRanch' then
+   check(not S('SELECT id FROM frontier_horse_orders WHERE id=?',{ticket}),'This ticket already has an order. Refresh.')
+   local ok,e=exports.frontier_farming:BuyPublicHorse(src,d,v.site,ticket:gsub('-',''));tell(src,ok and 'Ranch horse purchased and boarded.' or e or 'Purchase pending. Refresh.')
   elseif op=='gear' then
    local g=check(C.equipment[d.item],'Unknown equipment');local basket=json.encode({{id=d.item,quantity=1}})
    local ok,e=inv:ShopBasket(cid(src),ticket,'previewGrant',basket);check(ok,e)
@@ -206,12 +218,31 @@ exports('RanchDestination',function(src)
  if GetInvokingResource()~='frontier_farming' or not ready or busy or active[src] or leases[src] then return false,'Board your current horse or retry later.' end
  return true,nearest(pos(src))
 end)
+exports('ReturnRanch',function(src,facility,snapshot,capacity)
+ if GetInvokingResource()~='frontier_farming' or not ready or busy then return false,'Horse system busy' end
+ busy=true;local ok,e=pcall(function()
+  local m=check(active[src],'Bring your active horse to the enclosure.')
+  check(not leases[src] and m.ped~=0 and DoesEntityExist(m.ped) and R.distance(pos(src),GetEntityCoords(m.ped))<=12,'Approach your horse')
+  local h=check(horse(m.id),'Horse unavailable');check(allowed(src,h) and h.status=='out' and not assigned(h.id) and not pending(h.id),'Horse unavailable')
+  local f=check(S('SELECT * FROM ff_facilities WHERE id=?',{facility}),'Invalid enclosure')
+  check(f.owner_type==h.owner_type and f.owner_id==h.owner_id and f.kind=='livestock','Horse and enclosure must have the same owner')
+  local d=rec(h);check(d.breed~='legacy','Legacy horses need breed mapping before ranch breeding')
+  local s=json.decode(snapshot);s.horses=s.horses or {}
+  check(#s.horses<capacity,'Enclosure full')
+  s.species='horse';s.horses[#s.horses+1]=d;s.female,s.male,s.young=0,0,0
+  for _,v in ipairs(s.horses) do if v.age<C.adultAge then s.young=s.young+1 else s[v.sex]=(s[v.sex] or 0)+1 end end
+  s.last=os.time()
+  check(MySQL.transaction.await({{query='UPDATE ff_facilities SET state=? WHERE id=?',values={json.encode(s),facility}},{query='DELETE FROM frontier_horses WHERE id=?',values={h.id}}}),'Ranch transfer failed')
+  delete(m.ped);active[src]=nil;TriggerClientEvent(E..'stored',src)
+ end);busy=false;return ok,ok and 'Horse returned' or tostring(e)
+end)
 -- Draft assignments share the horse resource lock with retrieval/equipment/boarding.
 exports('AssignDraftTeam',function(src,wagon,ids)
  if GetInvokingResource()~='frontier_logistics' or not ready or busy then return false,'Horse registry busy' end
  busy=true;local ok,e=pcall(function()
   local w=check(S("SELECT * FROM fl_wagons WHERE id=? AND state='stored'",{wagon}),'Store wagon first')
   check(allowed(src,w),'No wagon ownership')
+  check(type(ids)=='table' and #ids<=4,'Invalid team')
   local tx={{query='DELETE FROM fl_harnesses WHERE wagon_id=?',values={wagon}}};local seen={}
   for i,id in ipairs(ids) do
    id=tostring(id);local h=check(horse(id),'Unknown horse')

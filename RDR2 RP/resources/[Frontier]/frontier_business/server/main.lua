@@ -730,3 +730,30 @@ exports('LogisticsCompanies',function(who)
  end
  return out
 end)
+
+exports('PayPublicHorseSale',function(id)
+ if GetInvokingResource()~='frontier_farming' or not ready then return false,'forbidden' end
+ local j=S("SELECT j.*,f.owner_type AS seller_type,f.owner_id AS seller_id FROM ff_public_horse_sales j JOIN ff_facilities f ON f.id=j.source_id WHERE j.id=? AND j.phase='payment'",{id})
+ if not j then return false,'invalid_sale' end
+ local from=tonumber(MySQL.scalar.await("SELECT id FROM frontier_economy_accounts WHERE owner_type='character' AND owner_id=? AND account_type='cash' AND currency='USD'",{j.buyer}))
+ local seller=j.seller_type=='company' and company(j.seller_id) or nil
+ local to=j.seller_type=='company' and seller and account(seller) or (j.seller_type=='character' and bank(j.seller_id))
+ if not from or not to or from==to then return false,'invalid_account' end
+ return eco:TransferAccounts(from,to,tonumber(j.amount),{key='public_horse_'..id,reason='Ranch horse sale',reference=id})
+end)
+exports('HorseCompanies',function(who)
+ if GetInvokingResource()~='frontier_horses' or not ready then return {} end
+ local out={}
+ for _,b in ipairs(Q("SELECT * FROM fb_companies WHERE status='active'")) do
+  if allowed(b,who,'trade') and allowed(b,who,'withdraw') then out[#out+1]={id=b.id,name=b.name} end
+ end
+ return out
+end)
+exports('PayStableCompanyHorse',function(id)
+ if GetInvokingResource()~='frontier_horses' or not ready then return false,'forbidden' end
+ local j=S("SELECT * FROM frontier_horse_orders WHERE id=? AND kind='buy' AND state='payment'",{id})
+ if not j then return false,'invalid_order' end
+ local p=decode(j.payload);local b=company(p.ownerId)
+ if p.ownerType~='company' or not b or account(b)~=tonumber(j.account) then return false,'invalid_account' end
+ return eco:DebitAccount(account(b),tonumber(j.amount),{key='horse:'..id..':pay',reason='Company horse purchase',reference=id})
+end)
