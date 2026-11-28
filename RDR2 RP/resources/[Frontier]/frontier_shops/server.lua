@@ -142,7 +142,7 @@ RegisterNetEvent(E..'checkout',function(ticket,mode,lines)
  local src=source;run(src,function()
   local v=sessions[src];need(v and v.ticket==ticket and valid(src,v),'Shop session expired.')
   -- Farm orders can only use tickets issued with a working integration.
-  if v.farmAvailable then need(not S('SELECT id FROM ff_orders WHERE id=?',{ticket:gsub('-','')}),'This ticket already has a farm delivery. Refresh.') end
+  if v.farmAvailable then need(not S('SELECT id FROM ff_orders WHERE id=?',{(ticket:gsub('-',''))}),'This ticket already has a farm delivery. Refresh.') end
   local previous=S('SELECT id FROM frontier_shops_orders WHERE id=? AND character_id=?',{ticket,v.character})
   if previous then advance(ticket);msg(src,'Existing transaction recovered. See receipts.');view(src,v);return end
   local normalized,total=R.basket(available(v.site),mode,lines,C);need(normalized,total)
@@ -166,7 +166,7 @@ RegisterNetEvent(E..'farmOrder',function(ticket,d)
   need(v.farmAvailable and GetResourceState('frontier_farming')=='started','Agricultural deliveries unavailable. Refresh the shop after farming has started.')
   need(type(d)=='table' and type(d.item)=='string' and type(d.facility)=='string','Select goods and destination.')
   need(not S('SELECT id FROM frontier_shops_orders WHERE id=?',{ticket}),'This ticket already has a retail order. Refresh.')
-  local called,ok,message=pcall(function() return exports.frontier_farming:ShopFarmOrder(src,d,ticket:gsub('-','')) end)
+  local called,ok,message=pcall(function() return exports.frontier_farming:ShopFarmOrder(src,d,(ticket:gsub('-',''))) end)
   if not called then print('[frontier_shops] Farm delivery unavailable: '..tostring(ok));msg(src,'Farm delivery unavailable. Refresh and check pending orders before retrying.');return end
   msg(src,message or (ok and 'Farm order accepted.' or 'Farm order failed.'))
   view(src,v)

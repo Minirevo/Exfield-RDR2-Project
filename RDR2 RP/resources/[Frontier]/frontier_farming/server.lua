@@ -17,7 +17,7 @@ local function cid(src) return core:GetPlayerCharacterId(src) end
 local function row(id) if type(id)~='string' or #id~=32 or not id:match('^[a-f0-9]+$') then return end;return MySQL.single.await('SELECT * FROM ff_facilities WHERE id=?',{id}) end
 local function state(f) return json.decode(f.state) end
 local function save(f,s) MySQL.update.await('UPDATE ff_facilities SET state=? WHERE id=?',{json.encode(s),f.id}) end
-local function uuid() return MySQL.scalar.await('SELECT UUID()'):gsub('-','') end
+local function uuid() return (MySQL.scalar.await('SELECT UUID()'):gsub('-','')) end
 local function near(src,b)
  local p=GetPlayerPed(src);if p==0 or GetPlayerRoutingBucket(src)~=0 then return false end
  local v=GetEntityCoords(p);return (v.x-b.x)^2+(v.y-b.y)^2<=(math.max(b.width,b.length)/2+C.reach)^2 and math.abs(v.z-b.z)<6
