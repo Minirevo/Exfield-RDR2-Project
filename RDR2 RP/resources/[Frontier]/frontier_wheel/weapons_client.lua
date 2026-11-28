@@ -69,7 +69,8 @@ local function appearanceObject(s)
  return 0
 end
 local function componentPresent(native,...)
- local ok,value=pcall(Citizen.InvokeNative,native,...,Citizen.ResultAsInteger())
+ local args=table.pack(...);args.n=args.n+1;args[args.n]=Citizen.ResultAsInteger()
+ local ok,value=pcall(Citizen.InvokeNative,native,table.unpack(args,1,args.n))
  if not ok then return nil end
  return truth(value)
 end
@@ -77,13 +78,6 @@ local function applyPedAppearance(s)
  for _,v in ipairs(s.appearance or {}) do
   local ok,err=pcall(Citizen.InvokeNative,0x74C9090FDD1BB48E,s.ped,v.hash,s.hash,true)
   if not ok then log('Cosmetic ped '..v.key..': '..tostring(err)) end
- end
-end
-local function applyObjectAppearance(s,obj)
- if obj==0 or appearanceObject(s)~=obj then return end
- for _,v in ipairs(s.appearance or {}) do
-  local ok,err=pcall(Citizen.InvokeNative,0x74C9090FDD1BB48E,obj,v.hash,-1,true)
-  if not ok then log('Cosmetic object '..v.key..': '..tostring(err)) end
  end
 end
 local function inspectAppearance(s,verbose)
@@ -102,35 +96,32 @@ end
 local function restoreAppearance(s)
  if not s.appearance or #s.appearance==0 then return end
  CreateThread(function()
-  local lastObj=0
-  -- Native weapon creation and draw animations can rebuild the render object.
-  -- Use a bounded series of checks; avoid an every-frame cosmetic loop.
-  for _,delay in ipairs({500,900,1600,2400}) do
-   Wait(delay)
-   if active~=s or not validPed(s) then return end
-   local obj=appearanceObject(s)
-   if obj~=0 then
-    if obj~=lastObj or not inspectAppearance(s,false) then
-     applyPedAppearance(s)
-     applyObjectAppearance(s,obj)
+  -- Match VORP's ped-only, one-shot restoration after equip settles.
+  -- Reapplying to a held render object can rebuild it and trigger a draw loop.
+  Wait(1000)
+  local deadline=GetGameTimer()+4000
+  while active==s and validPed(s) and appearanceObject(s)==0 and GetGameTimer()<deadline do Wait(100) end
+  if appearanceObject(s)==0 then return end
+  local def=R.models[s.item]
+  local groups=def and FrontierAppearanceGroups[def.model:upper()] or {}
+  local removed=0
+  -- Clear only conflicting cosmetic variants within the selected regions.
+  -- Never remove functional components or touch another equipped weapon.
+  for _,v in ipairs(s.appearance) do
+   for _,h in ipairs(groups[v.key] or {}) do
+    if h~=v.hash and componentPresent(0xBBC67A6F965C688A,s.ped,h,s.hash)==true then
+     local ok,err=pcall(Citizen.InvokeNative,0x19F70C4D80494FF8,s.ped,h,s.hash)
+     if ok then removed=removed+1 else log('Cosmetic removal: '..tostring(err)) end
     end
-    lastObj=obj
    end
   end
+  Wait(500)
   if active~=s or not validPed(s) then return end
-  inspectAppearance(s,true)
-  -- Reapply once if a later equip animation recreates the actual entity.
-  -- No repeated retries on permanently unsupported components.
-  while active==s and validPed(s) do
-   Wait(750)
-   if active~=s or not validPed(s) then return end
-   local obj=appearanceObject(s)
-   if obj~=0 and obj~=lastObj then
-    lastObj=obj
-    applyPedAppearance(s);applyObjectAppearance(s,obj)
-    log('Appearance restored after held entity changed: '..s.serial)
-   end
-  end
+  -- VORP writes the customization to the ped's weapon, not the held object.
+  applyPedAppearance(s)
+  log(('One-shot appearance restore: %d selections, %d conflicts cleared, serial %s'):format(#s.appearance,removed,s.serial))
+  Wait(1500)
+  if active==s and validPed(s) then inspectAppearance(s,true) end
  end)
 end
 RegisterCommand('frontierappearance',function()
@@ -262,8 +253,6 @@ RegisterNetEvent(E..'weaponDrawResult',function(request,ok,data,msg)
   s.created=true
   if not truth(HasPedGotWeapon(s.ped,s.hash,0,false)) then error('Native grant failed') end
   SetAmmoTypeForPedWeapon(s.ped,s.hash,s.ammo)
-  -- Store cosmetic selections on the native ped weapon before drawing it.
-  applyPedAppearance(s)
   SetCurrentPedWeapon(s.ped,s.hash,true,0,false,false)
   -- The engine may initialize a new weapon with ammunition of its own.
   -- Strip that first, then grant only rounds checked out by the server.
