@@ -3,6 +3,8 @@ local E='frontier_horses:'
 local core,eco,inv,biz=exports.frontier_core,exports.frontier_economy,exports.frontier_inventory,exports.frontier_business
 local Q,S,U,V=MySQL.query.await,MySQL.single.await,MySQL.update.await,MySQL.scalar.await
 local ready,busy=false,false
+local startupStage,startupError='Waiting for database',nil
+local lastStartupLog=nil
 local active,leases,views,rate={}, {}, {}, {}
 local function check(ok,msg) if not ok then error(msg or 'Denied',0) end;return ok end
 local function cid(src) return core:GetPlayerCharacterId(src) end
@@ -34,8 +36,13 @@ local function pending(id)
 end
 local function save(h,d) U('UPDATE frontier_horses SET record=?,updated=? WHERE id=?',{json.encode(d),os.time(),h.id}) end
 local function run(src,fn)
- if not ready or busy then tell(src,'Stables busy or unavailable.');return end
- busy=true;local ok,e=pcall(fn);busy=false;if not ok then tell(src,e) end
+ if not ready then
+  if src then tell(src,'Stables initializing: '..startupStage..'. See server console for details.') end
+  return
+ end
+ if busy then if src then tell(src,'Stables are processing another transaction. Try again shortly.') end;return end
+ busy=true;local ok,e=pcall(fn);busy=false
+ if not ok then print('[frontier_horses] Operation failed: '..tostring(e));if src then tell(src,e) end end
 end
 local function view(src,site)
  local p=pos(src);if not site or nearest(p,C.reach)~=site then views[src]=nil;return end
@@ -45,8 +52,11 @@ local function view(src,site)
   if allowed(src,h) then local d=rec(h);d.id=h.id;d.name=h.name;d.model=h.model;d.ownerType=h.owner_type;d.ownerId=h.owner_id;d.stable=h.stable;d.status=h.status;d.assigned=assigned(h.id);d.pending=not not pending(h.id);list[#list+1]=d end
  end
  local gear={};for id,d in pairs(C.equipment) do local ok,n=inv:GetItemCount(src,id);gear[id]={name=d.name,price=d.price,slot=d.slot,owned=ok and n or 0} end
- local listings=exports.frontier_farming:PublicHorseListings(src)
- local companies=biz:HorseCompanies(who)
+ local listings,companies={},{}
+ local ok,l=pcall(function() return exports.frontier_farming:PublicHorseListings(src) end)
+ if ok and type(l)=='table' then listings=l else print('[frontier_horses] Ranch listings unavailable: '..tostring(l)) end
+ local ok,c=pcall(function() return biz:HorseCompanies(who) end)
+ if ok and type(c)=='table' then companies=c else print('[frontier_horses] Company purchases unavailable: '..tostring(c)) end
  local v={site=site,who=who,ticket=uuid()};views[src]=v
  TriggerClientEvent(E..'view',src,{ticket=v.ticket,site=site,sites=C.sites,horses=list,breeds=C.breeds,gear=gear,listings=listings,companies=companies,cash=a.cash.balance_minor,carePrice=C.carePrice,healPrice=C.healPrice,transferPrice=C.transferPrice})
 end
@@ -285,18 +295,46 @@ end)
 AddEventHandler('playerDropped',function()local src=source;views[src]=nil;CreateThread(function() while busy do Wait(100) end;run(nil,function()store(src)end)end)end)
 AddEventHandler('frontier:playerUnloaded',function(p)local src=p.source;views[src]=nil;CreateThread(function()while busy do Wait(100) end;run(nil,function()store(src)end)end)end)
 AddEventHandler('onResourceStop',function(n)if n==GetCurrentResourceName() then for _,m in pairs(active) do delete(m.ped) end end end)
+RegisterCommand('stabledebug',function(src)
+ if src~=0 and not IsPlayerAceAllowed(src,'frontier.horses.admin') then return end
+ local detail=('ready=%s busy=%s stage=%s error=%s'):format(tostring(ready),tostring(busy),startupStage,tostring(startupError or 'none'))
+ print('[frontier_horses] '..detail)
+ if src~=0 then tell(src,detail) end
+end,false)
 MySQL.ready(function()
- local ok,e=pcall(function()
-  Q('SELECT id,record FROM frontier_horses LIMIT 1');Q('SELECT id FROM frontier_horse_orders LIMIT 1')
-  local kind=V("SELECT DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='fl_harnesses' AND COLUMN_NAME='horse_id'");check(kind=='varchar','Apply horse migration 001 including harness ID change')
-  for id,d in pairs(C.equipment) do
-   local valid,why=inv:RegisterItem(id,{name=d.name,description=d.name,grams=d.grams,maxStack=10,category='Horse equipment'})
-   check(valid,'Register '..id..': '..tostring(why))
+ -- A resource being started does not mean its asynchronous SQL initialization has completed.
+ -- Retry like Farming and Inventory rather than permanently disabling the stable after one error.
+ while not ready do
+  local ok,e=pcall(function()
+   startupStage='Checking horse SQL migration'
+   Q('SELECT `id`,`record` FROM `frontier_horses` LIMIT 1')
+   Q('SELECT `id` FROM `frontier_horse_orders` LIMIT 1')
+   startupStage='Checking harness SQL migration'
+   local kind=V("SELECT LOWER(DATA_TYPE) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='fl_harnesses' AND COLUMN_NAME='horse_id'")
+   check(kind=='varchar','Apply frontier_horses/sql/001_horses.sql including ALTER TABLE fl_harnesses (found '..tostring(kind)..')')
+   startupStage='Waiting for farming sale journal'
+   Q('SELECT id FROM ff_public_horse_sales LIMIT 1')
+   for id,d in pairs(C.equipment) do
+    startupStage='Registering '..id
+    local valid,why=inv:RegisterItem(id,{name=d.name,description=d.name,grams=d.grams,maxStack=10,category='Horse equipment'})
+    check(valid,'Register '..id..': '..tostring(why)..(why=='forbidden' and ' (update and restart frontier_inventory)' or ''))
+   end
+   startupStage='Recovering boarded horse state'
+   U("UPDATE frontier_horses SET status='stored' WHERE status='out'")
+  end)
+  if ok then
+   ready=true;startupStage='Ready';startupError=nil
+   print('[frontier_horses] Ready (v1.1 startup retry)')
+  else
+   startupError=tostring(e)
+   local diagnostic=startupStage..': '..startupError
+   if diagnostic~=lastStartupLog then
+    print('[frontier_horses] Startup waiting: '..diagnostic..' (retry in 5 seconds)')
+    lastStartupLog=diagnostic
+   end
+   Wait(5000)
   end
-  U("UPDATE frontier_horses SET status='stored' WHERE status='out'")
- end)
- if not ok then print('[frontier_horses] Startup failed: '..tostring(e));return end
- ready=true;print('[frontier_horses] Ready')
+ end
  CreateThread(function()
   while true do Wait(5000);if not busy then run(nil,function()
    for _,o in ipairs(Q("SELECT * FROM frontier_horse_orders WHERE state IN ('payment','apply','refund') ORDER BY created LIMIT 30")) do finishOrder(o) end
