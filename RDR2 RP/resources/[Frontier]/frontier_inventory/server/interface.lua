@@ -1174,7 +1174,7 @@ RegisterNetEvent(events..'weaponDraw',function(token,slot,request)
   local s={token=t,id=id,generation=generation,slot=slot,item=row.item,instance=row.instance,rounds=rounds,version=1,drawRequest=request}
   Inventory.WeaponSessions[src]=s
   clearEquipped(src)
-  response={lease=t,slot=slot,item=row.item,serial=row.instance,rounds=rounds,version=1,components=m.crafted and m.components or nil}
+  response={lease=t,slot=slot,item=row.item,serial=row.instance,rounds=rounds,version=1,crafted=m.crafted==true,components=m.crafted and m.components or nil}
   return true
  end,100)
  TriggerClientEvent(events..'weaponDrawResult',src,request,ok,response or false,ok and '' or message(err))
