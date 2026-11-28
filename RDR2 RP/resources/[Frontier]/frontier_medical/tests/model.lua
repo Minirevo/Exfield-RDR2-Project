@@ -58,3 +58,23 @@ assert(not M.validReport({{region='chest',kind='blunt',raw=0/0}},false))
 local tooMuch={};for i=1,5 do tooMuch[i]={region='chest',kind='blunt',raw=2000} end
 assert(not M.validReport(tooMuch,false))
 print('Medical model checks passed: V1 injuries, guarded raw trauma, drowning, deprivation, report bounds')
+
+-- Visible observations are qualitative and retain previous wound types.
+s=M.new();assert(not M.visible(s,'chest').injured)
+assert(M.applyRaw(s,'chest','gunshot',29,0));assert(M.applyRaw(s,'chest','blunt',12,0))
+local seen=M.visible(s,'chest');assert(seen.injured and seen.bleeding and seen.types[1]=='Gunshot wound' and seen.types[2]=='Blunt injury')
+assert(seen.severity==nil and seen.fracture==nil and seen.blood==nil)
+assert(M.canTreatObserved(s,'bandage','chest',false,0))
+assert(M.treat(s,'bandage','chest',0) and not M.visible(s,'chest').bleeding)
+assert(M.visible(s,'chest').injured and not M.canTreatObserved(s,'bandage','chest',false,0))
+assert(M.applyRaw(s,'left_leg','fall',90,0))
+assert(not M.canTreatObserved(s,'splint','left_leg',false,0) and M.canTreatObserved(s,'splint','left_leg',true,0))
+local legacy=M.new();legacy.wounds.chest={kind='penetrating',severity=120,bleed=8}
+assert(M.visible(legacy,'chest').types[1]=='Penetrating wound')
+assert(M.symptoms(M.new(),0).level=='none')
+legacy.blood=800;assert(M.symptoms(legacy,0).level=='warning')
+legacy.blood=500;assert(M.symptoms(legacy,0).level=='critical')
+legacy.down=true;assert(M.symptoms(legacy,0).level=='none')
+assert(M.hitFeedback({{region='chest',kind='gunshot'}})=='Gunshot wound — chest')
+assert(M.validReport({{region='chest',kind='gunshot',raw=29}},false))
+print('Visible observations, treatment gates and subjective warning checks passed')
