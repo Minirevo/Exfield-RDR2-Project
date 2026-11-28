@@ -4,6 +4,7 @@ local opened=false
 local requestAt=0
 local symptomVisible=false
 local feedbackAt=-10000
+local feedbackActive=false
 local function truth(v) return v==true or v==1 end
 local function native(name,...)
  local fn=_G[name];if type(fn)~='function' then return nil end
@@ -12,7 +13,7 @@ end
 local function playing() return LocalPlayer.state.IsInSession==true end
 local function clearFeedback()
  if symptomVisible then SendNUIMessage({type='symptoms',symptoms={}});symptomVisible=false end
- SendNUIMessage({type='clearFeedback'})
+ if feedbackActive then SendNUIMessage({type='clearFeedback'});feedbackActive=false end
 end
 local function close()
  if ticket then TriggerServerEvent(E..'close',ticket) end
@@ -32,6 +33,7 @@ RegisterNetEvent(E..'state',function(v)
   local symptoms=type(v.symptoms)=='table' and v.symptoms or {}
   if #symptoms>0 or symptomVisible then SendNUIMessage({type='symptoms',symptoms=symptoms}) end
   symptomVisible=#symptoms>0
+  if symptomVisible then feedbackActive=true end
  end
  if previous and previous.life==v.life and previous.down~=v.down and not v.dead then
   local msg=v.down and 'You have lost consciousness.' or 'You have regained consciousness.'
@@ -43,13 +45,13 @@ RegisterNetEvent(E..'injuryFeedback',function(token,message)
  if source~=65535 or not playing() or not state or state.token~=token or state.down or state.dead or type(message)~='string' then return end
  local now=GetGameTimer()
  if now-feedbackAt<1500 then return end
- feedbackAt=now;SendNUIMessage({type='injuryFeedback',message=message})
+ feedbackAt=now;feedbackActive=true;SendNUIMessage({type='injuryFeedback',message=message})
 end)
 CreateThread(function()
  while true do
   Wait(1000)
   if not playing() or not state or GetGameTimer()-received>=C.stateTimeoutMs or truth(native('IsPlayerDead',PlayerId())) then
-   if symptomVisible then clearFeedback() end
+   if feedbackActive then clearFeedback() end
   end
  end
 end)

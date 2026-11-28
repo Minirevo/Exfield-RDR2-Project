@@ -10,7 +10,9 @@ function RegisterNetEvent(name,fn) handlers[name]=fn end
 function AddEventHandler(name,fn) handlers[name]=fn end
 function RegisterCommand() end
 function RegisterNUICallback() end
+local nui={}
 function TriggerEvent() end
+function SendNUIMessage(v) nui[#nui+1]=v end
 function joaat(s) return s end
 function CreateThread(fn) threads[#threads+1]=coroutine.create(fn) end
 function Wait(ms) coroutine.yield(ms) end
@@ -29,7 +31,7 @@ function DisableControlAction() blocked=blocked+1 end
 function DisablePlayerFiring() end
 source=65535
 dofile('client.lua')
-local loop=assert(threads[1])
+local feedbackLoop,loop=assert(threads[1]),assert(threads[2])
 local function state(down,terminal)
  handlers['frontier_medical:state']({life=1,down=down,dead=terminal==true})
 end
@@ -58,4 +60,15 @@ state(true,true);step()
 dead=true;state(true);step();dead=false
 assert(resets==before)
 step(FrontierMedicalConfig.stateTimeoutMs+1);assert(resets==before)
-print('Continuous unconscious posture: mocked client regression passed')
+-- Owner symptom UI and hit cue are separate from the ragdoll thread.
+handlers['frontier_medical:state']({life=1,token='test',down=false,dead=false,symptoms={{kind='bleeding',level='warning',text='You are bleeding.'}}})
+assert(nui[#nui].type=='symptoms')
+handlers['frontier_medical:injuryFeedback']('test','You were hit.')
+assert(nui[#nui].type=='injuryFeedback')
+local count=#nui
+handlers['frontier_medical:injuryFeedback']('test','Duplicate hit.')
+assert(#nui==count)
+handlers['frontier_medical:injuryFeedback']('old','Stale hit.')
+assert(#nui==count)
+state(true);assert(nui[#nui].type=='clearFeedback')
+print('Continuous unconscious posture and owner feedback: mocked client regression passed')
