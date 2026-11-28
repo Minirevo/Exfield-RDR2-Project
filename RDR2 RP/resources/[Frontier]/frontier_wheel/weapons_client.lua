@@ -44,56 +44,102 @@ local function trimAmmo(p,ammo,target)
  log(('Native ammo removal %d -> %d (target %d; call %s)'):format(before,after,target,ok and 'ok' or tostring(err)))
  return after==target
 end
--- Restore only the saved visual components of this particular inventory instance.
-local function restoreAppearance(s,components)
- if type(components)~='table' then return end
+-- Keep the saved cosmetics bound to this one inventory lease.
+local function appearanceList(components)
  local list={}
- for k,h in pairs(components) do
-  if type(k)=='string' and type(h)=='number' and h%1==0 and h>=-2147483648 and h<=4294967295 then
-   list[#list+1]={key=k,hash=h}
+ if type(components)=='table' then
+  for k,h in pairs(components) do
+   if type(k)=='string' and type(h)=='number' and h%1==0 and h>=-2147483648 and h<=4294967295 then
+    list[#list+1]={key=k,hash=h}
+   end
   end
  end
- if #list==0 then log('No custom cosmetic components for serial '..s.serial);return end
  local function priority(k)
   if k:sub(1,11)=='decalcolor:' then return 3 end
   if k:sub(1,6)=='decal:' or k=='grip' then return 2 end
   return 1
  end
  table.sort(list,function(a,b)local x,y=priority(a.key),priority(b.key);if x==y then return a.key<b.key end;return x<y end)
- s.appearance=list
+ return list
+end
+local function appearanceObject(s)
+ if active~=s or not validPed(s) or not held(s) then return 0 end
+ local ok,obj=pcall(GetCurrentPedWeaponEntityIndex,s.ped,0)
+ if ok and obj and obj~=0 and DoesEntityExist(obj) then return obj end
+ return 0
+end
+local function componentPresent(native,...)
+ local ok,value=pcall(Citizen.InvokeNative,native,...,Citizen.ResultAsInteger())
+ if not ok then return nil end
+ return truth(value)
+end
+local function applyPedAppearance(s)
+ for _,v in ipairs(s.appearance or {}) do
+  local ok,err=pcall(Citizen.InvokeNative,0x74C9090FDD1BB48E,s.ped,v.hash,s.hash,true)
+  if not ok then log('Cosmetic ped '..v.key..': '..tostring(err)) end
+ end
+end
+local function applyObjectAppearance(s,obj)
+ if obj==0 or appearanceObject(s)~=obj then return end
+ for _,v in ipairs(s.appearance or {}) do
+  local ok,err=pcall(Citizen.InvokeNative,0x74C9090FDD1BB48E,obj,v.hash,-1,true)
+  if not ok then log('Cosmetic object '..v.key..': '..tostring(err)) end
+ end
+end
+local function inspectAppearance(s,verbose)
+ local obj=appearanceObject(s)
+ if obj==0 then return false end
+ local good,missing,unknown=0,0,0
+ for _,v in ipairs(s.appearance or {}) do
+  local pedHas=componentPresent(0xBBC67A6F965C688A,s.ped,v.hash,s.hash)
+  local objHas=componentPresent(0x76A18844E743BF91,obj,v.hash)
+  if objHas==true then good=good+1 elseif objHas==false then missing=missing+1 else unknown=unknown+1 end
+  if verbose then log(('Appearance %s (%s): ped=%s object=%s'):format(v.key,tostring(v.hash),tostring(pedHas),tostring(objHas))) end
+ end
+ if verbose then log(('Appearance serial %s entity %s: %d retained / %d missing / %d unknown'):format(s.serial,obj,good,missing,unknown)) end
+ return missing==0 and unknown==0
+end
+local function restoreAppearance(s)
+ if not s.appearance or #s.appearance==0 then return end
  CreateThread(function()
-  -- Native draw creates the visual entity asynchronously. VORP also waits
-  -- before restoring finishes. Never touch an item after its lease changes.
-  Wait(500)
-  local deadline=GetGameTimer()+4000
-  local obj=0
-  while active==s and validPed(s) and GetGameTimer()<deadline do
-   local ok,h=pcall(GetCurrentPedWeaponEntityIndex,s.ped,0)
-   if ok and h and h~=0 and DoesEntityExist(h) and held(s) then obj=h;break end
-   Wait(50)
-  end
-  if active~=s or not validPed(s) then return end
-  if obj==0 then log('Custom appearance: held object unavailable for '..s.serial);return end
-  local failures=0
-  -- Apply to the ped's weapon record and to its actual render object, using
-  -- the same object-target native that is already working in the showroom.
-  for _,v in ipairs(list) do
-   local ok,err=pcall(Citizen.InvokeNative,0x74C9090FDD1BB48E,s.ped,v.hash,s.hash,true)
-   if not ok then failures=failures+1;log('Cosmetic ped '..v.key..': '..tostring(err)) end
-  end
-  Wait(200)
-  if active~=s or not validPed(s) or not held(s) then return end
-  local ok,h=pcall(GetCurrentPedWeaponEntityIndex,s.ped,0)
-  if ok and h and h~=0 and DoesEntityExist(h) then obj=h end
-  if DoesEntityExist(obj) then
-   for _,v in ipairs(list) do
-    local applied,err=pcall(Citizen.InvokeNative,0x74C9090FDD1BB48E,obj,v.hash,-1,true)
-    if not applied then failures=failures+1;log('Cosmetic object '..v.key..': '..tostring(err)) end
+  local lastObj=0
+  -- Native weapon creation and draw animations can rebuild the render object.
+  -- Use a bounded series of checks; avoid an every-frame cosmetic loop.
+  for _,delay in ipairs({500,900,1600,2400}) do
+   Wait(delay)
+   if active~=s or not validPed(s) then return end
+   local obj=appearanceObject(s)
+   if obj~=0 then
+    if obj~=lastObj or not inspectAppearance(s,false) then
+     applyPedAppearance(s)
+     applyObjectAppearance(s,obj)
+    end
+    lastObj=obj
    end
   end
-  log(('Custom appearance: %d saved selections for %s; native call errors=%d'):format(#list,s.serial,failures))
+  if active~=s or not validPed(s) then return end
+  inspectAppearance(s,true)
+  -- Reapply once if a later equip animation recreates the actual entity.
+  -- No repeated retries on permanently unsupported components.
+  while active==s and validPed(s) do
+   Wait(750)
+   if active~=s or not validPed(s) then return end
+   local obj=appearanceObject(s)
+   if obj~=0 and obj~=lastObj then
+    lastObj=obj
+    applyPedAppearance(s);applyObjectAppearance(s,obj)
+    log('Appearance restored after held entity changed: '..s.serial)
+   end
+  end
  end)
 end
+RegisterCommand('frontierappearance',function()
+ local s=active
+ if not s or not held(s) then notice('Draw the crafted weapon first.');return end
+ if not s.appearance or #s.appearance==0 then notice('No saved cosmetic selections for this weapon.');return end
+ inspectAppearance(s,true)
+ notice('Appearance diagnostics printed to F8.')
+end,false)
 local function removeNative(s)
  if not s or not s.created or not DoesEntityExist(s.ped) then return end
  -- Native projection belongs to Frontier; only remove a model we granted.
@@ -208,7 +254,7 @@ RegisterNetEvent(E..'weaponDrawResult',function(request,ok,data,msg)
   return
  end
  local s={ped=q.ped,slot=data.slot,item=data.item,lease=data.lease,serial=data.serial,version=data.version,
-  upper=data.rounds,hash=joaat(d.model),ammo=joaat(d.nativeAmmo),capacity=d.capacity,created=false}
+  upper=data.rounds,hash=joaat(d.model),ammo=joaat(d.nativeAmmo),capacity=d.capacity,created=false,appearance=appearanceList(data.components)}
  active=s
  local success,err=pcall(function()
   if truth(HasPedGotWeapon(s.ped,s.hash,0,false)) or GetPedAmmoByType(s.ped,s.ammo)>0 then error('Native equipment changed during draw') end
@@ -216,6 +262,8 @@ RegisterNetEvent(E..'weaponDrawResult',function(request,ok,data,msg)
   s.created=true
   if not truth(HasPedGotWeapon(s.ped,s.hash,0,false)) then error('Native grant failed') end
   SetAmmoTypeForPedWeapon(s.ped,s.hash,s.ammo)
+  -- Store cosmetic selections on the native ped weapon before drawing it.
+  applyPedAppearance(s)
   SetCurrentPedWeapon(s.ped,s.hash,true,0,false,false)
   -- The engine may initialize a new weapon with ammunition of its own.
   -- Strip that first, then grant only rounds checked out by the server.
@@ -231,7 +279,7 @@ RegisterNetEvent(E..'weaponDrawResult',function(request,ok,data,msg)
   log(tostring(err));W.holster();notice('Could not draw native weapon.');return
  end
  lastReport=GetGameTimer()+750
- restoreAppearance(s,data.components)
+ restoreAppearance(s)
  if data.crafted and type(data.components)~='table' then log('Crafted weapon has no saved appearance: '..s.serial) end
  log(('Drew %s | serial %s | checked out %d'):format(d.model,s.serial,s.upper))
 end)
