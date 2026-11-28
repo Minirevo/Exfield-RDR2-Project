@@ -8,4 +8,4 @@ shared_scripts {'config.lua','hospital_config.lua','model.lua','professional.lua
 server_scripts {'@oxmysql/lib/MySQL.lua','dispatch.lua','hospital_rules.lua','hospital.lua','server.lua'}
 client_scripts {'damage_rules.lua','damage_client.lua','client.lua'}
 ui_page 'html/index.html'
-files {'html/index.html','html/style.css','html/app.js'}
+files {'html/index.html','html/style.css','html/app.js','html/hospital.js'}

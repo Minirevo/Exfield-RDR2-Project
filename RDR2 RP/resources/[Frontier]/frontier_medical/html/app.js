@@ -2,17 +2,17 @@
 const chart=document.querySelector('#chart'),labels={head:'Head',chest:'Chest',abdomen:'Abdomen',left_arm:'Left arm',right_arm:'Right arm',left_leg:'Left leg',right_leg:'Right leg'};
 const regions=[...document.querySelectorAll('svg [data-region]')];
 const hit=document.querySelector('#hit'),symptoms=document.querySelector('#symptoms'),vignette=document.querySelector('#injury-vignette');
-let data=null,region='chest',tab='assessment',hitTimer=null,operation=null,animation=null;
+let data=null,region='chest',tab='assessment',hitTimer=null,operation=null,animation=null,billing=null;
 const post=(route,payload={})=>fetch('https://'+GetParentResourceName()+'/'+route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});
 function select(r){if(!labels[r]||operation||data?.busy)return;region=r;render();}
 const tabs=[...document.querySelectorAll('[data-tab]')],panels=[...document.querySelectorAll('[data-panel]')];
 function renderTabs(){
- if(tab==='procedures'&&!data?.medic)tab='assessment';
- tabs.forEach(b=>{b.hidden=b.dataset.tab==='procedures'&&!data?.medic;b.setAttribute('aria-pressed',String(b.dataset.tab===tab));b.disabled=!!operation;});
+ if((tab==='procedures'&&!data?.medic)||(tab==='billing'&&!data?.billing))tab='assessment';
+ tabs.forEach(b=>{b.hidden=(b.dataset.tab==='procedures'&&!data?.medic)||(b.dataset.tab==='billing'&&!data?.billing);b.setAttribute('aria-pressed',String(b.dataset.tab===tab));b.disabled=!!operation;});
  panels.forEach(p=>p.hidden=p.dataset.panel!==tab);
- document.querySelectorAll('[data-medic-only]').forEach(n=>n.hidden=!data?.medic);
+ document.querySelectorAll('[data-medic-only]').forEach(n=>n.hidden=n.dataset.tab==='billing'?!data?.billing:!data?.medic);
 }
-tabs.forEach(b=>b.onclick=()=>{if(operation||b.hidden)return;tab=b.dataset.tab;renderTabs();});
+tabs.forEach(b=>b.onclick=()=>{if(operation||b.hidden)return;tab=b.dataset.tab;renderTabs();if(tab==='billing')post('action',{action:'billing',region});});
 regions.forEach(n=>{
  const label=labels[n.dataset.region];
  n.setAttribute('role','button');n.setAttribute('tabindex','0');n.setAttribute('aria-label',label);
@@ -57,7 +57,25 @@ function render(){if(!data)return;
   document.querySelectorAll('[data-procedure]').forEach(b=>b.disabled=!!data.busy||!!operation||data.procedures?.[region]?.[b.dataset.procedure]!==true);
  }
  renderTabs();
+ if(data.billing)renderBilling();
  document.querySelector('#progress').textContent=data.busy?'Treatment in progress — remain nearby.':'';
+}
+function renderBilling(){
+ const box=document.querySelector('#billing-lines'),debt=document.querySelector('#billing-debt');
+ box.replaceChildren();debt.textContent='';
+ const rows=Array.isArray(billing?.lines)?billing.lines:[];
+ let total=0;
+ for(const line of rows){
+  const n=document.createElement('div');n.className='record-line';
+  const a=document.createElement('span');a.textContent=line.label+' · '+line.region.replaceAll('_',' ');
+  const b=document.createElement('strong');b.textContent='$'+(Number(line.price_minor)/100).toFixed(2);n.append(a,b);box.append(n);total+=Number(line.price_minor);
+ }
+ if(rows.length){
+  const n=document.createElement('p');n.textContent='Unbilled total: $'+(total/100).toFixed(2);box.append(n);
+ }else box.textContent='No unbilled treatments loaded. Refresh after treatment.';
+ if(Number(billing?.debt?.count)>0)debt.textContent='Outstanding invoices: '+billing.debt.count+' · $'+(Number(billing.debt.total)/100).toFixed(2)+' · Overdue: '+billing.debt.overdue;
+ document.querySelector('#issue-bill').disabled=!!data?.busy||!rows.length;
+ document.querySelector('#waive-charges').disabled=!!data?.busy||!rows.length;
 }
 function clearHit(){clearTimeout(hitTimer);hitTimer=null;hit.hidden=true;vignette.classList.remove('hit');}
 function showHit(message){
@@ -123,7 +141,7 @@ window.addEventListener('message',({data:m})=>{
  if(m?.type==='close'){endOperation();chart.hidden=true;data=null;return}
  if(m?.type==='view'){
   if(!data||data.ticket!==m.data.ticket){
-   tab='assessment';
+   tab='assessment';billing=null;
    region=Object.keys(labels).find(r=>m.data.visible?.[r]?.bleeding)||Object.keys(labels).find(r=>m.data.visible?.[r]?.wounded)||'chest';
    document.querySelector('#notice').textContent='';
   }
@@ -131,6 +149,7 @@ window.addEventListener('message',({data:m})=>{
  }
  if(m?.type==='operationStage'&&data)startOperation(m.data);
  if(m?.type==='operationEnd')endOperation(m.key);
+ if(m?.type==='billingView'&&data?.billing){billing=m.data;renderBilling();}
  if(m?.type==='notice')document.querySelector('#notice').textContent=m.message;
  if(m?.type==='symptoms')showSymptoms(m.symptoms);
  if(m?.type==='injuryFeedback'&&typeof m.message==='string')showHit(m.message);

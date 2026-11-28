@@ -5,6 +5,7 @@ local core,eco,inv=exports.frontier_core,exports.frontier_economy,exports.fronti
 local E='frontier_medical:'
 local A,account
 local sessions,locks,last={}, {}, {}
+local processing={}
 local ready=false
 local function query(method,sql,args) return A.db(method,sql,args) end
 local function name(src)
@@ -68,7 +69,7 @@ function H.chart(src,v,action)
  local debt=dueSummary(v.patient)
  if A.validView(src,v) and H.canBill(src,v) then TriggerClientEvent(E..'billingView',src,v.ticket,{lines=lines,debt=debt}) end
 end
-local function debitOrder(o)
+local function debitOrderInner(o)
  if o.status~='pending' then return o.status end
  local ok,receipt=eco:DebitAccount(account,tonumber(o.amount_minor),{key='med-supply:'..o.id,reason='Medical supplies',reference=o.id,
  metadataJson=json.encode({doctor=o.doctor,station=o.hospital})})
@@ -82,6 +83,14 @@ local function debitOrder(o)
  end
  return 'pending'
 end
+local function debitOrder(o)
+ local key='supply:'..o.id
+ if processing[key] then return 'pending' end
+ processing[key]=true
+ local ok,result=pcall(debitOrderInner,o);processing[key]=nil
+ if not ok then print('[frontier_medical] Supply debit: '..tostring(result));return 'pending' end
+ return result
+end
 local function deliverOrder(o)
  local ok,lines=pcall(json.decode,o.items_json)
  if not ok or type(lines)~='table' then return false,'invalid_record' end
@@ -94,8 +103,8 @@ local function deliverOrder(o)
 end
 local function order(src,v,kind,id,count)
  if not A.duty(src) or not allowed(src,v) then return A.notify(src,'Enter service at the hospital before collecting supplies.') end
- local prior=query('single',"SELECT id FROM frontier_medical_supply_orders WHERE doctor=? AND status IN ('pending','paid') LIMIT 1",{v.actor})
- if prior then return A.notify(src,'An earlier supply order is pending. Use Collect pending order.') end
+ local prior=query('scalar',"SELECT COUNT(*) FROM frontier_medical_supply_orders WHERE doctor=? AND status IN ('pending','paid')",{v.actor})
+ if prior==nil or tonumber(prior)>0 then return A.notify(src,'An earlier supply order is pending. Use Collect pending order.') end
  local hour=math.floor(os.time()/3600)
  local n=query('scalar',"SELECT COUNT(*) FROM frontier_medical_supply_orders WHERE doctor=? AND funding_hour=? AND status<>'declined'",{v.actor,hour})
  if n==nil or tonumber(n)>=C.maxIssuePerHour then return A.notify(src,'Hourly supply issue limit reached.') end
@@ -114,11 +123,12 @@ local function order(src,v,kind,id,count)
  VALUES(?,?,?,?,?,?,?,?,'pending')]],{uid,v.actor,name(src),v.station,o.items_json,amount,hour,os.time()})
  if inserted~=1 then return A.notify(src,'Order could not be recorded.') end
  local state=debitOrder(o)
- if state=='paid' then
+ if state=='paid' and allowed(src,v) and A.duty(src) then
   local ok,why=deliverOrder(o)
   if ok then A.notify(src,'Supplies issued. Department paid '..money(amount)..'.')
   else A.notify(src,'Order paid, awaiting pickup: '..tostring(why)..'. Free inventory space and collect again.') end
- elseif state=='pending' then A.notify(src,'Payment pending; order recorded. Do not place another order.') end
+ elseif state=='pending' then A.notify(src,'Payment pending; order recorded. Do not place another order.')
+ elseif state=='paid' then notice(v.actor,'Your order is paid. Collect it at the hospital counter.') end
 end
 local function collect(src,v)
  if not A.duty(src) or not allowed(src,v) then return end
@@ -129,7 +139,7 @@ local function collect(src,v)
   local ok,why=deliverOrder(o);A.notify(src,ok and 'Supplies collected.' or 'Pickup pending: '..tostring(why))
  else A.notify(src,'Order status: '..status) end
 end
-local function payInvoice(row)
+local function payInvoiceInner(row)
  local ok,receipt=eco:TransferAccounts(tonumber(row.payer_account),account,tonumber(row.amount_minor),
  {key='med-bill:'..tostring(row.id),reason='Medical invoice paid',reference='MED-'..tostring(row.id)})
  if ok then
@@ -139,6 +149,13 @@ local function payInvoice(row)
   local n=query('update',[[UPDATE frontier_medical_invoices SET status=previous_status,payer_account=NULL,previous_status=NULL WHERE id=? AND status='paying']],{row.id})
   if n==1 then notice(row.patient,'Insufficient bank funds. Invoice remains unpaid.') end
  end
+end
+local function payInvoice(row)
+ local key='bill:'..tostring(row.id)
+ if processing[key] then return end
+ processing[key]=true
+ local ok,err=pcall(payInvoiceInner,row);processing[key]=nil
+ if not ok then print('[frontier_medical] Invoice payment: '..tostring(err)) end
 end
 local function getInvoice(id)
  if type(id)~='string' or #id>16 or not id:match('^[1-9]%d*$') then return end

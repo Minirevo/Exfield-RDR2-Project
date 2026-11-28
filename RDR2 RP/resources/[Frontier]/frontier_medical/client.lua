@@ -1,6 +1,11 @@
 local C,E=FrontierMedicalConfig,'frontier_medical:'
 local state,received,ticket=nil,0,nil
 local opened=false
+local hospitalTicket,hospitalRequested=nil,nil
+local function closeHospital()
+ if hospitalTicket then TriggerServerEvent(E..'hospitalClose',hospitalTicket) end
+ hospitalTicket=nil;hospitalRequested=nil;SetNuiFocus(false,false);SendNUIMessage({type='hospitalClose'})
+end
 local requestAt=0
 local symptomVisible=false
 local feedbackAt=-10000
@@ -72,6 +77,7 @@ RegisterNetEvent(E..'state',function(v)
   TriggerEvent('chat:addMessage',{args={'Medical',msg}})
  end
  if v.down and opened then close() end
+ if v.down and hospitalTicket then closeHospital() end
  if not v.down or v.dead then patientDispatch(false)
  elseif not patientDispatchVisible then patientDispatch(true,'You are unconscious. Use /mediccall to request help.') end
 end)
@@ -87,6 +93,7 @@ CreateThread(function()
   if not playing() or not state or GetGameTimer()-received>=C.stateTimeoutMs or truth(native('IsPlayerDead',PlayerId())) then
    if feedbackActive then clearFeedback() end
    clearDispatchMarker();patientDispatch(false)
+   if hospitalTicket then closeHospital() end
   end
  end
 end)
@@ -121,13 +128,13 @@ CreateThread(function()
  end
 end)
 RegisterCommand('medical',function(_,args)
- if not playing() or opened or (state and state.down) then return end
+ if not playing() or opened or hospitalTicket or (state and state.down) then return end
  local target=tonumber(args[1]) or GetPlayerServerId(PlayerId())
  requestAt=GetGameTimer()
  TriggerServerEvent(E..'open',target)
 end,false)
 RegisterNetEvent(E..'view',function(data)
- if source~=65535 or not playing() or type(data)~='table' or type(data.ticket)~='string' then return end
+ if source~=65535 or not playing() or hospitalTicket or type(data)~='table' or type(data.ticket)~='string' then return end
  if opened and ticket~=data.ticket then return end
  if not opened and (requestAt==0 or GetGameTimer()-requestAt>10000) then return end
  requestAt=0
@@ -152,5 +159,101 @@ RegisterNUICallback('action',function(d,cb)
  if opened and ticket and type(d)=='table' then TriggerServerEvent(E..'action',ticket,d.action,d.region,d.item) end
  cb({ok=true})
 end)
-RegisterNetEvent('vorp:SelectedCharacter',function() state=nil;received=0;requestAt=0;feedbackAt=-10000;clearFeedback();clearDispatchMarker();patientDispatch(false);FrontierMedicalAdapter.reset();if opened then close() end end)
-AddEventHandler('onClientResourceStop',function(r) if r==GetCurrentResourceName() then clearDispatchMarker();if opened then close() end end end)
+RegisterNetEvent('vorp:SelectedCharacter',function() if hospitalTicket then closeHospital() end; state=nil;received=0;requestAt=0;feedbackAt=-10000;clearFeedback();clearDispatchMarker();patientDispatch(false);FrontierMedicalAdapter.reset();if opened then close() end end)
+AddEventHandler('onClientResourceStop',function(r) if r==GetCurrentResourceName() then clearDispatchMarker();if hospitalTicket then closeHospital() end;if opened then close() end end end)
+
+-- Hospital screens share focus ownership with the existing examination chart.
+local function hospitalOpen(mode,station)
+ if not playing() or opened or hospitalTicket or not state or state.down or state.dead then return end
+ hospitalRequested=GetGameTimer()
+ TriggerServerEvent(E..'hospitalOpen',mode,station)
+end
+RegisterCommand('medicalbills',function() hospitalOpen('patient') end,false)
+RegisterCommand('medicalreports',function() hospitalOpen('police') end,false)
+RegisterNetEvent(E..'hospitalView',function(d)
+ if source~=65535 or not playing() or opened or not state or state.down or state.dead or type(d)~='table' or type(d.ticket)~='string' then return end
+ if hospitalTicket and hospitalTicket~=d.ticket then return end
+ if not hospitalTicket and (not hospitalRequested or GetGameTimer()-hospitalRequested>15000) then return end
+ local first=not hospitalTicket;hospitalTicket=d.ticket;hospitalRequested=nil
+ if first then SetNuiFocus(true,true) end
+ SendNUIMessage({type='hospitalView',data=d})
+end)
+RegisterNetEvent(E..'hospitalDetail',function(t,d)
+ if source==65535 and t==hospitalTicket then SendNUIMessage({type='hospitalDetail',data=d}) end
+end)
+RegisterNetEvent(E..'billingView',function(t,d)
+ if source==65535 and opened and t==ticket then SendNUIMessage({type='billingView',data=d}) end
+end)
+RegisterNetEvent(E..'hospitalCloseView',function(t)
+ if source==65535 and t==hospitalTicket then closeHospital() end
+end)
+RegisterNUICallback('hospitalClose',function(_,cb) if hospitalTicket then closeHospital() end;cb({ok=true}) end)
+RegisterNUICallback('hospitalAction',function(d,cb)
+ if hospitalTicket and type(d)=='table' then TriggerServerEvent(E..'hospitalAction',hospitalTicket,d.action,d.id,d.count,d.search,d.before) end
+ cb({ok=true})
+end)
+RegisterNUICallback('hospitalDispatch',function(d,cb)
+ if hospitalTicket and type(d)=='table' then
+  if d.action=='release' then ExecuteCommand('medicrelease')
+  elseif d.action=='accept' and type(d.number)=='number' and d.number%1==0 and d.number>0 then ExecuteCommand('medicaccept '..d.number) end
+  TriggerServerEvent(E..'hospitalAction',hospitalTicket,'refresh')
+ end
+ cb({ok=true})
+end)
+-- Station coordinates come from the retired VORP medical resource.
+-- Local scenery peds; no client coordinates are trusted by the server.
+local HC=FrontierHospitalConfig
+local peds,attempts={},{}
+local prompt,group
+local function deleteClerk(id)
+ local ped=peds[id];if ped and DoesEntityExist(ped) then DeleteEntity(ped) end;peds[id]=nil
+end
+local function spawnClerk(id,st)
+ if peds[id] or (attempts[id] and GetGameTimer()-attempts[id]<15000) then return end
+ attempts[id]=GetGameTimer()
+ local hash=joaat(st.model)
+ RequestModel(hash)
+ local deadline=GetGameTimer()+3000
+ while not HasModelLoaded(hash) and GetGameTimer()<deadline do Wait(25) end
+ if not HasModelLoaded(hash) then SetModelAsNoLongerNeeded(hash);return end
+ if playing() then
+  local ped=CreatePed(hash,st.x,st.y,st.z,st.heading,false,false,false,false)
+  if ped and ped~=0 and DoesEntityExist(ped) then
+   peds[id]=ped;SetEntityAsMissionEntity(ped,true,true)
+   pcall(Citizen.InvokeNative,0x283978A15512B2FE,ped,true)
+   FreezeEntityPosition(ped,true);SetEntityInvincible(ped,true);SetBlockingOfNonTemporaryEvents(ped,true)
+  end
+ end
+ SetModelAsNoLongerNeeded(hash)
+end
+CreateThread(function()
+ group=GetRandomIntInRange(0,0xffffff)
+ prompt=UiPromptRegisterBegin()
+ UiPromptSetControlAction(prompt,joaat('INPUT_CONTEXT_X'))
+ UiPromptSetText(prompt,VarString(10,'LITERAL_STRING','Hospital service'))
+ UiPromptSetEnabled(prompt,true);UiPromptSetVisible(prompt,true);UiPromptSetStandardMode(prompt,true)
+ UiPromptSetGroup(prompt,group,0);UiPromptRegisterEnd(prompt)
+ while true do
+  local sleep=500
+  if playing() then
+   local pos=GetEntityCoords(PlayerPedId())
+   for id,st in pairs(HC.stations) do
+    local distance=(pos.x-st.x)^2+(pos.y-st.y)^2+(pos.z-st.z)^2
+    if distance<=HC.spawnDistance^2 then
+     if not peds[id] then spawnClerk(id,st) end
+     if distance<=HC.reach^2 and not opened and not hospitalTicket and state and not state.down and not state.dead then
+      sleep=0;UiPromptSetActiveGroupThisFrame(group,VarString(10,'LITERAL_STRING',st.name),0,0,0,0)
+      if UiPromptHasStandardModeCompleted(prompt,0) then hospitalOpen('station',id) end
+     end
+    else deleteClerk(id) end
+   end
+  else for id in pairs(peds) do deleteClerk(id) end end
+  Wait(sleep)
+ end
+end)
+AddEventHandler('onClientResourceStop',function(r)
+ if r==GetCurrentResourceName() then
+  for id in pairs(peds) do deleteClerk(id) end
+  if prompt then UiPromptDelete(prompt) end
+ end
+end)
