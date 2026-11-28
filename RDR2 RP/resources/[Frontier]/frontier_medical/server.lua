@@ -338,7 +338,7 @@ beginOperation=function(src,v,r,id)
  o.life=current.life
  local fp=json.encode({'change',false,v.actor,false,def.supply,1,false})
  local inserted=db('update',[[INSERT INTO frontier_medical_operations(request_key,patient,life,doctor,region,procedure_id,fingerprint,expires_at,testing)
- VALUES(?,?,?,?,?,?,?,?,?)]],{o.key,v.patient,o.life,v.actor,r,id,fp,o.expires,selfTest(src,v) and 1 or 0})
+ VALUES(?,?,?,?,?,?,?,?,?)]],{o.key,v.patient,o.life,v.actor,r,id,fp,o.expires,(testMedics[src]==v.actor and admin(src)) and 1 or 0})
  if inserted~=1 or not operationValid(src,o) then
   if inserted==1 then finishOperation(src,o,'failed') else refuse('Operation could not be recorded.') end
   return
@@ -411,8 +411,8 @@ RegisterCommand('medicalinjure',function(src,args)
  local now=GetGameTimer();if testAt[src] and now-testAt[src]<1000 then return end;testAt[src]=now
  local r,kind=args[1],args[2]
  local reset=r=='reset'
- local raw=tonumber(args[3]) or 30
- if not reset and (not validRegion(r) or type(kind)~='string' or raw%1~=0 or raw<1 or raw>200) then
+ local raw=args[3] and tonumber(args[3]) or (not args[3] and 30)
+ if not reset and (not validRegion(r) or type(kind)~='string' or type(raw)~='number' or raw%1~=0 or raw<1 or raw>200) then
   return notify(src,'Usage: /medicalinjure <region> <penetrating|blunt|fall|cut|burn|bite|fracture|internal|organ|bullet|splinter|deep|shock> [raw 1-200], or reset')
  end
  local pending=db('scalar',[[SELECT COUNT(*) FROM frontier_medical_operations o JOIN frontier_inventory_receipts r

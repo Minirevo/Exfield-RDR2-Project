@@ -27,4 +27,7 @@ assert(M.scoreStage(3000,1500,400)=='complication')
 assert(M.scoreStage(5000,1500,400)=='failed')
 assert(not M.testInjury(s,'head','fracture',30,0))
 assert(not M.testInjury(s,'left_leg','organ',30,0))
+s=M.new();s.shock=500
+assert(M.applyProcedure(s,'chest','saline','success',0) and s.blood==1000 and s.shock==300)
+assert(not M.procedureEligible(s,'invalid','saline',0))
 print('Professional injury and procedure model tests passed')

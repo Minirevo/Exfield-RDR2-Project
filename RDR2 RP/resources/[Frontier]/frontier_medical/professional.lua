@@ -65,7 +65,7 @@ function M.vitals(s,now)
   temperature='Normal range',circulation=shock>=650 and 'Poor' or shock>=350 and 'Impaired' or 'Adequate'}
 end
 function M.procedureEligible(s,r,id,now)
- if s.dead or s.blood<=0 or not C.procedures[id] then return false end
+ if s.dead or s.blood<=0 or M.region(r)~=r or not C.procedures[id] then return false end
  local w=s.wounds[r]
  if id=='saline' then return s.blood<850 or (s.shock or 0)>300 end
  if id=='morphine' then return s.pain>=100 and (s.tonicUntil or 0)<=now end
@@ -97,7 +97,7 @@ function M.applyProcedure(s,r,id,outcome,now)
   elseif id=='saline' then
    -- Temporary circulatory support, not replacement red cells.
    s.shock=math.max(0,(s.shock or 0)-200)
-   s.blood=math.min(850,s.blood+40)
+   s.blood=math.max(s.blood,math.min(850,s.blood+40))
   end
  else return false end
  M.updateDown(s,now);return true

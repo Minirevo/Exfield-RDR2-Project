@@ -67,6 +67,7 @@ function endOperation(key){
 function startOperation(d){
  endOperation();operation={...d,start:performance.now(),pressed:false};
  operationPanel.hidden=false;press.disabled=false;
+ operationPanel.scrollIntoView({block:'nearest'});
  document.querySelector('#operation-title').textContent=d.label;
  document.querySelector('#operation-stage').textContent='Precision stage '+d.stage+' of '+d.total;
  zone.style.left=(Math.max(0,d.center-d.window)/d.duration*100)+'%';
