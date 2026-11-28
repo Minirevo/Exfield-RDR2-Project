@@ -2,7 +2,7 @@
 JobsConfig={
  boardSprite='blip_job_board',employerSprite='blip_job',
  boardProp='p_noticeboard01x', -- provisional asset, prompt still works if unavailable
- reach=4.0,employerReach=8.0,stream=85.0,spawnRetryMs=12000,fallbackPed='S_M_M_UNIBUTCHERS_01',duration=86400,postingDuration=604800,perCharacterDaily=3,perJobDaily=25,maxCompanyOpen=20,maxReward=100000,
+ reach=4.0,employerReach=8.0,stream=85.0,spawnRetryMs=12000,fallbackPed='S_M_M_UNIBUTCHERS_01',duration=86400,postingDuration=604800,demandWindow=3600,defaultDemand=60,maxCompanyOpen=20,maxReward=100000,
  boards={
   valentine={name='Valentine saloon employment board',x=-311.3,y=805.4,z=118.98},
   strawberry={name='Strawberry employment board',x=-1789.66,y=-387.918,z=159.32},
@@ -17,11 +17,13 @@ JobsConfig={
   butcher={name='Valentine butcher',x=-339.0,y=767.3,z=116.6,heading=90,model='S_M_M_UNIBUTCHERS_01'},
   fish={name='Blackwater fish buyer',x=-733.6,y=-1232.0,z=43.0,heading=90,model='A_M_M_BLWTOWNFOLK_01'}
  },
+ -- Shared demand in contracts per rolling real-time hour. No daily player cap.
+ -- Active contracts reserve a slot; completed work releases it after demandWindow.
  jobs={
-  logging={title='Lumberjack',employer='timber',description='Cut trees using the existing gathering system and bring timber to the yard.',item='wood',quantity=8,reward=160,onsite=true,loan='gather_axe_job'},
-  mining={title='Mine worker',employer='mine',description='Gather stone from suitable rocks and deliver it to the foreman.',item='gather_stone',quantity=10,reward=180,onsite=true,loan='gather_pickaxe_job'},
-  hunting={title='Hunting delivery',employer='butcher',description='Bring animal pelts from hunting to the butcher. Bring your own hunting equipment.',item='gather_pelt',quantity=5,reward=200,onsite=false},
-  fishing={title='Fishing delivery',employer='fish',description='Catch fresh fish and deliver them to the buyer. Bring your own rod and bait.',item='gather_fish',quantity=8,reward=200,onsite=false}
+  logging={demand=60,title='Lumberjack',employer='timber',description='Cut trees using the existing gathering system and bring timber to the yard.',item='wood',quantity=8,reward=160,onsite=true,loan='gather_axe_job'},
+  mining={demand=60,title='Mine worker',employer='mine',description='Gather stone from suitable rocks and deliver it to the foreman.',item='gather_stone',quantity=10,reward=180,onsite=true,loan='gather_pickaxe_job'},
+  hunting={demand=60,title='Hunting delivery',employer='butcher',description='Bring animal pelts from hunting to the butcher. Bring your own hunting equipment.',item='gather_pelt',quantity=5,reward=200,onsite=false},
+  fishing={demand=60,title='Fishing delivery',employer='fish',description='Catch fresh fish and deliver them to the buyer. Bring your own rod and bait.',item='gather_fish',quantity=8,reward=200,onsite=false}
  },
  loans={
   gather_axe_job={name='Loaned lumber axe',grams=1800},

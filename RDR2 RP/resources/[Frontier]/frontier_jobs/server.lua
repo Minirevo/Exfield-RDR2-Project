@@ -114,11 +114,21 @@ local function validView(src,v)
  if v.mode=='manage' then return manage(v.who,v.place) end
  return v.mode=='personal'
 end
-local function quota(who,key)
- local start=math.floor(now()/86400)*86400
- local total=tonumber(V("SELECT COUNT(*) FROM frontier_jobs_contracts WHERE kind='npc' AND template=? AND created>=?",{key,start})) or 0
- local own=tonumber(V("SELECT COUNT(*) FROM frontier_jobs_contracts WHERE kind='npc' AND worker=? AND created>=?",{who,start})) or 0
- return math.max(0,math.min(C.perJobDaily-total,C.perCharacterDaily-own))
+local function demand(key)
+ local j=C.jobs[key]
+ if not j then return 0 end
+ -- Count outstanding reservations plus actual payments within a rolling window.
+ -- Payment ledger uses UTC timestamps and survives resource/server restarts.
+ -- Cancelled or expired work does not consume demand.
+ local reserved=tonumber(V([[SELECT COUNT(*) FROM frontier_jobs_contracts j
+ LEFT JOIN frontier_economy_ledger l ON j.state='paid' AND l.operation_id=CAST(j.receipt AS UNSIGNED) AND l.entry_type='credit'
+ WHERE j.kind='npc' AND j.template=? AND (
+  (j.state IN ('active','loaning') AND j.expires>?)
+  OR j.state IN ('delivering','paying')
+  OR (j.state='paid' AND l.created_at>TIMESTAMPADD(SECOND,?,UTC_TIMESTAMP(6)))
+ )]],{key,now(),-C.demandWindow}))
+ need(reserved~=nil,'Employer demand unavailable. Try again shortly.')
+ return R.demandRemaining(j.demand or C.defaultDemand,reserved)
 end
 local function publicPostings()
  return Q("SELECT j.id,j.kind,j.title,j.description,j.employer,j.town,j.reward,j.expires FROM frontier_jobs_contracts j JOIN fb_companies c ON c.id=j.company WHERE j.state='open' AND j.expires>? AND c.status='active' ORDER BY j.created DESC LIMIT 100",{now()})
@@ -128,7 +138,7 @@ local function view(src,v)
  local data={ticket=v.ticket,mode=v.mode,place=v.place,boards=C.boards,employers=C.employers,jobs={},postings={},mine={},companyJobs={},applications={},canFund=false}
  if v.mode=='board' or v.mode=='employer' then
   for k,j in pairs(C.jobs) do if v.mode=='board' or j.employer==v.place then
-   local a={id=k,title=j.title,description=j.description,employer=j.employer,item=j.item,quantity=j.quantity,reward=j.reward,onsite=j.onsite,loan=j.loan,available=quota(v.who,k)}
+   local a={id=k,title=j.title,description=j.description,employer=j.employer,item=j.item,quantity=j.quantity,reward=j.reward,onsite=j.onsite,loan=j.loan,available=demand(k)}
    data.jobs[#data.jobs+1]=a
   end end
   if v.mode=='board' then data.postings=publicPostings() end
@@ -190,8 +200,8 @@ AddEventHandler('playerDropped',function() sessions[source]=nil;last[source]=nil
 local function acceptNpc(src,v,d)
  local j=C.jobs[d.id];need(j,'Unknown job.')
  need((v.mode=='board' and not j.onsite) or (v.mode=='employer' and v.place==j.employer),'Visit the employer to start this job.')
- need(quota(v.who,d.id)>0,'Daily work allocation exhausted.')
- need(V("SELECT COUNT(*) FROM frontier_jobs_contracts WHERE worker=? AND kind='npc' AND template=? AND state IN ('loaning','active','delivering','paying','returning')",{v.who,d.id})==0,'You already have this job.')
+ need(tonumber(V("SELECT COUNT(*) FROM frontier_jobs_contracts WHERE worker=? AND kind='npc' AND template=? AND state IN ('loaning','active','delivering','paying','returning')",{v.who,d.id}))==0,'You already have this job. Finish or cancel it first.')
+ need(demand(d.id)>0,'Employer demand temporarily filled. New orders open throughout the hour; check again shortly.')
  local a=need(bank(src,v.who),'Bank unavailable.')
  local loan=d.loan==true and j.loan~=nil
  need(not loan or v.mode=='employer','Collect equipment at the employer.')

@@ -37,9 +37,12 @@ function board(p){
   const active=data.mine.filter(j=>j.kind==='npc'&&j.employer===data.place&&['active','loaning'].includes(j.state));
   if(active.length){el('h2','Your current contracts',p);for(const j of active)delivery(p,j);el('h2','Available work',p)}
  }
- for(const j of data.jobs){const emp=data.employers[j.employer],a=article(p,j.title,j.description,emp.name+' · '+j.quantity+' × '+j.item+' · '+cash(j.reward)+' cash · '+j.available+' openings for you today'),b=actions(a);waypoint(b,j.employer);
- if(data.mode==='board'&&j.onsite)el('p','Visit the foreman to accept work and borrow tools.',a);
- else {btn(b,'Accept with own tools',()=>send('acceptNpc',{id:j.id,loan:false}),!j.available);if(j.loan)btn(b,'Accept & borrow tool',()=>send('acceptNpc',{id:j.id,loan:true}),!j.available)}
+ for(const j of data.jobs){
+  const emp=data.employers[j.employer],available=Number(j.available)>0,working=data.mine.some(x=>x.kind==='npc'&&x.template===j.id&&['loaning','active','delivering','paying','returning'].includes(x.state));
+  const a=article(p,j.title,j.description,emp.name+' · '+j.quantity+' × '+j.item+' · '+cash(j.reward)+' cash'),b=actions(a);waypoint(b,j.employer);
+  el('p',working?'You already have a contract. Finish it to take another.':available?'Work available · Repeat this job as often as demand allows.':'Employer orders temporarily filled. Demand replenishes throughout the hour; refresh to check.',a);
+  if(data.mode==='board'&&j.onsite)el('p','Visit the foreman to accept work and borrow tools.',a);
+  else if(!working){btn(b,'Accept with own tools',()=>send('acceptNpc',{id:j.id,loan:false}),!available);if(j.loan)btn(b,'Accept & borrow tool',()=>send('acceptNpc',{id:j.id,loan:true}),!available)}
  }
  if(data.mode==='board')for(const j of data.postings){const a=article(p,j.title,j.description,j.employer+' · '+data.boards[j.town]?.name+' · '+(j.kind==='task'?cash(j.reward)+' reserved':'Recruitment')),b=actions(a);waypoint(b,j.town);
  if(j.kind==='task')btn(b,'Accept task',()=>confirmDo('Accept this one-time task?', 'acceptTask',{id:j.id}));else{const msg=field(a,'Application message','textarea');btn(a,'Apply',()=>send('apply',{id:j.id,message:msg.value}))}}
