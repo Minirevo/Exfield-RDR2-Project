@@ -864,7 +864,7 @@ exports('PublicHorseListings',function(src)
  for _,f in ipairs(MySQL.query.await("SELECT * FROM ff_facilities WHERE kind='livestock'")) do
   if not locked(f.id) and biz:VerifyLicense(f.owner_type,f.owner_id,'agriculture') and prop:FarmBuilding(f.plot,f.id,f.owner_id) then
    local s=state(f)
-   for _,h in ipairs(s.horses or {}) do if h.listed and h.health>0 and C.horseBreeds[h.breed] then out[#out+1]={facility=f.id,id=h.id,name=h.name or C.horseBreeds[h.breed].label,breed=h.breed,sex=h.sex,age=h.age,genes=h.genes,training=h.training,health=h.health,price=h.listed} end end
+   for _,h in ipairs(s.horses or {}) do if h.listed and h.health>0 and C.horseBreeds[h.breed] then out[#out+1]={facility=f.id,id=h.id,name=h.name or C.horseBreeds[h.breed].label,breed=h.breed,model=C.horseBreeds[h.breed].model,gear=h.gear or {},sex=h.sex,age=h.age,genes=h.genes,training=h.training,health=h.health,price=h.listed} end end
   end
  end
  return out

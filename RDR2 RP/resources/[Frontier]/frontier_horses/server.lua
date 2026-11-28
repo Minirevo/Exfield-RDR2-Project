@@ -49,7 +49,7 @@ local function view(src,site)
  local who=cid(src);local ok,a=eco:GetCharacterAccounts(src);check(ok and a.characterId==who,'Cash unavailable')
  local list={}
  for _,h in ipairs(Q("SELECT * FROM frontier_horses WHERE status<>'dead' ORDER BY name,id")) do
-  if allowed(src,h) then local d=rec(h);d.id=h.id;d.name=h.name;d.model=h.model;d.ownerType=h.owner_type;d.ownerId=h.owner_id;d.stable=h.stable;d.status=h.status;d.assigned=assigned(h.id);d.pending=not not pending(h.id);list[#list+1]=d end
+  if allowed(src,h) then local d=rec(h);d.id=h.id;d.name=h.name;d.model=h.model;d.appearance=C.appearance[h.model:lower()];d.ownerType=h.owner_type;d.ownerId=h.owner_id;d.stable=h.stable;d.status=h.status;d.assigned=assigned(h.id);d.pending=not not pending(h.id);list[#list+1]=d end
  end
  local gear={};for id,d in pairs(C.equipment) do local ok,n=inv:GetItemCount(src,id);gear[id]={name=d.name,price=d.price,slot=d.slot,owned=ok and n or 0} end
  local listings,companies={},{}
@@ -57,8 +57,13 @@ local function view(src,site)
  if ok and type(l)=='table' then listings=l else print('[frontier_horses] Ranch listings unavailable: '..tostring(l)) end
  local ok,c=pcall(function() return biz:HorseCompanies(who) end)
  if ok and type(c)=='table' then companies=c else print('[frontier_horses] Company purchases unavailable: '..tostring(c)) end
- local v={site=site,who=who,ticket=uuid()};views[src]=v
- TriggerClientEvent(E..'view',src,{ticket=v.ticket,site=site,sites=C.sites,horses=list,breeds=C.breeds,gear=gear,listings=listings,companies=companies,cash=a.cash.balance_minor,carePrice=C.carePrice,healPrice=C.healPrice,transferPrice=C.transferPrice})
+ for _,h in ipairs(listings) do if type(h.model)=='string' then h.appearance=C.appearance[h.model:lower()] end end
+ local offers={}
+ for id,b in pairs(C.breeds) do
+  offers[id]={name=b.name,model=b.model,price=b.price,genes=b.genes,appearance=C.appearance[b.model:lower()]}
+ end
+ local v={site=site,who=who,ticket=uuid(),offers=offers};views[src]=v
+ TriggerClientEvent(E..'view',src,{ticket=v.ticket,site=site,sites=C.sites,horses=list,breeds=offers,gear=gear,listings=listings,companies=companies,cash=a.cash.balance_minor,carePrice=C.carePrice,healPrice=C.healPrice,transferPrice=C.transferPrice})
 end
 local function finishOrder(o)
  local p=json.decode(o.payload);local amount,account=tonumber(o.amount),tonumber(o.account)
@@ -167,8 +172,8 @@ RegisterNetEvent(E..'action',function(ticket,op,d)
   if op=='refresh' then return view(src,v.site) end
   if op~='buyRanch' then check(not S('SELECT id FROM ff_public_horse_sales WHERE id=?',{ticket:gsub('-','')}),'This ticket already has a ranch purchase. Refresh.') end
   if op=='buy' then
-   local b=check(C.breeds[d.breed],'Unknown breed')
-   local id=ticket:gsub('-','');local name=b.name;local genes={};for k,n in pairs(b.genes) do genes[k]=n+math.random(-5,5) end
+   local b=check(v.offers[d.breed],'Unknown breed')
+   local id=ticket:gsub('-','');local name=b.name;local genes={};for k,n in pairs(b.genes) do genes[k]=n end
    local record={id=id,breed=d.breed,sex=d.sex=='male' and 'male' or 'female',age=C.adultAge,genes=genes,health=100,care=100,training=0,trainedAt=0,neglectSeconds=0,gear={}}
    local ok,e=order(src,ticket,'buy',b.price,{horse=id,stable=v.site,model=b.model,name=name,record=record,ownerType=type(d.company)=='string' and d.company~='' and 'company' or 'character',ownerId=type(d.company)=='string' and d.company~='' and d.company or cid(src)});tell(src,ok and 'Horse purchased and boarded.' or e)
   elseif op=='buyRanch' then
