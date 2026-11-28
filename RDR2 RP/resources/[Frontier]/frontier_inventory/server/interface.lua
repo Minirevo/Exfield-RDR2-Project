@@ -1116,6 +1116,14 @@ local function resetWeapon(src,reason)
  wheelViews[src]=nil
  TriggerClientEvent(events..'weaponReset',src,reason or 'Weapon session ended; recovering ammunition.')
 end
+local function recordShots(m,n)
+ if n<=0 or not m.crafted then return end
+ m.shotsFired=(tonumber(m.shotsFired) or 0)+n
+ local durability=math.max(65,math.min(180,tonumber(m.craftStats and m.craftStats.durability) or 100))
+ local wear=(tonumber(m.craftWear) or 0)+n*100/durability
+ local whole=math.floor(wear/20);m.craftWear=wear-whole*20
+ m.condition=math.max(0,(tonumber(m.condition) or 100)-whole)
+end
 local function activeRow(src,id,e,b,slot)
  local row=e.slots[slot]
  local def=row and WR.models[row.item]
@@ -1166,7 +1174,7 @@ RegisterNetEvent(events..'weaponDraw',function(token,slot,request)
   local s={token=t,id=id,generation=generation,slot=slot,item=row.item,instance=row.instance,rounds=rounds,version=1,drawRequest=request}
   Inventory.WeaponSessions[src]=s
   clearEquipped(src)
-  response={lease=t,slot=slot,item=row.item,serial=row.instance,rounds=rounds,version=1}
+  response={lease=t,slot=slot,item=row.item,serial=row.instance,rounds=rounds,version=1,components=m.crafted and m.components or nil}
   return true
  end,100)
  TriggerClientEvent(events..'weaponDrawResult',src,request,ok,response or false,ok and '' or message(err))
@@ -1186,7 +1194,7 @@ RegisterNetEvent(events..'weaponReport',function(token,version,remaining)
   local row=boundWeapon(e,s);if not row then return false,'conflict' end
   local c,m=Inventory.Checkout(row,s);if not c or n>c.rounds then return false,'conflict' end
   if n==c.rounds then s.rounds=n;return true end
-  c.rounds=n;row.metadata=json.encode(m)
+  recordShots(m,c.rounds-n);c.rounds=n;row.metadata=json.encode(m)
   local key=Inventory.Uuid();if not key then return false,'database_error' end
   local saved,why=weaponCommit(src,id,s.generation,key,'weaponShot:'..s.instance..':'..n,e)
   if saved and lease(src,token)==s then s.rounds=n end
@@ -1211,7 +1219,7 @@ RegisterNetEvent(events..'weaponReload',function(token,request,version,remaining
   local c,m=Inventory.Checkout(row,s);if not c or n>c.rounds then return false,'conflict' end
   -- Save the latest count before beginning a cancellable retrieval.
   if n<c.rounds then
-   c.rounds=n;row.metadata=json.encode(m)
+   recordShots(m,c.rounds-n);c.rounds=n;row.metadata=json.encode(m)
    local key=Inventory.Uuid();if not key then return false,'database_error' end
    local saved,why=weaponCommit(src,id,s.generation,key,'weaponReloadObserve:'..s.instance..':'..n,e)
    if not saved then return false,why end
@@ -1223,7 +1231,8 @@ RegisterNetEvent(events..'weaponReload',function(token,request,version,remaining
   if not from then return false,'no_ammo' end
   pending={request=request,from=from,version=s.version,quantity=quantity}
   s.pending=pending
-  delay=from=='satchel' and WR.reloadDelayMs or 0
+  local speed=math.max(85,math.min(120,tonumber(m.crafted and m.craftStats and m.craftStats.reload) or 100))
+  delay=from=='satchel' and math.floor(WR.reloadDelayMs*100/speed) or 0
   return true
  end,100)
  if not ok then reloadReply(src,s,request,false,0,err);return end
@@ -1298,7 +1307,7 @@ RegisterNetEvent(events..'weaponRelease',function(token,version,remaining)
   -- Stale version can occur if a reload completed during cancellation. Never credit the unseen new rounds.
   local n=WR.remaining(s.rounds,remaining)
   if not n or n>c.rounds or not WR.integer(version,1,s.version) then s.releasing=false;return false,'invalid_request' end
-  m.loaded=n;m.checkout=nil;row.metadata=json.encode(m)
+  recordShots(m,c.rounds-n);m.loaded=n;m.checkout=nil;row.metadata=json.encode(m)
   local saved,why=weaponCommit(src,id,s.generation,token..':release','weaponRelease:'..s.instance..':'..n,e)
   if not saved then s.releasing=false;return false,why end
   if Inventory.WeaponSessions[src]==s then Inventory.WeaponSessions[src]=nil end

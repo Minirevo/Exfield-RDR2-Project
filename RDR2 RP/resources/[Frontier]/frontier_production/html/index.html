@@ -19,12 +19,12 @@
 </main><div id="station-ui" hidden>
 <header><div><h1 id="st-name">Production station</h1><p id="st-sub"></p></div><button id="st-close">Close (Esc)</button></header>
 <p id="st-status" role="status"></p><button id="st-refresh">Refresh</button> <button id="st-retry" hidden>Retry same request</button>
-<div class="st-cols"><div><h2>Production order</h2><label>Recipe<select id="st-recipe"></select></label>
+<nav id="st-tabs"><button data-page="craft">Catalogue</button><button data-page="orders">Orders</button><button data-page="management">Workshop & staff</button></nav><div id="st-craft" class="st-cols"><aside><h2>Recipe catalogue</h2><input id="st-search" placeholder="Search products"><div id="st-categories"></div><div id="st-cards"></div></aside><div><h2 id="st-selected">Select a recipe</h2><select id="st-recipe" hidden></select><div id="st-design" hidden></div>
 <div class="st-grid"><label>Execution<select id="st-mode"><option value="manual">Manual work</option><option value="npc">NPC worker</option></select></label><label>Batches<input id="st-batches" type="number" min="1" value="1"></label>
 <label>Take materials from<select id="st-input"></select></label><label>Deliver products to<select id="st-output"></select></label></div>
-<p id="st-preview"></p><button id="st-start">Start production</button>
-<div id="st-settings"><h2>Station management</h2><label>Owner<select id="st-company"></select></label><button id="st-owner">Change owner</button>
+<div id="st-preview"></div><button id="st-start">Begin craftsmanship</button></div></div>
+<section id="st-management" hidden><div id="st-settings"><h2>Station management</h2><label>Owner<select id="st-company"></select></label><button id="st-owner">Change owner</button>
 <div class="st-grid"><label>Input chest<select id="st-link-input"></select></label><label>Output chest<select id="st-link-output"></select></label></div>
-<button id="st-link">Save storage links</button><p id="st-worker"></p><button id="st-hire">Hire NPC worker</button> <button id="st-release">Release station</button></div></div>
-<div><h2>Orders</h2><div id="st-jobs"></div></div></div></div>
+<button id="st-link">Save storage links</button><p id="st-worker"></p><button id="st-hire">Hire NPC worker</button> <button id="st-release">Release station</button></div></section>
+<section id="st-orders" hidden><h2>Orders</h2><div id="st-jobs"></div></section></div>
 <div id="station-hud" hidden><small>FRONTIER · MANUAL PRODUCTION</small><h2 id="st-work-label"></h2><p id="st-round"></p><div id="st-round-dots"></div><div id="st-bar"><div id="st-target"></div><div id="st-marker"></div></div><p id="st-instruction"></p><small>Backspace to cancel · all reserved materials returned on cancellation</small><progress id="st-progress" max="1"></progress></div></body></html>

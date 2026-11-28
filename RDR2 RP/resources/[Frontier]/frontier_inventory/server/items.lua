@@ -1,4 +1,5 @@
 local defaults = {
+    property_station_gunsmith={name="Gunsmith's workbench",description='Placeable production station kit',grams=10000,maxStack=1,category='Production stations',usable=true},
     property_wagon_bench={name='Wagon construction bench',description='Placeable wagon construction bench',grams=12000,maxStack=1,category='Production stations',usable=true},
     -- Keep these kit IDs, weights and names aligned with PropertyConfig.Furniture.
     property_station_sawmill={name="Sawmill",description='Placeable production station kit',grams=12000,maxStack=1,category='Production stations',usable=true},

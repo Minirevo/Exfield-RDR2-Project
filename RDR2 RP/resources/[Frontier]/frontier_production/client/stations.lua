@@ -41,7 +41,7 @@ RegisterNUICallback('stationRequest',function(d,cb)
  SetTimeout(12000,function()if pending==request then pending=nil;ui({type='stationResult',seq=request.seq,ok=false,retry=true,message='No confirmation. Retry the same request.'}) end end)
  cb({ok=true,seq=seq})
 end)
-local scenarios={sawmill='WORLD_HUMAN_HAMMER',carpentry='WORLD_HUMAN_HAMMER',smeltery='WORLD_HUMAN_HAMMER',forge='WORLD_HUMAN_HAMMER',anvil='WORLD_HUMAN_HAMMER',tanning='WORLD_HUMAN_CROUCH_INSPECT',leatherwork='WORLD_HUMAN_CROUCH_INSPECT',stove='WORLD_HUMAN_CROUCH_INSPECT',oven='WORLD_HUMAN_CROUCH_INSPECT',mill='WORLD_HUMAN_HAMMER',kiln='WORLD_HUMAN_HAMMER',pottery='WORLD_HUMAN_CROUCH_INSPECT',glass='WORLD_HUMAN_HAMMER',apothecary='WORLD_HUMAN_CROUCH_INSPECT',jewellery='WORLD_HUMAN_CROUCH_INSPECT'}
+local scenarios={gunsmith='WORLD_HUMAN_CROUCH_INSPECT',sawmill='WORLD_HUMAN_HAMMER',carpentry='WORLD_HUMAN_HAMMER',smeltery='WORLD_HUMAN_HAMMER',forge='WORLD_HUMAN_HAMMER',anvil='WORLD_HUMAN_HAMMER',tanning='WORLD_HUMAN_CROUCH_INSPECT',leatherwork='WORLD_HUMAN_CROUCH_INSPECT',stove='WORLD_HUMAN_CROUCH_INSPECT',oven='WORLD_HUMAN_CROUCH_INSPECT',mill='WORLD_HUMAN_HAMMER',kiln='WORLD_HUMAN_HAMMER',pottery='WORLD_HUMAN_CROUCH_INSPECT',glass='WORLD_HUMAN_HAMMER',apothecary='WORLD_HUMAN_CROUCH_INSPECT',jewellery='WORLD_HUMAN_CROUCH_INSPECT'}
 local function clear()
  if work then ClearPedTasksImmediately(PlayerPedId()) end
  work=nil;ui({type='stationEnd'})
@@ -51,7 +51,7 @@ RegisterNetEvent(E..'work',function(d)
  close()
  if IsNuiFocused() or IsPedDeadOrDying(PlayerPedId(),true) or IsPedOnMount(PlayerPedId()) or IsPedInAnyVehicle(PlayerPedId(),false) then TriggerServerEvent(E..'cancel',d.id);return end
  work=d;d.started=GetGameTimer();d.hits={}
- ui({type='stationWork',label=d.label,ms=d.ms,targets=d.targets,rounds=d.rounds,batches=d.batches,roundMs=d.roundMs,sweepMs=d.sweepMs,width=d.width})
+ ui({type='stationWork',label=d.label,ms=d.ms,targets=d.targets,rounds=d.rounds,batches=d.batches,roundMs=d.roundMs,sweepMs=d.sweepMs,width=d.width,stages=d.stages})
  pcall(TaskStartScenarioInPlace,PlayerPedId(),GetHashKey(scenarios[d.kind] or 'WORLD_HUMAN_HAMMER'),d.ms,true,false,false,false)
  CreateThread(function()
   local lastSend=0

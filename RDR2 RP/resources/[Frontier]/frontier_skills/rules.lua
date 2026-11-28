@@ -1,6 +1,6 @@
 SkillsRules={}
 local R=SkillsRules
-R.names={logging='Logging',mining='Mining',prospecting='Prospecting',clay='Clay extraction',sand='Sand extraction',hunting='Hunting',fishing='Fishing',herbalism='Herbalism',farming='Farming',husbandry='Animal husbandry',blacksmithing='Blacksmithing',carpentry='Carpentry',construction='Construction',cooking='Cooking',metallurgy='Metallurgy',leatherworking='Leatherworking',milling='Milling',ceramics='Ceramics',glassmaking='Glassmaking',medicine='Medicine',doctoring='Medical practice',jewellery='Jewellery',transportation='Transportation'}
+R.names={logging='Logging',mining='Mining',prospecting='Prospecting',clay='Clay extraction',sand='Sand extraction',hunting='Hunting',fishing='Fishing',herbalism='Herbalism',farming='Farming',husbandry='Animal husbandry',blacksmithing='Blacksmithing',gunsmithing='Gunsmithing',carpentry='Carpentry',construction='Construction',cooking='Cooking',metallurgy='Metallurgy',leatherworking='Leatherworking',milling='Milling',ceramics='Ceramics',glassmaking='Glassmaking',medicine='Medicine',doctoring='Medical practice',jewellery='Jewellery',transportation='Transportation'}
 function R.threshold(level)
  local n=math.max(0,math.min(99,level-1));return 100*n+8*n*n
 end

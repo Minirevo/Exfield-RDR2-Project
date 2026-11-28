@@ -167,6 +167,11 @@ RegisterNetEvent(E..'weaponDrawResult',function(request,ok,data,msg)
   if not truth(HasPedGotWeapon(s.ped,s.hash,0,false)) then error('Native grant failed') end
   SetAmmoTypeForPedWeapon(s.ped,s.hash,s.ammo)
   SetCurrentPedWeapon(s.ped,s.hash,true,0,false,false)
+  if type(data.components)=='table' then
+   for _,hash in pairs(data.components) do
+    if type(hash)=='number' and hash%1==0 then pcall(Citizen.InvokeNative,0x74C9090FDD1BB48E,s.ped,hash,s.hash,true) end
+   end
+  end
   -- The engine may initialize a new weapon with ammunition of its own.
   -- Strip that first, then grant only rounds checked out by the server.
   if not trimAmmo(s.ped,s.ammo,0) then error('Native starting ammunition did not clear') end

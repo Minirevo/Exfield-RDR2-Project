@@ -12,7 +12,7 @@ FrontierNeedsConfig={
  labour={
   frontier_gathering={logging=120,mining=100,prospecting=50,clay=70,sand=70,herbalism=20,hunting=60,fishing=40,blacksmithing=80},
   frontier_farming={plant=50,water=50,feed=40,fertilize=50,clearCrop=50,harvest=50,collect=20,manure=40,slaughter=60,fill=40,fertilizer=30,trainHorse=50},
-  frontier_production={cooking=20,blacksmithing=80,metallurgy=70,carpentry=50,leatherworking=40,milling=30,ceramics=40,glassmaking=60,medicine=30,jewellery=30,default=30}
+  frontier_production={cooking=20,blacksmithing=80,gunsmithing=100,metallurgy=70,carpentry=50,leatherworking=40,milling=30,ceramics=40,glassmaking=60,medicine=30,jewellery=30,default=30}
  },
  effects={
   bread={hunger=260,thirst=0,energy=0,kind='food'},

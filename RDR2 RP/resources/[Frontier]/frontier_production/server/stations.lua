@@ -117,6 +117,9 @@ local function start(src,st,p,owns,d,key)
  check(r and r.station==p.kind and n and n%1==0 and n>=1 and n<=C.maxBatches,'Invalid recipe or batch count')
  check(d.mode=='manual' or d.mode=='npc','Invalid production mode')
  local npc=d.mode=='npc'
+ if r.manualOnly then check(not npc and n==1,'Specialist work requires one manual item') end
+ local design
+ if r.quality=='weapon' then local why;design,why=GunCraft.design(r,d.design);check(design,why) end
  if npc then
   check(owns and tonumber(st.employee)==1 and validStock(st,st.input_stock) and validStock(st,st.output_stock),'Hire a worker and link both stock chests')
   check(count(st.id)<C.maxQueue,'Station queue full')
@@ -136,11 +139,13 @@ local function start(src,st,p,owns,d,key)
  local ok,skill
  if npc then ok,skill=K:GetCharacterSkill(st.grantor,r.skill) else ok,skill=K:GetSkill(src,r.skill) end
  check(ok,'Skill data unavailable')
+ if design then local copy={};for k,v in pairs(r) do copy[k]=v end;copy.inputs=design.inputs;copy.design=design;r=copy end
+ local roundMs,sweepMs,width=R.timing(r,skill.level)
  local m=R.materials(r,n);local counts,known=getCounts(src,input:sub(1,2)=='s_' and input:sub(3) or nil)
  check(known,'Input stock unavailable')
  for _,v in ipairs(m) do check((counts[v.id] or 0)>=v.count,'Missing '..v.id..': '..(v.count-(counts[v.id] or 0))) end
- local duration=(npc and r.npc or r.manual)*n
- local payload={recipe=r.id,recipeSnapshot={output=r.output,quantity=r.quantity,quality=r.quality,material=r.material},rounds=r.rounds,roundMs=C.roundMs,sweepMs=C.sweepMs,width=C.targetWidth,name=r.name,batches=n,inputs=m,input=input,output=output,skill=r.skill,level=skill.level,equipment=p.equipment,
+ local duration=(npc and r.npc or r.rounds*roundMs/1000)*n
+ local payload={recipe=r.id,recipeSnapshot={output=r.output,quantity=r.quantity,quality=r.quality,material=r.material,design=design},rounds=r.rounds,roundMs=roundMs,sweepMs=sweepMs,width=width,stages=r.stages,name=r.name,batches=n,inputs=m,input=input,output=output,skill=r.skill,level=skill.level,equipment=p.equipment,
   maker=p.plotName or 'Workshop',duration=duration,wage=npc and math.ceil(duration*ProductionConfig.WageMinor/ProductionConfig.WageIntervalSeconds) or 0,bank=bank}
  if npc then payload.outputs=R.outputs(r,n,skill.level,'npc',0,p.equipment,payload.maker) end
  U("INSERT INTO frontier_production_station_jobs(id,station_id,actor,mode,state,payload,created_at) VALUES(?,?,?,?,'queued',?,?)",{key,st.id,who,d.mode,json.encode(payload),now()})
@@ -230,7 +235,7 @@ RegisterNetEvent(E..'strike',function(k,round)
  if not w or w.id~=k or w.actor~=cid(src) or type(round)~='number' or round%1~=0 or round<1 or round>#w.targets or w.scores[round]~=nil then return end
  local elapsed=GetGameTimer()-w.started
  -- Server clock only. No client-provided score, hit location or timestamp.
- local score=R.roundScore(elapsed,round,w.roundMs,w.sweepMs,w.targets[round])
+ local score=R.roundScore(elapsed,round,w.roundMs,w.sweepMs,w.targets[round],w.width)
  if score==nil then return end
  w.scores[round]=score
  TriggerClientEvent(E..'strikeResult',src,k,round,score)
@@ -248,7 +253,8 @@ RegisterNetEvent(E..'finish',function(k)
   local paid,why=labour(src,d.skill,d.batches,j.id)
   if not paid then state(j,'return',why);clearWork(src,why..'; ingredients will be returned');return end
   local scores={};for batch=1,d.batches do scores[batch]=R.batchScore(w.scores,batch,w.rounds) end
-  d.outputs=R.outputs(r,d.batches,d.level,'manual',scores,d.equipment,d.maker)
+  if r.quality=='weapon' then d.outputs=GunCraft.output(r,d.level,scores[1],d.equipment,d.maker,j.actor)
+  else d.outputs=R.outputs(r,d.batches,d.level,'manual',scores,d.equipment,d.maker) end
   U("UPDATE frontier_production_station_jobs SET payload=?,state='output',due_at=0,retry_at=0 WHERE id=? AND state='manual'",{json.encode(d),k})
   clearWork(src,'Work finished; delivering product')
  end)
@@ -281,10 +287,10 @@ local function step(j)
    local fit,why=labour(src,d.skill,d.batches);if not fit then return state(j,'return',why) end
    local rounds=d.rounds or 1;local roundMs=d.roundMs or C.roundMs;local sweepMs=d.sweepMs or C.sweepMs
    local targets={};for i=1,rounds*d.batches do targets[i]=math.random(25,75)/100 end
-   local w={id=j.id,actor=j.actor,ms=roundMs*#targets,rounds=rounds,roundMs=roundMs,sweepMs=sweepMs,targets=targets,scores={},station=j.station_id}
+   local w={id=j.id,actor=j.actor,ms=roundMs*#targets,rounds=rounds,roundMs=roundMs,sweepMs=sweepMs,width=d.width or .18,targets=targets,scores={},station=j.station_id}
    state(j,'manual','',now()+math.ceil(w.ms/1000)+12)
    w.started=GetGameTimer();work[src]=w;views[src]=nil
-   TriggerClientEvent(E..'work',src,{id=j.id,label=d.name,ms=w.ms,targets=targets,rounds=rounds,batches=d.batches,roundMs=roundMs,sweepMs=sweepMs,width=d.width or C.targetWidth,kind=(C.recipes[d.recipe] or {}).station})
+   TriggerClientEvent(E..'work',src,{id=j.id,label=d.name,ms=w.ms,targets=targets,rounds=rounds,batches=d.batches,roundMs=roundMs,sweepMs=sweepMs,width=d.width or C.targetWidth,stages=d.stages,kind=(C.recipes[d.recipe] or {}).station})
   end
  elseif j.state=='wage' then
   -- Ledger receipt makes a crash between debit and state transition safe.

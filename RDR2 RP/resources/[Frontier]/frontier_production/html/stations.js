@@ -1,6 +1,6 @@
 (()=>{'use strict';
 const $=s=>document.getElementById(s), root=$('station-ui'), hud=$('station-hud'), old=document.querySelector('body > main');
-let state,waiting=false,retry=null,frame=0,active=false,working=false;
+let state,waiting=false,retry=null,frame=0,active=false,working=false,page='craft',category='All',design={},designRecipe=null;
 const rows=x=>Object.values(x||{}), sec=n=>Math.floor(n/60)+'m '+n%60+'s';
 const money=n=>'$'+(Number(n)/100).toFixed(2);
 function select(id,items,defaultValue){
@@ -19,20 +19,48 @@ async function request(action,data={},again=false){
 let lastOrder;
 function button(label,fn){const b=document.createElement('button');b.type='button';b.textContent=label;b.onclick=fn;b.disabled=waiting||!!retry;return b}
 function recipe(){return rows(state?.recipes).find(r=>r.id===$('st-recipe').value)}
+function node(tag,text,parent){const e=document.createElement(tag);if(text!=null)e.textContent=text;if(parent)parent.append(e);return e}
+function label(id){return id.replace(/^(prod_|gather_|farm_|property_|weapon_)/,'').replaceAll('_',' ')}
+function catalog(){
+ const all=rows(state.recipes),cats=['All',...new Set(all.map(r=>r.category||'General'))];
+ if(!cats.includes(category))category='All';const c=$('st-categories');c.replaceChildren();
+ for(const name of cats){const b=button(name,()=>{category=name;catalog()});b.classList.toggle('chosen',category===name);c.append(b)}
+ const search=$('st-search').value.toLowerCase(),list=$('st-cards');list.replaceChildren();
+ for(const r of all.filter(r=>(category==='All'||(r.category||'General')===category)&&r.name.toLowerCase().includes(search))){
+  const b=button('',()=>{$('st-recipe').value=r.id;designRecipe=null;catalog();preview()});b.className='recipeCard'+(recipe()?.id===r.id?' chosen':'');node('strong',r.name,b);node('small',(r.difficulty||'Basic')+' · '+r.rounds+' stages',b);list.append(b)
+ }
+}
+function buildDesign(r){
+ const box=$('st-design');box.hidden=!r.manualOnly;
+ if(!r.manualOnly){designRecipe=null;return}
+ if(designRecipe===r.id)return;
+ designRecipe=r.id;design={name:'',materials:{},cosmetics:{}};box.replaceChildren();node('h3','Custom design',box);
+ const name=node('input',null,box);name.maxLength=48;name.placeholder='Optional weapon name';name.oninput=()=>design.name=name.value;
+ for(const slot of r.designSlots){const l=node('label',r.designSlotLabels[slot],box),s=node('select',null,l);for(const [id,m] of Object.entries(r.designMaterials))s.add(new Option(m.name,id));design.materials[slot]=s.value;s.onchange=()=>{design.materials[slot]=s.value;preview()}}
+ const details=node('details',null,box);node('summary','Appearance & finishes',details);
+ for(const [key,opts] of Object.entries(r.cosmetics||{})){const l=node('label',label(key.replace(':',' ')),details),s=node('select',null,l);s.add(new Option('Default',''));for(const o of opts)s.add(new Option(o.label,String(o.hash)));s.onchange=()=>{if(s.value)design.cosmetics[key]=Number(s.value);else delete design.cosmetics[key];preview()}}
+ node('p','Each choice is saved with the individual weapon. Cosmetic visibility and additional performance modifiers require in-game verification.',box);
+}
 function preview(){
- const r=recipe(), npc=$('st-mode').value==='npc', n=Number($('st-batches').value);
- $('st-batches').disabled=waiting||!!retry;$('st-input').disabled=npc||waiting;$('st-output').disabled=npc||waiting;
+ const r=recipe();if(!r)return;buildDesign(r);$('st-selected').textContent=r.name;
+ if(r.manualOnly){$('st-mode').value='manual';$('st-batches').value=1}
+ const npc=$('st-mode').value==='npc', n=Number($('st-batches').value);
+ $('st-batches').disabled=waiting||!!retry||!!r.manualOnly;$('st-mode').disabled=waiting||!!r.manualOnly;$('st-input').disabled=npc||waiting;$('st-output').disabled=npc||waiting;
  if(!r)return;
  const counts=npc||$('st-input').value==='storage'?state.inputCounts:state.bag;
- const needs=Object.entries(r.inputs).map(([id,count])=>{const have=Number(counts?.[id]||0);return id.replaceAll('_',' ')+' '+have+' / '+count*n});
- $('st-preview').textContent=needs.join(' · ')+' | '+r.quantity*n+' × '+r.output.replaceAll('_',' ')+' | '+sec((npc?r.npc:r.manual)*n)+(npc?' | wage '+money(Math.ceil(r.npc*n*state.wage/state.wageInterval)):' | '+r.rounds*n+' QTE round'+(r.rounds*n===1?'':'s')+' ('+r.rounds+'/batch) | skill '+state.skill);
- const valid=Object.entries(r.inputs).every(([id,count])=>Number(counts?.[id]||0)>=count*n);
+ const inputs={...r.inputs};if(r.manualOnly){for(const id of Object.values(design.materials)){const item=r.designMaterials[id].item;inputs[item]=(inputs[item]||0)+1}for(const [k,v] of Object.entries(design.cosmetics)){const name=r.cosmetics[k]?.find(o=>o.hash===v)?.label;const item=name==='Gold'?'prod_gold':name==='Copper'||name==='Brass'?'prod_copper':null;if(item)inputs[item]=(inputs[item]||0)+1}}
+ const p=$('st-preview');p.replaceChildren();node('h3','Materials required',p);
+ for(const [id,count] of Object.entries(inputs)){const have=Number(counts?.[id]||0),row=node('div',null,p);row.className='materialRow';node('span',label(id),row);const value=node('strong',have+' / '+count*n,row);value.className=have>=count*n?'available':'missing'}
+ const timing=[3.6,3.3,3.1,2.6,2.2,2.05,1.9],duration=npc?r.npc:r.manualOnly?70:r.rounds*timing[r.rounds-1];
+ node('p',r.quantity*n+' × '+label(r.output)+' · '+sec(Math.ceil(duration*n))+(npc?' · Wage '+money(Math.ceil(r.npc*n*state.wage/state.wageInterval)):' · '+r.rounds*n+' stages · '+r.difficulty),p);
+ if(r.manualOnly){const materials=Object.values(design.materials).map(id=>r.designMaterials[id]);node('h3','Estimated material attributes',p);for(const k of ['durability','handling','service','reload','weight']){const v=Math.round(materials.reduce((a,m)=>a+m[k],0)/materials.length);node('p',k+': '+v+'% of standard (before workmanship)',p)}}
+ const valid=Object.entries(inputs).every(([id,count])=>Number(counts?.[id]||0)>=count*n);
  $('st-start').disabled=waiting||!!retry||!valid||!Number.isInteger(n)||n<1||n>state.maxBatches||(npc&&!state.canNpc);
 }
 function render(){
  if(!state)return;
  const s=state.station;$('st-name').textContent=s.name;$('st-sub').textContent=s.plot+' · '+(s.ownerType==='company'?'Company':'Private')+' · profession level '+state.skill;
- const previous=$('st-recipe').value;select('st-recipe',rows(state.recipes),previous);
+ const previous=$('st-recipe').value;select('st-recipe',rows(state.recipes),previous);catalog();
  $('st-batches').max=state.maxBatches;
  $('st-mode').querySelector('[value=npc]').disabled=!state.canNpc;
  if(!state.canNpc)$('st-mode').value='manual';
@@ -48,6 +76,8 @@ function render(){
  $('st-retry').hidden=!retry;
  for(const e of root.querySelectorAll('button:not(#st-close)'))e.disabled=waiting||!!retry;
  $('st-retry').disabled=waiting;$('st-close').disabled=false;
+ for(const b of $('st-tabs').querySelectorAll('button'))b.classList.toggle('chosen',b.dataset.page===page);
+ $('st-craft').hidden=page!=='craft';$('st-orders').hidden=page!=='orders';$('st-management').hidden=page!=='management';
  const jobs=$('st-jobs');jobs.replaceChildren();
  for(const j of rows(state.jobs)){
   const card=document.createElement('article'),title=document.createElement('strong'),sub=document.createElement('p');
@@ -58,9 +88,10 @@ function render(){
  if(!jobs.children.length)jobs.textContent='No orders yet.';
  preview();
 }
+$('st-tabs').onclick=e=>{if(e.target.dataset.page&&!waiting){page=e.target.dataset.page;render()}};$('st-search').oninput=catalog;
 $('st-close').onclick=()=>post('stationClose');$('st-refresh').onclick=()=>request('refresh');
 $('st-retry').onclick=()=>{if(retry)request(retry.action,retry.data,true)};
-$('st-start').onclick=()=>{if(recipe())request('start',{recipe:recipe().id,mode:$('st-mode').value,batches:Number($('st-batches').value),input:$('st-input').value,output:$('st-output').value})};
+$('st-start').onclick=()=>{if(recipe())request('start',{recipe:recipe().id,mode:$('st-mode').value,batches:Number($('st-batches').value),input:$('st-input').value,output:$('st-output').value,design:recipe().manualOnly?design:undefined})};
 $('st-link').onclick=()=>request('link',{input:$('st-link-input').value,output:$('st-link-output').value});
 $('st-owner').onclick=()=>{request('setup',{company:$('st-company').value})};
 $('st-hire').onclick=()=>request(state.station.employee?'dismiss':'hire');
@@ -72,7 +103,7 @@ let qte=null;
 function hide(){qte=null;active=false;working=false;root.hidden=true;hud.hidden=true;old.hidden=false;document.body.hidden=true;cancelAnimationFrame(frame)}
 window.addEventListener('message',({data:d})=>{
  if(d.type==='stationOpen'){
-  active=true;working=false;state=d.snapshot;waiting=false;retry=null;old.hidden=true;hud.hidden=true;root.hidden=false;document.body.hidden=false;status('');render();
+  active=true;working=false;page='craft';category='All';designRecipe=null;$('st-search').value='';state=d.snapshot;waiting=false;retry=null;old.hidden=true;hud.hidden=true;root.hidden=false;document.body.hidden=false;status('');render();
  }else if(d.type==='stationResult'&&active){
   waiting=false;retry=d.retry&&lastOrder?{...lastOrder,retry:true,seq:d.seq}:null;if(d.snapshot)state=d.snapshot;status(d.message);render();
  }else if(d.type==='stationNotice'&&active){status(d.message)}
@@ -89,7 +120,7 @@ window.addEventListener('message',({data:d})=>{
    const relative=elapsed-(round-1)*d.roundMs, batch=Math.floor((round-1)/d.rounds)+1, localRound=(round-1)%d.rounds+1;
    if(qte.round!==round){
     qte.round=round;$('st-target').style.left=(d.targets[round-1]-d.width)*100+'%';$('st-target').style.width=d.width*200+'%';
-    $('st-round').textContent='Batch '+batch+' / '+d.batches+' · Round '+localRound+' / '+d.rounds;
+    $('st-round').textContent=(d.stages?.[localRound-1]||('Batch '+batch+' / '+d.batches))+' · Stage '+localRound+' / '+d.rounds;
    }
    const hit=qte.hits[round],score=qte.results[round],expired=relative>d.sweepMs;
    $('st-marker').style.left=(hit===undefined?Math.min(1,relative/d.sweepMs):hit)*100+'%';

@@ -102,6 +102,9 @@ local toolTiers={crude=2,iron=3,steel=4,hardened=5}
 for id,r in pairs(C.recipes) do
  r.rounds=assert(r.material and toolTiers[r.material] or r.componentRounds or tiers[id],'Missing production tier: '..id)
  r.manual=r.rounds*C.roundMs/1000
+ local kind=id:match('^tool_([^_]+)_');local labels={axe='Axes',pickaxe='Pickaxes',shovel='Shovels',pan='Gold pans',knife='Knives',rod='Fishing rods'}
+ r.category=labels[kind] or (id:match('^logistics_') and 'Wagon components' or (r.quality and 'Crafted goods' or 'Materials & supplies'))
+ r.difficulty=({'Basic','Easy','Intermediate','Advanced','Expert'})[r.rounds]
 end
 
 StationRules={}
@@ -117,10 +120,10 @@ function R.score(elapsed,target)
  return math.max(0,1-math.abs((elapsed%1600)/1600-target)/.185)
 end
 -- A single sweep per round, with a hard time window. Missing rounds count as zero.
-function R.roundScore(elapsed,round,roundMs,sweepMs,target)
+function R.roundScore(elapsed,round,roundMs,sweepMs,target,width)
  local relative=elapsed-(round-1)*roundMs
  if relative<0 or relative>sweepMs then return nil end
- return math.max(0,1-math.abs(relative/sweepMs-target)/.18)
+ return math.max(0,1-math.abs(relative/sweepMs-target)/(width or .18))
 end
 function R.batchScore(scores,batch,rounds)
  local total=0
@@ -142,4 +145,14 @@ function R.outputs(recipe,n,level,mode,score,equipment,maker)
   out[#out+1]={id=recipe.output,count=1,metadata=meta}
  end
  return out
+end
+
+function R.timing(r,level)
+ local widths={.20,.15,.11,.075,.05,.04,.03}
+ local sweeps={3000,2700,2500,2000,1600,1450,1300}
+ local i=math.min(7,r.rounds)
+ local width=widths[i]*(1+.2*math.max(0,math.min(99,(level or 1)-1))/99)
+ local sweep=sweeps[i]
+ if r.manualOnly then return 10000,3000,width end
+ return sweep+600,sweep,width
 end
