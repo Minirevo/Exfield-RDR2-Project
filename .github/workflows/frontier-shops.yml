@@ -1,0 +1,24 @@
+name: Frontier shops checks
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'RDR2 RP/resources/**/frontier_shops/**'
+      - 'RDR2 RP/resources/**/frontier_inventory/**'
+      - 'RDR2 RP/resources/**/frontier_wheel/**'
+      - 'RDR2 RP/resources/**/frontier_economy/**'
+      - '.github/workflows/frontier-shops.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y lua5.4
+      - working-directory: RDR2 RP/resources/[Frontier]
+        run: |
+          find frontier_shops frontier_inventory frontier_economy frontier_wheel -name '*.lua' -print0 | xargs -0 -n1 luac5.4 -p
+          node --check frontier_shops/html/app.js
+          cd frontier_shops && lua5.4 tests/rules.lua

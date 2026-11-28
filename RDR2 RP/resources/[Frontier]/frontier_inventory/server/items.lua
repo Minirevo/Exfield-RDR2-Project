@@ -51,6 +51,14 @@ local defaults = {
 
 }
 
+-- Keep old IDs and definitions byte-compatible; seed every new supported model.
+for id,w in pairs(FrontierWeaponRules.models) do
+ if not defaults[id] then defaults[id]={name=w.name,description='Inventory-backed weapon with an individual serial number.',grams=w.grams,maxStack=1,category='Weapons',classification=w.slot==2 and 'sidearm' or 'longgun',condition=true,metadata='{"condition":100}'} end
+end
+for id,a in pairs(FrontierWeaponRules.ammunition) do
+ if not defaults[id] then defaults[id]={name=a.name,description='Regular ammunition for the matching weapon type.',grams=a.grams,maxStack=100,category='Ammunition',classification='ammo'} end
+end
+
 -- Exact definitions accidentally seeded by the previous Property revision.
 local legacyProductionDefaults = {
     -- Production materials

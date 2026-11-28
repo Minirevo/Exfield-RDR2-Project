@@ -1728,3 +1728,66 @@ trusted('JobsInventory',function(resource,contract,character,op,item,count,loan)
  if changedBelt then return Inventory.CommitJobDelivery(key,actor,fingerprint,bag,belt,stock) end
  return Inventory.Commit(key,actor,fingerprint,bag,stock)
 end)
+
+
+-- NPC shop catalog and durable basket fulfillment; only trusted shop server calls these.
+trusted('ShopPosition',function(owner,source)
+ if owner~='frontier_shops' then return false,'forbidden' end
+ local id,p=Inventory.Session(source);if not id then return false,p end
+ if GetResourceState('frontier_medical')=='started' and not exports.frontier_medical:CanAct(source) then return false,'restricted' end
+ return true,{character=id,x=p.x,y=p.y,z=p.z,bucket=p.bucket}
+end)
+trusted('ShopDefinition',function(owner,item)
+ if owner~='frontier_shops' then return false,'forbidden' end
+ local d=Inventory.items[item]
+ if not d then return false,'invalid_item' end
+ return true,{name=d.name,description=d.description,grams=d.grams,maxStack=d.maxStack,classification=d.classification}
+end)
+trusted('ShopBasket',function(owner,character,order,mode,serialized)
+ if owner~='frontier_shops' or not Inventory.Id(character,64) or not character:match('^f_[a-f0-9]+$') or not tradeUuid(order) or (mode~='grant' and mode~='take' and mode~='previewGrant' and mode~='previewTake') or type(serialized)~='string' or #serialized>10000 then return false,'invalid_request' end
+ local valid,lines=pcall(json.decode,serialized)
+ if not valid or type(lines)~='table' or #lines<1 or #lines>20 then return false,'invalid_request' end
+ local preview=mode=='previewGrant' or mode=='previewTake'
+ local grant=mode=='grant' or mode=='previewGrant'
+ local key='shops:'..order..':'..(grant and 'grant' or 'take')
+ local actor='resource:'..owner
+ local fp=json.encode({character,serialized,grant})
+ if not preview then local ok,replay=Inventory.Replay(key,actor,fp);if not ok then return false,replay end;if replay then return true,key end end
+ local ok,box=Inventory.Load('p_'..character)
+ if not ok and box=='not_found' then
+  local made,err=Inventory.Ensure('p_'..character,'player',Config.Slots,Config.WeightGrams)
+  if not made then return false,err end
+  ok,box=Inventory.Load('p_'..character)
+ end
+ if not ok then return false,box end
+ local seen={}
+ for _,line in ipairs(lines) do
+  if type(line)~='table' or not Inventory.Id(line.id,48) or seen[line.id] or not Inventory.Int(line.quantity,100) then return false,'invalid_request' end
+  seen[line.id]=true
+  local d=Inventory.items[line.id];if not d then return false,'invalid_item' end
+  if grant then
+   if d.stackable then local placed,why=Inventory.Place(box,{item=line.id,quantity=line.quantity,metadata=d.metadata});if not placed then return false,why end
+   else
+    for i=1,line.quantity do
+     local serial=preview and ('preview-'..line.id..'-'..i) or Inventory.Uuid()
+     if not serial then return false,'database_error' end
+     local placed,why=Inventory.Place(box,{item=line.id,quantity=1,metadata=d.metadata,instance=serial});if not placed then return false,why end
+    end
+   end
+  else
+   -- Only ordinary stackable commodities may be sold; never take weapons, tools or departmental supplies.
+   if not d.stackable or not d.transfer then return false,'invalid_item' end
+   local remaining=line.quantity
+   for slot=1,box.slot_limit do
+    local e=box.slots[slot]
+    if e and e.item==line.id and not Inventory.IsDepartmentSupply(e) then
+     local n=math.min(e.quantity,remaining);Inventory.Take(box,slot,n);remaining=remaining-n
+     if remaining==0 then break end
+    end
+   end
+   if remaining>0 then return false,'insufficient_stock' end
+  end
+ end
+ if preview then return true end
+ return Inventory.Commit(key,actor,fp,box)
+end)
