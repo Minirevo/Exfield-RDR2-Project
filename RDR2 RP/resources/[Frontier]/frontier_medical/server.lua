@@ -6,12 +6,21 @@ local cache,views,working,reports,lastOpen,lastAction={},{},{},{},{},{}
 local reportCounter=0
 local testMedics,operations,patientLocks,testAt={},{},{},{}
 local finishOperation,beginOperation,sendStage
-local function admin(src) return src>0 and IsPlayerAceAllowed(src,C.adminAce) end
-local function medic(src)
- local id=core:GetPlayerCharacterId(src)
- return id and (IsPlayerAceAllowed(src,C.medicAce) or (testMedics[src]==id and admin(src))) or false
+local function ace(src,permission)
+ if src<=0 then return false end
+ local value=IsPlayerAceAllowed(src,permission)
+ return value==true or value==1
 end
-local function selfTest(src,v) return src==v.target and testMedics[src]==v.actor and admin(src) end
+local function admin(src) return ace(src,C.adminAce) end
+local function testing(src)
+ local grant=testMedics[src]
+ local id=core:GetPlayerCharacterId(src)
+ return grant~=nil and id~=nil and grant.id==id and (grant.console==true or admin(src))
+end
+local function medic(src)
+ return core:GetPlayerCharacterId(src)~=nil and (ace(src,C.medicAce) or testing(src))
+end
+local function selfTest(src,v) return src==v.target and testing(src) end
 local function db(method,sql,args)
  local ok,v=pcall(MySQL[method].await,sql,args)
  if not ok then print('[frontier_medical] Database error: '..method);return nil end
@@ -338,7 +347,7 @@ beginOperation=function(src,v,r,id)
  o.life=current.life
  local fp=json.encode({'change',false,v.actor,false,def.supply,1,false})
  local inserted=db('update',[[INSERT INTO frontier_medical_operations(request_key,patient,life,doctor,region,procedure_id,fingerprint,expires_at,testing)
- VALUES(?,?,?,?,?,?,?,?,?)]],{o.key,v.patient,o.life,v.actor,r,id,fp,o.expires,(testMedics[src]==v.actor and admin(src)) and 1 or 0})
+ VALUES(?,?,?,?,?,?,?,?,?)]],{o.key,v.patient,o.life,v.actor,r,id,fp,o.expires,testing(src) and 1 or 0})
  if inserted~=1 or not operationValid(src,o) then
   if inserted==1 then finishOperation(src,o,'failed') else refuse('Operation could not be recorded.') end
   return
@@ -397,16 +406,52 @@ local function applyOperations()
  db('update',[[DELETE o FROM frontier_medical_operations o LEFT JOIN frontier_inventory_receipts r ON r.request_key=o.request_key
  WHERE o.applied=FALSE AND o.expires_at<? AND r.request_key IS NULL]],{now-86400})
 end
-RegisterCommand('medictest',function(src,args)
- if not admin(src) then return end
- local id=cid(src);if not id then return notify(src,'Load a character first.') end
- if operations[src] then return notify(src,'Finish the operation first.') end
- if args[1]=='off' or (not args[1] and testMedics[src]==id) then testMedics[src]=nil;notify(src,'Temporary medic access disabled.')
- elseif args[1]=='on' or not args[1] then testMedics[src]=id;notify(src,'Temporary medic access enabled, including self-procedures. Reopen /medical.')
- else notify(src,'Usage: /medictest on|off') end
+-- The server console is an explicit trusted grant path. It does not depend
+-- on transient player ACE principals. The grant is bound to one character
+-- session and never grants any unrelated admin privileges.
+local function testCommand(src,args)
+ local target,mode
+ if src==0 then
+  target=tonumber(args[1]);mode=args[2]
+  if not target or target%1~=0 or target<1 or (mode~='on' and mode~='off') then
+   print('[frontier_medical] Usage: medictest <server ID> on|off');return
+  end
+ else
+  target=src;mode=args[1]
+  if not admin(src) then return notify(src,'Medic test access denied. Ask the server console to run medictest '..src..' on, or grant '..C.adminAce..'.') end
+ end
+ local id=cid(target)
+ if not id then
+  if src==0 then print('[frontier_medical] Player '..target..' has no loaded character.') else notify(src,'Load a character first.') end
+  return
+ end
+ if operations[target] then
+  if src==0 then print('[frontier_medical] Finish the operation first.') else notify(src,'Finish the operation first.') end
+  return
+ end
+ if not mode then mode=testing(target) and 'off' or 'on' end
+ if mode=='off' then testMedics[target]=nil
+ elseif mode=='on' then testMedics[target]={id=id,console=src==0}
+ else return notify(src,'Usage: /medictest on|off') end
+ local message=mode=='on' and 'Temporary medic access enabled, including self-procedures.' or 'Temporary medic access disabled.'
+ notify(target,message)
+ print(('[frontier_medical] %s Player %d; professional=%s self-test=%s'):format(message,target,tostring(medic(target)),tostring(testing(target))))
+ local view=views[target]
+ if view and validView(target,view) then snapshot(target,view) end
+end
+RegisterCommand('medictest',testCommand,false)
+RegisterCommand('medicaltest',testCommand,false)
+RegisterCommand('medicstatus',function(src,args)
+ local target=src==0 and tonumber(args[1]) or src
+ if not target or target<=0 or target%1~=0 then print('[frontier_medical] Usage: medicstatus <server ID>');return end
+ local message=('V2 professional access: %s | self-test: %s | medical admin ACE: %s | medic ACE: %s | character loaded: %s'):format(tostring(medic(target)),tostring(testing(target)),tostring(admin(target)),tostring(ace(target,C.medicAce)),tostring(cid(target)~=nil))
+ print('[frontier_medical] Player '..target..' '..message)
+ if src~=0 then notify(src,message) end
 end,false)
 RegisterCommand('medicalinjure',function(src,args)
- if not admin(src) or not ready or legacy() then return end
+ if src<=0 then return end
+ if not admin(src) and not testing(src) then return notify(src,'Test injury access denied.') end
+ if not ready or legacy() then return notify(src,'Medical system unavailable.') end
  local id=cid(src);if not id or death(src) or patientLocks[id] or working[src] then return notify(src,'Test character unavailable or undergoing treatment.') end
  local now=GetGameTimer();if testAt[src] and now-testAt[src]<1000 then return end;testAt[src]=now
  local r,kind=args[1],args[2]

@@ -31,6 +31,9 @@ function render(){if(!data)return;
   b.disabled=!!data.busy||data.actions?.[region]?.[item]!==true;
   b.title=b.disabled&&!data.busy?(item==='splint'&&!w?'Examine closely first.':item==='tonic'&&!data.self&&!w?'Examine closely first.':'No eligible injury for this treatment.'):'';
  });
+ const mode=document.querySelector('#access-mode');
+ mode.textContent=data.medic?(data.selfTest?'PROFESSIONAL MEDIC · SELF-TEST ENABLED':'PROFESSIONAL MEDIC'):'BASIC FIRST AID';
+ mode.classList.toggle('licensed',data.medic===true);
  const professional=document.querySelector('#professional');
  professional.hidden=!data.medic;
  if(data.medic){
